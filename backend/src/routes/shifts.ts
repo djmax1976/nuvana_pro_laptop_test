@@ -1495,6 +1495,196 @@ export async function shiftRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * GET /api/shifts/:shiftId/lottery-summary
+   * Get comprehensive lottery summary for a closed shift
+   *
+   * Returns all data needed to display the full reconciliation view matching
+   * the Day Close Wizard Step 3 layout, including lottery details, money received,
+   * sales breakdown, and pack activity (returned, depleted, activated).
+   *
+   * Protected route - requires SHIFT_READ permission
+   *
+   * @security
+   * - API-001: VALIDATION - Uses Zod schema validation for shiftId
+   * - API-003: ERROR_HANDLING - Centralized error handling with typed errors
+   * - API-004: AUTHENTICATION - JWT validation via authMiddleware
+   * - DB-006: TENANT_ISOLATION - Service validates user store access
+   */
+  fastify.get(
+    "/api/shifts/:shiftId/lottery-summary",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.SHIFT_READ),
+      ],
+      schema: {
+        description:
+          "Get comprehensive lottery summary for a closed shift including lottery details, money received, sales breakdown, and pack activity",
+        tags: ["shifts"],
+        params: {
+          type: "object",
+          required: ["shiftId"],
+          properties: {
+            shiftId: {
+              type: "string",
+              format: "uuid",
+              description: "Shift UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  shift_id: { type: "string" },
+                  store_id: { type: "string" },
+                  business_date: { type: "string" },
+                  lottery_closed: { type: "boolean" },
+                  lottery_closed_at: { type: "string", nullable: true },
+                  lottery_totals: {
+                    type: "object",
+                    properties: {
+                      lottery_sales: { type: "number" },
+                      lottery_cashes: { type: "number" },
+                      lottery_net: { type: "number" },
+                      packs_sold: { type: "integer" },
+                      tickets_sold: { type: "integer" },
+                    },
+                  },
+                  bins_closed: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        bin_number: { type: "integer" },
+                        pack_number: { type: "string" },
+                        game_name: { type: "string" },
+                        game_price: { type: "number" },
+                        starting_serial: { type: "string" },
+                        closing_serial: { type: "string" },
+                        tickets_sold: { type: "integer" },
+                        sales_amount: { type: "number" },
+                      },
+                    },
+                  },
+                  depleted_packs: { type: "array" },
+                  returned_packs: { type: "array" },
+                  activated_packs: { type: "array" },
+                  open_business_period: {
+                    type: "object",
+                    additionalProperties: true,
+                  },
+                  money_received: {
+                    type: "object",
+                    additionalProperties: true,
+                  },
+                  sales_breakdown: {
+                    type: "object",
+                    additionalProperties: true,
+                  },
+                  shift_info: {
+                    type: "object",
+                    additionalProperties: true,
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as any).user as UserIdentity;
+        const params = request.params as { shiftId: string };
+
+        // API-001: VALIDATION - Validate shiftId using Zod schema
+        const shiftId = validateShiftId(params.shiftId);
+
+        // Get lottery summary using service layer
+        const lotterySummary = await shiftService.getShiftLotterySummary(
+          shiftId,
+          user.id,
+        );
+
+        // Return success response
+        return reply.code(200).send({
+          success: true,
+          data: lotterySummary,
+        });
+      } catch (error) {
+        // Handle Zod validation errors
+        if (error instanceof ZodError) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid shift ID format",
+            },
+          });
+        }
+
+        // Handle ShiftServiceError
+        if (error instanceof ShiftServiceError) {
+          const statusCode =
+            error.code === ShiftErrorCode.SHIFT_NOT_FOUND ? 404 : 400;
+
+          return reply.code(statusCode).send({
+            success: false,
+            error: {
+              code: error.code,
+              message: error.message,
+            },
+          });
+        }
+
+        // Handle unexpected errors
+        fastify.log.error(
+          { error },
+          "Unexpected error in shift lottery summary",
+        );
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "An unexpected error occurred",
+          },
+        });
+      }
+    },
+  );
+
+  /**
    * GET /api/shifts/:shiftId/report
    * Get shift report for a CLOSED shift
    * Protected route - requires SHIFT_REPORT_VIEW permission

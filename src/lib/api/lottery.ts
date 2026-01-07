@@ -28,8 +28,20 @@ export type GameScopeType = "STATE" | "STORE" | "GLOBAL";
 
 /**
  * Lottery pack status enum
+ * SEC-014: INPUT_VALIDATION - Strict enum constraint for pack status
  */
 export type LotteryPackStatus = "RECEIVED" | "ACTIVE" | "DEPLETED" | "RETURNED";
+
+/**
+ * Lottery game status enum
+ * Represents the lifecycle state of a lottery game
+ * SEC-014: INPUT_VALIDATION - Strict enum constraint for game status
+ *
+ * @value ACTIVE - Game is currently available for sale
+ * @value INACTIVE - Game is temporarily unavailable
+ * @value DISCONTINUED - Game is permanently retired
+ */
+export type LotteryGameStatus = "ACTIVE" | "INACTIVE" | "DISCONTINUED";
 
 /**
  * Lottery pack query filters
@@ -44,6 +56,8 @@ export interface LotteryPackQueryFilters {
 
 /**
  * Lottery pack response
+ * API-008: OUTPUT_FILTERING - Strict interface matching backend DTO
+ * SEC-014: INPUT_VALIDATION - Type-safe field definitions
  */
 export interface LotteryPackResponse {
   pack_id: string;
@@ -56,12 +70,15 @@ export interface LotteryPackResponse {
   current_bin_id: string | null;
   received_at: string; // ISO 8601
   activated_at: string | null; // ISO 8601
+  returned_at?: string | null; // ISO 8601 - when pack was returned
   // Extended fields from joins (optional, populated by backend)
   game?: {
     game_id: string;
     game_code: string;
     name: string;
     price: number | null;
+    /** Game lifecycle status - SEC-014: Strict enum type */
+    status?: LotteryGameStatus;
   };
   store?: {
     store_id: string;
@@ -74,6 +91,12 @@ export interface LotteryPackResponse {
   } | null;
   // Calculated field (optional)
   tickets_remaining?: number;
+  /**
+   * Server-side authorization flag for return eligibility
+   * SEC-010: AUTHZ - Backend determines returnability, not frontend
+   * Business Rule: ACTIVE and RECEIVED packs can be returned
+   */
+  can_return?: boolean;
 }
 
 /**
@@ -971,11 +994,11 @@ export interface DayBinPack {
   ending_serial: string | null; // Most recent closing of the day, null if none
   serial_end: string; // Pack's max serial (for reference)
   /**
-   * Whether this is the pack's first period (affects ticket counting).
+   * Whether this is the pack's first period.
    *
-   * Ticket counting formula (fencepost error prevention):
-   * - true: tickets = closing - starting + 1 (new pack, starting serial is first ticket)
-   * - false: tickets = closing - starting (continuing, starting serial was last sold ticket)
+   * Ticket counting formula: tickets_sold = ending - starting
+   * This field is retained for backward compatibility but the formula
+   * is the same regardless of first period status.
    */
   is_first_period: boolean;
 }
@@ -1237,11 +1260,23 @@ export async function closeLotteryDay(
 
 /**
  * Input for Phase 1: Prepare lottery day close
+ *
+ * SEC-014: INPUT_VALIDATION - Strict type definitions for API input
  */
 export interface PrepareLotteryDayCloseInput {
   closings: Array<{
     pack_id: string;
     closing_serial: string;
+    /**
+     * Whether this pack was marked as sold out (depleted)
+     * When true: Use depletion formula (serial_end + 1) - starting
+     * When false/undefined: Use normal formula ending - starting
+     *
+     * This flag is critical for correct sales calculation:
+     * - Normal scan: closing_serial is the NEXT position after last sold ticket
+     * - Sold out: closing_serial equals serial_end (last ticket INDEX)
+     */
+    is_sold_out?: boolean;
   }>;
   entry_method?: "SCAN" | "MANUAL";
   current_shift_id?: string;
@@ -1604,8 +1639,7 @@ export interface ReturnedPackDay {
  * Story: Lottery Pack Return Feature
  *
  * Business Rules:
- * - Only ACTIVE packs can be returned (must be in a bin)
- * - RECEIVED packs cannot be returned (delete or adjust inventory)
+ * - ACTIVE and RECEIVED packs can be returned
  * - DEPLETED and already RETURNED packs cannot be returned
  * - Last sold serial is required to calculate sales
  * - Tracks return in current shift and business day

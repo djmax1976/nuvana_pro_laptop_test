@@ -23,7 +23,6 @@ import {
   useCallback,
   useRef,
   useEffect,
-  type KeyboardEvent,
   type ChangeEvent,
 } from "react";
 import { Button } from "@/components/ui/button";
@@ -46,15 +45,18 @@ import {
 } from "@/lib/api/lottery";
 import { parseSerializedNumber } from "@/lib/utils/lottery-serial-parser";
 import { NewGameModal } from "./NewGameModal";
-import { useScanDetector } from "@/hooks/useScanDetector";
-// ScanOnlyIndicator components available but UI simplified per requirements
-// Detection logic still active via useScanDetector hook
 import type { ScanMetrics } from "@/types/scan-detection";
 
 /**
  * Expected barcode length
  */
 const EXPECTED_BARCODE_LENGTH = 24;
+
+/**
+ * Timeout after last input to validate barcode length (ms)
+ * If no more input comes within this window and digits != 24, show error
+ */
+const SCAN_VALIDATION_TIMEOUT_MS = 400;
 
 /**
  * Pack item in reception list
@@ -90,11 +92,6 @@ interface PackReceptionFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
-  /**
-   * Whether to enforce scan-only input (default: true)
-   * Set to false for testing or accessibility exceptions
-   */
-  enforceScanOnly?: boolean;
   /**
    * Optional: Pack list managed by parent (lifted state pattern)
    * When provided, packList state is controlled by parent
@@ -135,7 +132,6 @@ export function PackReceptionForm({
   open,
   onOpenChange,
   onSuccess,
-  enforceScanOnly = true,
   // Lifted state props (optional - for parent-controlled mode)
   packList: externalPackList,
   onPackAdd,
@@ -155,7 +151,9 @@ export function PackReceptionForm({
 
   const [inputValue, setInputValue] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Timer ref for 400ms scan validation
+  const scanValidationTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Games cache for checking existence on scan
   const [gamesCache, setGamesCache] = useState<
@@ -172,40 +170,11 @@ export function PackReceptionForm({
     scanMetrics?: ScanMetrics;
   } | null>(null);
 
-  // Scan detector hook for detecting manual entry vs barcode scan
-  const scanDetector = useScanDetector({
-    expectedLength: EXPECTED_BARCODE_LENGTH,
-    enabled: enforceScanOnly,
-    onManualDetected: (metrics) => {
-      // Manual entry detected - show rejection
-      toast({
-        title: "Manual Entry Not Allowed",
-        description:
-          "Please use a barcode scanner. Manual keyboard entry is not permitted for security.",
-        variant: "destructive",
-      });
-      // Clear input and reset detector
-      setInputValue("");
-      scanDetectorRef.current.reset();
-      // Refocus for next attempt
-      setTimeout(() => inputRef.current?.focus(), 100);
-    },
-    onScanDetected: (metrics) => {
-      // Valid scan detected - process will continue via handleSerialComplete
-      console.debug("Scan detected with confidence:", metrics.confidence);
-    },
-  });
-
-  // Store scanDetector in ref to avoid dependency on object reference in callbacks
-  // This prevents infinite loops and unnecessary re-renders
-  const scanDetectorRef = useRef(scanDetector);
-  scanDetectorRef.current = scanDetector;
-
-  // Clear debounce timer on unmount
+  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current);
+      if (scanValidationTimerRef.current) {
+        clearTimeout(scanValidationTimerRef.current);
       }
     };
   }, []);
@@ -249,10 +218,9 @@ export function PackReceptionForm({
       setInputValue("");
       setPendingGameToCreate(null);
       setShowNewGameModal(false);
-      scanDetectorRef.current.reset();
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current);
-        debounceTimer.current = null;
+      if (scanValidationTimerRef.current) {
+        clearTimeout(scanValidationTimerRef.current);
+        scanValidationTimerRef.current = null;
       }
     }
   }, [open, isControlled]);
@@ -272,7 +240,10 @@ export function PackReceptionForm({
    */
   const clearInputAndFocus = useCallback(() => {
     setInputValue("");
-    scanDetectorRef.current.reset();
+    if (scanValidationTimerRef.current) {
+      clearTimeout(scanValidationTimerRef.current);
+      scanValidationTimerRef.current = null;
+    }
     // Immediately focus after clearing
     setTimeout(() => {
       inputRef.current?.focus();
@@ -323,25 +294,12 @@ export function PackReceptionForm({
    * Parse and add serialized number to list
    * Checks game existence immediately - shows modal if game not found
    * Also checks server-side if pack already exists in inventory
-   *
-   * SECURITY: Only processes if scan detection passed
    */
   const handleSerialComplete = useCallback(
     async (serial: string, scanMetrics?: ScanMetrics): Promise<void> => {
       // Validate format first (client-side)
       if (!/^\d{24}$/.test(serial)) {
         // Not yet 24 digits - wait for more input
-        return;
-      }
-
-      // SECURITY: Check if scan enforcement is enabled and entry was manual
-      if (enforceScanOnly && scanMetrics?.inputMethod === "MANUAL") {
-        toast({
-          title: "Manual Entry Rejected",
-          description: `Detected manual keyboard entry. Please use a barcode scanner.`,
-          variant: "destructive",
-        });
-        clearInputAndFocus();
         return;
       }
 
@@ -414,111 +372,63 @@ export function PackReceptionForm({
         clearInputAndFocus();
       }
     },
-    [
-      packList,
-      gamesCache,
-      storeId,
-      toast,
-      clearInputAndFocus,
-      addPackToList,
-      enforceScanOnly,
-    ],
+    [packList, gamesCache, storeId, toast, clearInputAndFocus, addPackToList],
   );
 
   /**
-   * Handle keydown event - track keystroke timing for scan detection
-   */
-  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
-    scanDetectorRef.current.handleKeyDown(e);
-  }, []);
-
-  /**
-   * Handle paste event - BLOCK paste when scan-only is enforced
-   * Barcode scanners do not use paste - they simulate keystrokes.
-   * Paste is a manual entry bypass attempt.
-   */
-  const handlePaste = useCallback(
-    (e: React.ClipboardEvent<HTMLInputElement>) => {
-      if (enforceScanOnly) {
-        e.preventDefault();
-        toast({
-          title: "Paste Not Allowed",
-          description:
-            "Please use a barcode scanner. Pasting is not permitted for security.",
-          variant: "destructive",
-        });
-      }
-    },
-    [enforceScanOnly, toast],
-  );
-
-  /**
-   * Handle input change with debouncing and scan detection
-   * SECURITY: Real-time blocking of manual entry after enough keystrokes
+   * Handle input change with simple 400ms validation
+   * - If input stops for 400ms and length != 24, show error
+   * - If length > 24, show error immediately
+   * - On error: clear input and refocus
    */
   const handleInputChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
-      const detector = scanDetectorRef.current;
-      const cleanedValue = detector.handleChange(e);
+      const value = e.target.value;
+      // Only allow digits
+      const cleanedValue = value.replace(/\D/g, "");
 
-      // SECURITY: Check for manual entry in real-time after just 2 keystrokes
-      // Block immediately when we detect slow typing (> 50ms between keys)
-      if (enforceScanOnly && cleanedValue.length >= 2) {
-        // Use SYNCHRONOUS check to get current keystroke timing data
-        const quickCheck = detector.getQuickCheckSync();
-        // If not likely a scan, block immediately
-        // likelyScan is false when avgRecent > 50ms (typical human typing is 150-300ms)
-        if (!quickCheck.likelyScan) {
+      // Clear any pending validation timer
+      if (scanValidationTimerRef.current) {
+        clearTimeout(scanValidationTimerRef.current);
+        scanValidationTimerRef.current = null;
+      }
+
+      // Handle numeric input
+      if (cleanedValue.length > 0) {
+        // Too long - reject immediately
+        if (cleanedValue.length > EXPECTED_BARCODE_LENGTH) {
           toast({
-            title: "Manual Entry Not Allowed",
-            description:
-              "Please use a barcode scanner. Manual keyboard entry is not permitted for security.",
+            title: "Invalid input. Please scan again.",
             variant: "destructive",
           });
-          // Clear input and reset
-          setInputValue("");
-          scanDetectorRef.current.reset();
-          setTimeout(() => inputRef.current?.focus(), 100);
-          return; // Don't process further
+          clearInputAndFocus();
+          return;
         }
-      }
 
-      setInputValue(cleanedValue);
+        setInputValue(cleanedValue);
 
-      // Clear existing debounce timer
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current);
-      }
-
-      // Set new debounce timer
-      // Use shorter delay for scanned input (detected by quick check)
-      const delay = detector.quickCheck.likelyScan ? 100 : 400;
-
-      debounceTimer.current = setTimeout(() => {
+        // If exactly 24 digits, process immediately
         if (cleanedValue.length === EXPECTED_BARCODE_LENGTH) {
-          // Get final scan metrics from current ref value
-          const currentDetector = scanDetectorRef.current;
-          const metrics = currentDetector.getMetrics();
+          handleSerialComplete(cleanedValue);
+          return;
+        }
 
-          // Final check - reject if manual entry detected
-          if (enforceScanOnly && currentDetector.shouldReject) {
+        // Start 400ms timer - if no more input comes and length != 24, show error
+        const capturedLength = cleanedValue.length;
+        scanValidationTimerRef.current = setTimeout(() => {
+          if (capturedLength !== EXPECTED_BARCODE_LENGTH) {
             toast({
-              title: "Manual Entry Not Allowed",
-              description:
-                "Please use a barcode scanner. Manual keyboard entry is not permitted for security.",
+              title: "Invalid input. Please scan again.",
               variant: "destructive",
             });
-            setInputValue("");
-            scanDetectorRef.current.reset();
-            setTimeout(() => inputRef.current?.focus(), 100);
-            return;
+            clearInputAndFocus();
           }
-
-          handleSerialComplete(cleanedValue, metrics ?? undefined);
-        }
-      }, delay);
+        }, SCAN_VALIDATION_TIMEOUT_MS);
+      } else {
+        setInputValue(cleanedValue);
+      }
     },
-    [handleSerialComplete, enforceScanOnly, toast],
+    [handleSerialComplete, toast, clearInputAndFocus],
   );
 
   /**
@@ -538,13 +448,9 @@ export function PackReceptionForm({
 
   /**
    * Handle batch submission
-   * Includes scan metrics for server-side validation
-   *
-   * MCP SEC-014: INPUT_VALIDATION - Validate scan metrics array integrity before submission
    */
   const handleSubmit = useCallback(async () => {
     const serials = packList.map((pack) => pack.serial);
-    const scanMetricsArray = packList.map((pack) => pack.scanMetrics);
 
     if (serials.length === 0) {
       toast({
@@ -555,31 +461,12 @@ export function PackReceptionForm({
       return;
     }
 
-    // MCP SEC-014: Validate that ALL packs have scan metrics when enforcement is enabled
-    // Filter(Boolean) was causing array length mismatch - server expects 1:1 correlation
-    if (enforceScanOnly) {
-      const packsWithoutMetrics = packList.filter((pack) => !pack.scanMetrics);
-      if (packsWithoutMetrics.length > 0) {
-        toast({
-          title: "Scan validation error",
-          description: `${packsWithoutMetrics.length} pack(s) missing scan data. Please remove and re-scan them.`,
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
     setIsSubmitting(true);
     try {
-      // Submit all packs via batch API with scan metrics
-      // Note: scanMetricsArray is guaranteed to have same length as serials when enforceScanOnly=true
+      // Submit all packs via batch API
       const response = await receivePackBatch({
         serialized_numbers: serials,
         store_id: storeId,
-        // Include scan metrics for server-side validation (array length matches serials)
-        scan_metrics: enforceScanOnly
-          ? (scanMetricsArray as ScanMetrics[])
-          : undefined,
       });
 
       if (response.success && response.data) {
@@ -605,7 +492,10 @@ export function PackReceptionForm({
             setInternalPackList([]);
           }
           setInputValue("");
-          scanDetectorRef.current.reset();
+          if (scanValidationTimerRef.current) {
+            clearTimeout(scanValidationTimerRef.current);
+            scanValidationTimerRef.current = null;
+          }
           onOpenChange(false);
           onSuccess?.();
         } else {
@@ -647,7 +537,6 @@ export function PackReceptionForm({
     toast,
     onOpenChange,
     onSuccess,
-    enforceScanOnly,
     isControlled,
     onPacksClear,
   ]);
@@ -748,8 +637,6 @@ export function PackReceptionForm({
               ref={inputRef}
               value={inputValue}
               onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
               placeholder="Scan barcode..."
               disabled={isSubmitting || isLoadingGames || isCheckingPack}
               maxLength={24}

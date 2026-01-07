@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarDays, ChevronLeft, ChevronRight, Store } from "lucide-react";
+import { extractDayFromBusinessDate } from "@/utils/date-format.utils";
 
 export default function DailyReportsPage() {
   const router = useRouter();
@@ -190,7 +191,8 @@ export default function DailyReportsPage() {
                     }
 
                     const summary = summaryMap.get(date);
-                    const dayNumber = new Date(date).getDate();
+                    // Use timezone-safe extraction to avoid displaying wrong day
+                    const dayNumber = extractDayFromBusinessDate(date) ?? 1;
 
                     if (summary) {
                       return (

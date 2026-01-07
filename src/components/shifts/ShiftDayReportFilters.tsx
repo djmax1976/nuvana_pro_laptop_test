@@ -10,10 +10,17 @@
  * - Range preset filter
  * - From/To date pickers
  *
+ * Responsive Layout Strategy:
+ * - Mobile (< 640px): Single column stack, full-width controls
+ * - Tablet (640px - 1024px): 2-3 columns with wrap
+ * - Desktop (> 1024px): All filters in single row with even distribution
+ *
  * Enterprise Standards Applied:
  * - SEC-014: INPUT_VALIDATION - All inputs validated via Zod schemas
  * - FE-002: FORM_VALIDATION - Client-side validation with clear error states
  * - SEC-004: XSS - All values sanitized through controlled inputs
+ * - FE-005: UI_SECURITY - No sensitive data exposed in DOM attributes
+ * - FE-020: REACT_OPTIMIZATION - Memoized callbacks prevent unnecessary re-renders
  */
 
 import * as React from "react";
@@ -28,6 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { AlertCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { Cashier } from "@/lib/api/cashiers";
 import type { OwnedStore } from "@/lib/api/client-dashboard";
 import type {
@@ -129,11 +137,17 @@ export function ShiftDayReportFilters({
   /**
    * Handle report type change
    * SEC-014: Value validated against ReportType enum
+   * Accepts "all", "shift", or "day" as valid values
    */
   const handleReportTypeChange = React.useCallback(
     (value: string) => {
-      // "select" is the placeholder value, treat as empty
-      const reportType = value === "select" ? "" : (value as ReportType | "");
+      // Validate against allowed values
+      const validValues = ["all", "shift", "day", ""] as const;
+      const reportType = validValues.includes(
+        value as (typeof validValues)[number],
+      )
+        ? (value as ReportType | "")
+        : "all";
       onFilterChange({
         ...filterState,
         reportType,
@@ -263,22 +277,42 @@ export function ShiftDayReportFilters({
   }, [filterState.storeId, stores]);
 
   /**
-   * Calculate grid columns based on whether store selector is shown
-   * When store selector is shown: 6 columns on desktop
-   * When store selector is hidden: 5 columns on desktop (show store name as info)
+   * Base filter field styles for consistent sizing and equal distribution
+   * FE-005: UI_SECURITY - No dynamic content in class names
+   *
+   * Responsive width strategy:
+   * - Mobile: full width (w-full)
+   * - Tablet: half width with wrapping (basis-[calc(50%-0.375rem)])
+   * - Desktop: equal distribution (flex-1 with min-width)
+   *
+   * The basis calc accounts for the gap-3 (0.75rem) between items.
+   * min-w-0 prevents flex items from overflowing their container.
    */
-  const gridClass = showStoreSelector
-    ? "grid grid-cols-1 md:grid-cols-6 gap-4"
-    : "grid grid-cols-1 md:grid-cols-5 gap-4";
+  const filterFieldBaseClass = cn(
+    "space-y-1.5 min-w-0",
+    // Mobile: full width stacked
+    "w-full",
+    // Tablet: 2 per row (50% minus half gap)
+    "sm:w-auto sm:basis-[calc(50%-0.375rem)]",
+    // Large tablet: 3 per row (33.33% minus gap adjustment)
+    "md:basis-[calc(33.333%-0.5rem)]",
+    // Desktop+: equal distribution across all items
+    "lg:flex-1 lg:basis-0",
+  );
 
   return (
     <div
-      className="space-y-4 p-4 border rounded-lg"
+      className="p-4 border rounded-lg bg-card"
       data-testid="shift-day-report-filters"
+      role="search"
+      aria-label="Filter shift and day reports"
     >
       {/* Single store info badge (when only one store) */}
       {!showStoreSelector && selectedStoreName && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div
+          className="flex items-center gap-2 text-sm text-muted-foreground mb-4"
+          aria-label="Selected store"
+        >
           <span className="font-medium">Store:</span>
           <span
             className="px-2 py-1 bg-primary/10 text-primary rounded-md font-medium"
@@ -289,18 +323,45 @@ export function ShiftDayReportFilters({
         </div>
       )}
 
-      {/* Filter Row */}
-      <div className={gridClass}>
+      {/*
+       * Responsive Filter Layout
+       *
+       * Layout Strategy:
+       * - Mobile (< 640px): Stacked vertically, full width
+       * - Tablet (640px - 1024px): Wrapped flex with 2-3 items per row
+       * - Desktop (> 1024px): Single row with even distribution using flexbox
+       *
+       * Uses flexbox instead of grid for automatic equal distribution.
+       * Each child has flex-1 to ensure equal widths.
+       *
+       * SEC-004: XSS - All values rendered through React's auto-escaping
+       * FE-002: FORM_VALIDATION - Each input has proper labels and aria attributes
+       */}
+      <div
+        className={cn(
+          // Base: flex container with wrap for responsive behavior
+          "flex flex-wrap gap-3",
+          // Align items to bottom for consistent button placement
+          "items-end",
+        )}
+      >
         {/* Filter 0: Store (only shown when multiple stores) */}
         {showStoreSelector && (
-          <div className="space-y-2">
-            <Label htmlFor="filter-store">Store</Label>
+          <div className={filterFieldBaseClass}>
+            <Label htmlFor="filter-store" className="text-sm font-medium">
+              Store
+            </Label>
             <Select
               value={filterState.storeId || ""}
               onValueChange={handleStoreChange}
               disabled={disabled || storesLoading}
             >
-              <SelectTrigger id="filter-store" data-testid="filter-store">
+              <SelectTrigger
+                id="filter-store"
+                data-testid="filter-store"
+                aria-describedby={storesLoading ? "store-loading" : undefined}
+                className="w-full"
+              >
                 <SelectValue placeholder="Select Store" />
               </SelectTrigger>
               <SelectContent>
@@ -311,25 +372,33 @@ export function ShiftDayReportFilters({
                 ))}
               </SelectContent>
             </Select>
+            {storesLoading && (
+              <span id="store-loading" className="sr-only">
+                Loading stores
+              </span>
+            )}
           </div>
         )}
 
         {/* Filter 1: Report Type */}
-        <div className="space-y-2">
-          <Label htmlFor="filter-report-type">Report Type</Label>
+        <div className={filterFieldBaseClass}>
+          <Label htmlFor="filter-report-type" className="text-sm font-medium">
+            Report Type
+          </Label>
           <Select
-            value={filterState.reportType || "select"}
+            value={filterState.reportType || "all"}
             onValueChange={handleReportTypeChange}
             disabled={disabled}
           >
             <SelectTrigger
               id="filter-report-type"
               data-testid="filter-report-type"
+              className="w-full"
             >
-              <SelectValue placeholder="Select" />
+              <SelectValue placeholder="All" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="select">Select</SelectItem>
+              <SelectItem value="all">All</SelectItem>
               <SelectItem value="shift">Shift</SelectItem>
               <SelectItem value="day">Day</SelectItem>
             </SelectContent>
@@ -337,14 +406,27 @@ export function ShiftDayReportFilters({
         </div>
 
         {/* Filter 2: Cashier */}
-        <div className="space-y-2">
-          <Label htmlFor="filter-cashier">Cashier</Label>
+        <div className={filterFieldBaseClass}>
+          <Label htmlFor="filter-cashier" className="text-sm font-medium">
+            Cashier
+          </Label>
           <Select
             value={filterState.cashierId || "all"}
             onValueChange={handleCashierChange}
             disabled={disabled || cashiersLoading || !filterState.storeId}
           >
-            <SelectTrigger id="filter-cashier" data-testid="filter-cashier">
+            <SelectTrigger
+              id="filter-cashier"
+              data-testid="filter-cashier"
+              aria-describedby={
+                !filterState.storeId
+                  ? "cashier-store-required"
+                  : cashiersLoading
+                    ? "cashier-loading"
+                    : undefined
+              }
+              className="w-full"
+            >
               <SelectValue
                 placeholder={
                   filterState.storeId ? "All Cashiers" : "Select store first"
@@ -360,17 +442,33 @@ export function ShiftDayReportFilters({
               ))}
             </SelectContent>
           </Select>
+          {!filterState.storeId && (
+            <span id="cashier-store-required" className="sr-only">
+              Select a store first to filter by cashier
+            </span>
+          )}
+          {cashiersLoading && (
+            <span id="cashier-loading" className="sr-only">
+              Loading cashiers
+            </span>
+          )}
         </div>
 
         {/* Filter 3: Range Preset */}
-        <div className="space-y-2">
-          <Label htmlFor="filter-range">Range</Label>
+        <div className={filterFieldBaseClass}>
+          <Label htmlFor="filter-range" className="text-sm font-medium">
+            Range
+          </Label>
           <Select
             value={filterState.rangePreset}
             onValueChange={handleRangePresetChange}
             disabled={disabled}
           >
-            <SelectTrigger id="filter-range" data-testid="filter-range">
+            <SelectTrigger
+              id="filter-range"
+              data-testid="filter-range"
+              className="w-full"
+            >
               <SelectValue placeholder="Custom" />
             </SelectTrigger>
             <SelectContent>
@@ -384,8 +482,10 @@ export function ShiftDayReportFilters({
         </div>
 
         {/* Filter 4: From Date */}
-        <div className="space-y-2">
-          <Label htmlFor="filter-date-from">From Date</Label>
+        <div className={filterFieldBaseClass}>
+          <Label htmlFor="filter-date-from" className="text-sm font-medium">
+            From Date
+          </Label>
           <Input
             id="filter-date-from"
             type="date"
@@ -394,13 +494,26 @@ export function ShiftDayReportFilters({
             disabled={isFromDateDisabled}
             max={today}
             data-testid="filter-date-from"
-            className={isFromDateDisabled ? "bg-muted" : ""}
+            aria-describedby={
+              isFromDateDisabled ? "from-date-disabled" : undefined
+            }
+            className={cn(
+              "w-full",
+              isFromDateDisabled && "bg-muted cursor-not-allowed",
+            )}
           />
+          {isFromDateDisabled && (
+            <span id="from-date-disabled" className="sr-only">
+              From date is automatically set based on range selection
+            </span>
+          )}
         </div>
 
         {/* Filter 5: To Date */}
-        <div className="space-y-2">
-          <Label htmlFor="filter-date-to">To Date</Label>
+        <div className={filterFieldBaseClass}>
+          <Label htmlFor="filter-date-to" className="text-sm font-medium">
+            To Date
+          </Label>
           <Input
             id="filter-date-to"
             type="date"
@@ -410,43 +523,82 @@ export function ShiftDayReportFilters({
             min={filterState.fromDate || undefined}
             max={today}
             data-testid="filter-date-to"
-            className={isToDateDisabled ? "bg-muted" : ""}
+            aria-describedby={isToDateDisabled ? "to-date-disabled" : undefined}
+            className={cn(
+              "w-full",
+              isToDateDisabled && "bg-muted cursor-not-allowed",
+            )}
           />
+          {isToDateDisabled && (
+            <span id="to-date-disabled" className="sr-only">
+              To date is automatically set based on range selection
+            </span>
+          )}
+        </div>
+
+        {/*
+         * Action Buttons
+         *
+         * Uses same responsive width classes as filter fields for even distribution.
+         * On mobile, spans full width for touch-friendly targets.
+         *
+         * FE-002: FORM_VALIDATION - Clear visual feedback for actions
+         */}
+        <div
+          className={cn(
+            // Same responsive sizing as filter fields for even distribution
+            "min-w-0",
+            "w-full",
+            "sm:w-auto sm:basis-[calc(50%-0.375rem)]",
+            "md:basis-[calc(33.333%-0.5rem)]",
+            "lg:flex-1 lg:basis-0",
+            // Button container layout
+            "flex items-center gap-2",
+            // Ensure minimum height matches input fields (label height + input height)
+            "pt-[1.625rem]", // Matches label height + spacing to align buttons with inputs
+          )}
+        >
+          <Button
+            type="button"
+            onClick={onApplyFilters}
+            disabled={disabled}
+            data-testid="apply-filters-button"
+            className="flex-1"
+          >
+            Apply
+          </Button>
+          {hasActiveFilters && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClearFilters}
+              disabled={disabled}
+              data-testid="clear-filters-button"
+              className="flex-1"
+            >
+              Clear
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Validation Error */}
+      {/*
+       * Validation Error Display
+       *
+       * SEC-004: XSS - Error message rendered through React's auto-escaping
+       * FE-002: FORM_VALIDATION - Clear error state with icon and color
+       */}
       {validationError && (
         <div
-          className="flex items-center gap-2 text-sm text-destructive"
+          className="flex items-center gap-2 mt-3 text-sm text-destructive"
           data-testid="filter-validation-error"
           role="alert"
+          aria-live="polite"
         >
-          <AlertCircle className="h-4 w-4" />
+          <AlertCircle className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
           <span>{validationError}</span>
         </div>
       )}
-
-      {/* Action Buttons */}
-      <div className="flex items-center gap-2">
-        <Button
-          onClick={onApplyFilters}
-          disabled={disabled}
-          data-testid="apply-filters-button"
-        >
-          Apply Filters
-        </Button>
-        {hasActiveFilters && (
-          <Button
-            variant="outline"
-            onClick={onClearFilters}
-            disabled={disabled}
-            data-testid="clear-filters-button"
-          >
-            Clear Filters
-          </Button>
-        )}
-      </div>
     </div>
   );
 }

@@ -20,6 +20,7 @@ import {
   type PaginationOptions,
   type ShiftResponse,
 } from "@/lib/api/shifts";
+import { type DaySummary } from "@/lib/api/day-summaries";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { usePageTitleEffect } from "@/contexts/PageTitleContext";
@@ -56,6 +57,16 @@ export default function ClientShiftsPage() {
     [router],
   );
 
+  // Handle day summary click - navigate to day summary detail page
+  const handleDaySummaryClick = useCallback(
+    (daySummary: DaySummary) => {
+      router.push(
+        `/client-dashboard/day-summary/${daySummary.store_id}/${daySummary.business_date}`,
+      );
+    },
+    [router],
+  );
+
   // Handle pagination
   const handlePreviousPage = useCallback(() => {
     setPagination((prev) => ({
@@ -82,6 +93,7 @@ export default function ClientShiftsPage() {
         filters={filters}
         pagination={pagination}
         onShiftClick={handleShiftClick}
+        onDaySummaryClick={handleDaySummaryClick}
         onFiltersChange={handleFiltersChange}
         onMetaChange={setPaginationMeta}
       />

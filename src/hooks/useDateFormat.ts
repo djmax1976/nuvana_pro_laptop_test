@@ -26,6 +26,16 @@ import {
   formatDateTimeRange,
   getTimezoneAbbr,
   toStoreTimezone,
+  // Business date utilities (for YYYY-MM-DD conceptual dates, NOT timestamps)
+  formatBusinessDate,
+  formatBusinessDateFull,
+  formatBusinessDateShort,
+  formatBusinessDateCompact,
+  getTodayBusinessDate,
+  isBusinessDateToday,
+  isValidBusinessDate,
+  compareBusinessDates,
+  extractBusinessDateFromTimestamp,
 } from "@/utils/date-format.utils";
 
 /**
@@ -162,5 +172,77 @@ export function useDateFormat() {
      * @example "America/Denver"
      */
     timezone,
+
+    // =========================================================================
+    // BUSINESS DATE UTILITIES
+    // =========================================================================
+    // These are for YYYY-MM-DD conceptual dates (e.g., business_date field),
+    // NOT for ISO timestamps. Business dates should be displayed AS-IS without
+    // timezone conversion.
+
+    /**
+     * Format business date (YYYY-MM-DD) for display.
+     * Use for `business_date` fields that represent conceptual days.
+     * @example formatBusinessDate("2026-01-06") → "January 6, 2026"
+     */
+    formatBusinessDate: (
+      dateStr: string | null | undefined,
+      formatString?: string,
+    ) => formatBusinessDate(dateStr, formatString),
+
+    /**
+     * Format business date in full format with day of week.
+     * @example formatBusinessDateFull("2026-01-06") → "Tuesday, January 6, 2026"
+     */
+    formatBusinessDateFull: (dateStr: string | null | undefined) =>
+      formatBusinessDateFull(dateStr),
+
+    /**
+     * Format business date in short format.
+     * @example formatBusinessDateShort("2026-01-06") → "Jan 6, 2026"
+     */
+    formatBusinessDateShort: (dateStr: string | null | undefined) =>
+      formatBusinessDateShort(dateStr),
+
+    /**
+     * Format business date for compact display.
+     * @example formatBusinessDateCompact("2026-01-06") → "01/06/2026"
+     */
+    formatBusinessDateCompact: (dateStr: string | null | undefined) =>
+      formatBusinessDateCompact(dateStr),
+
+    /**
+     * Get today's date as a business date string using store timezone.
+     * @example getTodayBusinessDate() → "2026-01-06"
+     */
+    getTodayBusinessDate: () => getTodayBusinessDate(timezone),
+
+    /**
+     * Check if a business date is "today" in the store's timezone.
+     * @example isBusinessDateToday("2026-01-06") → true/false
+     */
+    isBusinessDateToday: (dateStr: string | null | undefined) =>
+      isBusinessDateToday(dateStr, timezone),
+
+    /**
+     * Validate if a string is a valid business date format (YYYY-MM-DD).
+     * @example isValidBusinessDate("2026-01-06") → true
+     */
+    isValidBusinessDate,
+
+    /**
+     * Compare two business dates.
+     * @returns -1 if a < b, 0 if equal, 1 if a > b, null if invalid
+     */
+    compareBusinessDates,
+
+    /**
+     * Extract business date from an ISO timestamp using store timezone.
+     * Use this when you need to derive a business date from a timestamp.
+     * @example extractBusinessDateFromTimestamp("2026-01-06T22:05:45Z") → "2026-01-06"
+     */
+    extractBusinessDateFromTimestamp: (
+      isoTimestamp: string | null | undefined,
+    ) => extractBusinessDateFromTimestamp(isoTimestamp, timezone),
   };
 }

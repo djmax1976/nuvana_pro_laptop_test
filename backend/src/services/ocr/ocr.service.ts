@@ -309,78 +309,194 @@ export class OCRService {
     }
 
     // Extract Online Cashes (CASHES from ONLINE SUMMARY)
-    // Look for pattern like "77 CASHES 1857.00-" in ONLINE section
+    // The CASHES line appears AFTER "NET SALES" but BEFORE "INSTANT SUMMARY"
+    // Format: [count] CASHES [amount]- (e.g., "1 CASHES 12.00-")
     let onlineCashes = 0;
-    // First, try to find ONLINE SUMMARY section and extract CASHES from it
-    const onlineSection = text.match(
-      /ONLINE\s+SUMMARY[\s\S]*?(?=INSTANT|CASHLESS|$)/i,
-    );
-    if (onlineSection) {
-      console.log(
-        "[OCR DEBUG] Online section found:",
-        onlineSection[0].substring(0, 200),
-      );
-      // Look for CASHES line with amount (e.g., "77 CASHES 1857.00-" or "CASHES 1857.00")
-      const cashesMatch = onlineSection[0].match(/CASHES\s+([\d,]+\.?\d*)/i);
-      if (cashesMatch) {
-        onlineCashes = this.parseAmount(cashesMatch[1]);
-        confidence.onlineCashes = 85;
-        console.log("[OCR DEBUG] Online Cashes extracted:", onlineCashes);
+    let onlineCashesCount = 0;
+
+    // STRATEGY: Find the text between NET SALES and INSTANT SUMMARY
+    // This is more reliable than finding "ONLINE SUMMARY" which OCR often misreads
+    // The online CASHES line is in this region
+    const onlineCashesRegionPatterns = [
+      // Pattern 1: Everything from NET SALES to INSTANT (most reliable)
+      /NET\s+SALES[\s\S]*?(?=INSTANT)/i,
+      // Pattern 2: Everything from ONLINE SUMMARY to INSTANT
+      /ONLINE\s+SUMMARY:?[\s\S]*?(?=INSTANT)/i,
+      // Pattern 3: OCR variations
+      /0NLINE\s+SUMMARY:?[\s\S]*?(?=INSTANT)/i,
+      // Pattern 4: Find by NET ONLINE landmark (appears at end of online section)
+      /NET\s+SALES[\s\S]*?NET\s+ONLINE/i,
+    ];
+
+    let onlineCashesRegion: string | null = null;
+    for (const pattern of onlineCashesRegionPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        onlineCashesRegion = match[0];
+        console.log(
+          "[OCR DEBUG] Online region found with pattern:",
+          pattern.toString(),
+        );
+        console.log(
+          "[OCR DEBUG] Online region text:",
+          onlineCashesRegion.substring(0, 500),
+        );
+        break;
       }
     }
-    if (onlineCashes === 0) {
-      // Fallback: try global patterns
-      for (const pattern of LOTTERY_PATTERNS.onlineSummary.cashes) {
-        const match = text.match(pattern);
-        if (match) {
-          onlineCashes = this.parseAmount(match[2] || match[1]);
-          confidence.onlineCashes = 80;
-          console.log("[OCR DEBUG] Online Cashes (fallback):", onlineCashes);
+
+    if (onlineCashesRegion) {
+      // Now find CASHES within this region
+      // The CASHES line format: "1 CASHES 12.00-"
+      const cashesPatterns = [
+        // Pattern with count: "1 CASHES 12.00-"
+        /(\d+)\s+CASHES\s+([\d,]+\.?\d*)-?/i,
+        // OCR variations: GASHES, CASHFS, CASHE5, GASH ES
+        /(\d+)\s+(?:CASHES|GASHES|CASHFS|CASHE5|GASH\s*ES)\s+([\d,]+\.?\d*)-?/i,
+        // Without count: "CASHES 12.00-"
+        /CASHES\s+([\d,]+\.?\d*)-?/i,
+        // With space before minus: "1 CASHES 12.00 -"
+        /(\d+)\s+CASHES\s+([\d,]+\.?\d*)\s*-/i,
+      ];
+
+      for (const pattern of cashesPatterns) {
+        const cashesMatch = onlineCashesRegion.match(pattern);
+        if (cashesMatch) {
+          console.log("[OCR DEBUG] Online CASHES match:", cashesMatch);
+          if (cashesMatch.length >= 3 && cashesMatch[2]) {
+            onlineCashesCount = parseInt(cashesMatch[1], 10) || 0;
+            onlineCashes = this.parseAmount(cashesMatch[2]);
+          } else {
+            onlineCashes = this.parseAmount(cashesMatch[1]);
+          }
+          confidence.onlineCashes = 85;
+          console.log(
+            "[OCR DEBUG] Online Cashes extracted - count:",
+            onlineCashesCount,
+            "amount:",
+            onlineCashes,
+          );
           break;
         }
       }
+
+      // If still not found, the OCR might have completely mangled CASHES
+      // Look for any number followed by a decimal amount with minus in the region
+      // after NET SALES but before PROMO CASH
+      if (onlineCashes === 0) {
+        console.log("[OCR DEBUG] Trying fallback pattern for online cashes...");
+        // Look for pattern: digit(s) followed by any word, then amount with minus
+        // Example: "1 GASHES 12.00-" or "1 CASHFS 12.00-"
+        const fallbackMatch = onlineCashesRegion.match(
+          /(\d+)\s+[A-Z]+\s+([\d,]+\.\d{2})-/i,
+        );
+        if (fallbackMatch) {
+          // Make sure this isn't SALES, CANCELS, etc.
+          const possibleCashes = fallbackMatch[0];
+          if (
+            !possibleCashes.match(
+              /SALES|CANCELS|TICKETS|DISCOUNTS|PRIZES|COMMISSION/i,
+            )
+          ) {
+            onlineCashesCount = parseInt(fallbackMatch[1], 10) || 0;
+            onlineCashes = this.parseAmount(fallbackMatch[2]);
+            confidence.onlineCashes = 70; // Lower confidence for fallback
+            console.log(
+              "[OCR DEBUG] Online Cashes (fallback) - count:",
+              onlineCashesCount,
+              "amount:",
+              onlineCashes,
+            );
+          }
+        }
+      }
+    } else {
+      console.log("[OCR DEBUG] WARNING: Could not find Online cashes region!");
+      console.log("[OCR DEBUG] Full text for debugging:");
+      console.log(text);
     }
+
     if (onlineCashes === 0) {
       warnings.push(
-        "Could not extract Online Cashes (CASHES from ONLINE SUMMARY)",
+        "Could not extract Online Cashes - region not found or CASHES line not detected",
       );
       confidence.onlineCashes = 0;
     }
 
     // Extract Instant Cashes (CASHES from INSTANT SUMMARY)
+    // Format: [count] CASHES [amount]- (e.g., "2 CASHES 4.00-")
     let instantCashes = 0;
-    // First, try to find INSTANT SUMMARY section and extract CASHES from it
-    const instantSection = text.match(
-      /INSTANT\s+SUMMARY[\s\S]*?(?=CASHLESS|ADJUSTMENTS|$)/i,
-    );
+    let instantCashesCount = 0;
+
+    // Try multiple patterns to find INSTANT SUMMARY section
+    const instantSectionPatterns = [
+      /INSTANT\s+SUMMARY:?[\s\S]*?(?=CASHLESS|ADJUSTMENTS|$)/i,
+      /1NSTANT\s+SUMMARY:?[\s\S]*?(?=CASHLESS|ADJUSTMENTS|$)/i, // OCR might read I as 1
+      /INSTANT[\s\S]*?NET\s+INSTANT/i, // Find by NET INSTANT landmark
+    ];
+
+    let instantSection: RegExpMatchArray | null = null;
+    for (const pattern of instantSectionPatterns) {
+      instantSection = text.match(pattern);
+      if (instantSection) {
+        console.log(
+          "[OCR DEBUG] Instant section found with pattern:",
+          pattern.toString(),
+        );
+        break;
+      }
+    }
+
     if (instantSection) {
       console.log(
         "[OCR DEBUG] Instant section found:",
-        instantSection[0].substring(0, 200),
+        instantSection[0].substring(0, 400),
       );
-      // Look for CASHES line with amount
-      const cashesMatch = instantSection[0].match(/CASHES\s+([\d,]+\.?\d*)/i);
-      if (cashesMatch) {
-        instantCashes = this.parseAmount(cashesMatch[1]);
-        confidence.instantCashes = 85;
-        console.log("[OCR DEBUG] Instant Cashes extracted:", instantCashes);
-      }
-    }
-    if (instantCashes === 0) {
-      // Fallback: try global patterns
-      for (const pattern of LOTTERY_PATTERNS.instantSummary.cashes) {
-        const match = text.match(pattern);
-        if (match) {
-          instantCashes = this.parseAmount(match[2] || match[1]);
-          confidence.instantCashes = 80;
-          console.log("[OCR DEBUG] Instant Cashes (fallback):", instantCashes);
+      // Look for CASHES line with count and amount
+      // Pattern: [count] CASHES [amount]- (e.g., "2 CASHES 4.00-")
+      const cashesPatterns = [
+        // Pattern 1: "2 CASHES 4.00-" or "2  CASHES  4.00-"
+        /(\d+)\s+CASHES\s+([\d,]+\.?\d*)-?/i,
+        // Pattern 2: Just "CASHES 4.00-" without count
+        /CASHES\s+([\d,]+\.?\d*)-?/i,
+        // Pattern 3: Amount might have space before minus "4.00 -"
+        /(\d+)\s+CASHES\s+([\d,]+\.?\d*)\s*-/i,
+        // Pattern 4: OCR might read CASHES as GASHES or CASHFS
+        /(\d+)\s+(?:CASHES|GASHES|CASHFS|CASHE5)\s+([\d,]+\.?\d*)-?/i,
+      ];
+
+      for (const pattern of cashesPatterns) {
+        const cashesMatch = instantSection[0].match(pattern);
+        if (cashesMatch) {
+          console.log("[OCR DEBUG] Instant CASHES match:", cashesMatch);
+          // If pattern has count (3 groups), extract both count and amount
+          if (cashesMatch.length >= 3 && cashesMatch[2]) {
+            instantCashesCount = parseInt(cashesMatch[1], 10) || 0;
+            instantCashes = this.parseAmount(cashesMatch[2]);
+          } else {
+            // Pattern without count - just amount
+            instantCashes = this.parseAmount(cashesMatch[1]);
+          }
+          confidence.instantCashes = 85;
+          console.log(
+            "[OCR DEBUG] Instant Cashes extracted - count:",
+            instantCashesCount,
+            "amount:",
+            instantCashes,
+          );
           break;
         }
       }
+    } else {
+      console.log(
+        "[OCR DEBUG] WARNING: Could not find INSTANT SUMMARY section!",
+      );
     }
+
+    // Do NOT use global fallback - it could match wrong section
     if (instantCashes === 0) {
       warnings.push(
-        "Could not extract Instant Cashes (CASHES from INSTANT SUMMARY)",
+        "Could not extract Instant Cashes (CASHES from INSTANT SUMMARY) - section not found or no CASHES line",
       );
       confidence.instantCashes = 0;
     }

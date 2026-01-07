@@ -38,6 +38,7 @@ describe("CLIENT-DASHBOARD-COMPONENT: ActiveShiftView Component", () => {
     store_name: "Test Store",
     cashier_name: "Jane Doe",
     opener_name: "Manager Smith",
+    day_summary_id: null,
     transaction_count: 25,
     variance_reason: null,
     approved_by: null,

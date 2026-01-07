@@ -291,12 +291,13 @@ describe("6.7-UNIT: Lottery Reconciliation - Edge Cases", () => {
       // WHEN: Calculating expected count
       const expected = calculateExpectedCount(openingSerial, closingSerial);
 
-      // THEN: Function calculates negative value (business logic should reject this)
+      // THEN: Function returns 0 (protected by Math.max) for invalid ranges
+      // Business logic upstream should reject this before calculation
       expect(
         expected,
-        "Should calculate negative value for invalid range",
-      ).toBeLessThan(0);
-      expect(expected).toBe(-49); // 50 - 100 + 1
+        "Should return 0 for invalid range (protected by Math.max)",
+      ).toBe(0);
+      expect(expected).toBeGreaterThanOrEqual(0);
     });
   });
 

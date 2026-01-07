@@ -1322,6 +1322,310 @@ test.describe("6.11-API: Lottery Query API Endpoints", () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // GAME STATUS AND CAN_RETURN FIELD TESTS (SEC-010: AUTHZ)
+  // Story: Game Status Display, Lottery Pack Return Feature
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  test("6.11-API-024: [P1] GET /api/lottery/packs - should include game.status field in response", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager
+    // AND: Packs exist for games with different statuses
+    const activeGame = await createLotteryGame(prismaClient, {
+      name: "Active Status Game",
+      status: LotteryGameStatus.ACTIVE,
+    });
+    const inactiveGame = await createLotteryGame(prismaClient, {
+      name: "Inactive Status Game",
+      status: LotteryGameStatus.INACTIVE,
+    });
+
+    const activePack = await createLotteryPack(prismaClient, {
+      game_id: activeGame.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: "ACTIVE-GAME-PACK",
+    });
+    const inactivePack = await createLotteryPack(prismaClient, {
+      game_id: inactiveGame.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: "INACTIVE-GAME-PACK",
+    });
+
+    // WHEN: I query packs
+    const response = await storeManagerApiRequest.get(
+      `/api/lottery/packs?store_id=${storeManagerUser.store_id}`,
+    );
+
+    // THEN: Pack data includes game.status field
+    expect(response.status(), "Expected 200 OK status").toBe(200);
+    const body = await response.json();
+
+    const foundActivePack = body.data.find(
+      (p: any) => p.pack_id === activePack.pack_id,
+    );
+    const foundInactivePack = body.data.find(
+      (p: any) => p.pack_id === inactivePack.pack_id,
+    );
+
+    expect(foundActivePack, "Active game pack should be found").toBeDefined();
+    expect(
+      foundActivePack.game.status,
+      "Game should include status field",
+    ).toBe("ACTIVE");
+
+    expect(
+      foundInactivePack,
+      "Inactive game pack should be found",
+    ).toBeDefined();
+    expect(
+      foundInactivePack.game.status,
+      "Game should include status field with INACTIVE value",
+    ).toBe("INACTIVE");
+  });
+
+  test("6.11-API-025: [P0] GET /api/lottery/packs - should include can_return field based on pack status (SEC-010: AUTHZ)", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager
+    // AND: Packs exist with different statuses
+    // SEC-010: AUTHZ - Backend determines return eligibility
+    const game = await createLotteryGame(prismaClient, {
+      name: "Can Return Test Game",
+    });
+
+    const activePack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      status: LotteryPackStatus.ACTIVE,
+      pack_number: "CAN-RETURN-ACTIVE",
+    });
+    const receivedPack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      status: LotteryPackStatus.RECEIVED,
+      pack_number: "CAN-RETURN-RECEIVED",
+    });
+    const depletedPack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      status: LotteryPackStatus.DEPLETED,
+      pack_number: "CAN-RETURN-DEPLETED",
+    });
+    const returnedPack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      status: LotteryPackStatus.RETURNED,
+      pack_number: "CAN-RETURN-RETURNED",
+    });
+
+    // WHEN: I query packs (no status filter to get all)
+    const response = await storeManagerApiRequest.get(
+      `/api/lottery/packs?store_id=${storeManagerUser.store_id}&include_all=true`,
+    );
+
+    // THEN: can_return field is set correctly based on pack status
+    expect(response.status(), "Expected 200 OK status").toBe(200);
+    const body = await response.json();
+
+    const foundActive = body.data.find(
+      (p: any) => p.pack_id === activePack.pack_id,
+    );
+    const foundReceived = body.data.find(
+      (p: any) => p.pack_id === receivedPack.pack_id,
+    );
+    const foundDepleted = body.data.find(
+      (p: any) => p.pack_id === depletedPack.pack_id,
+    );
+    const foundReturned = body.data.find(
+      (p: any) => p.pack_id === returnedPack.pack_id,
+    );
+
+    // SEC-010: AUTHZ - ACTIVE packs can be returned
+    expect(foundActive, "ACTIVE pack should be found").toBeDefined();
+    expect(
+      foundActive.can_return,
+      "ACTIVE pack should have can_return=true",
+    ).toBe(true);
+
+    // SEC-010: AUTHZ - RECEIVED packs can be returned
+    expect(foundReceived, "RECEIVED pack should be found").toBeDefined();
+    expect(
+      foundReceived.can_return,
+      "RECEIVED pack should have can_return=true",
+    ).toBe(true);
+
+    // SEC-010: AUTHZ - DEPLETED packs cannot be returned (already sold)
+    expect(foundDepleted, "DEPLETED pack should be found").toBeDefined();
+    expect(
+      foundDepleted.can_return,
+      "DEPLETED pack should have can_return=false",
+    ).toBe(false);
+
+    // SEC-010: AUTHZ - RETURNED packs cannot be returned again
+    expect(foundReturned, "RETURNED pack should be found").toBeDefined();
+    expect(
+      foundReturned.can_return,
+      "RETURNED pack should have can_return=false",
+    ).toBe(false);
+  });
+
+  test("6.11-API-026: [P0] GET /api/lottery/packs - should include returned_at field for RETURNED packs", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager
+    // AND: A RETURNED pack exists with returned_at timestamp
+    const game = await createLotteryGame(prismaClient, {
+      name: "Returned At Test Game",
+    });
+
+    const returnedAt = new Date("2025-01-15T10:00:00Z");
+    const returnedPack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      status: LotteryPackStatus.RETURNED,
+      pack_number: "RETURNED-AT-PACK",
+      returned_at: returnedAt,
+    });
+
+    // WHEN: I query packs with RETURNED status filter
+    const response = await storeManagerApiRequest.get(
+      `/api/lottery/packs?store_id=${storeManagerUser.store_id}&status=RETURNED`,
+    );
+
+    // THEN: returned_at field is included in response
+    expect(response.status(), "Expected 200 OK status").toBe(200);
+    const body = await response.json();
+
+    const foundPack = body.data.find(
+      (p: any) => p.pack_id === returnedPack.pack_id,
+    );
+    expect(foundPack, "RETURNED pack should be found").toBeDefined();
+    expect(
+      foundPack.returned_at,
+      "returned_at should be included in response",
+    ).toBeDefined();
+    expect(
+      new Date(foundPack.returned_at).toISOString(),
+      "returned_at should match the stored value",
+    ).toBe(returnedAt.toISOString());
+  });
+
+  test("6.11-API-027: [P0] GET /api/lottery/packs - can_return is server-side determined (SEC-010)", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager
+    // AND: An ACTIVE pack exists
+    // SEC-010: AUTHZ - This test verifies server-side authorization
+    const game = await createLotteryGame(prismaClient, {
+      name: "Server Auth Test Game",
+    });
+
+    const activePack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      status: LotteryPackStatus.ACTIVE,
+      pack_number: "SERVER-AUTH-PACK",
+    });
+
+    // WHEN: I query the specific pack
+    const response = await storeManagerApiRequest.get(
+      `/api/lottery/packs/${activePack.pack_id}`,
+    );
+
+    // THEN: can_return is computed server-side based on pack status
+    expect(response.status(), "Expected 200 OK status").toBe(200);
+    const body = await response.json();
+
+    // Verify can_return is present and correctly computed
+    expect(
+      body.data.can_return,
+      "can_return should be true for ACTIVE pack",
+    ).toBe(true);
+
+    // Verify client cannot manipulate this field - it's read-only from server
+    // This is a documentation test - the field comes from server, not client input
+    expect(
+      typeof body.data.can_return,
+      "can_return should be a boolean from server",
+    ).toBe("boolean");
+  });
+
+  test("6.11-API-028: [P1] GET /api/lottery/packs - game status for all three enum values", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager
+    // AND: Games exist with all three status values
+    const activeGame = await createLotteryGame(prismaClient, {
+      name: "Enum Active Game",
+      status: LotteryGameStatus.ACTIVE,
+    });
+    const inactiveGame = await createLotteryGame(prismaClient, {
+      name: "Enum Inactive Game",
+      status: LotteryGameStatus.INACTIVE,
+    });
+    const discontinuedGame = await createLotteryGame(prismaClient, {
+      name: "Enum Discontinued Game",
+      status: LotteryGameStatus.DISCONTINUED,
+    });
+
+    // Create packs for each game
+    await createLotteryPack(prismaClient, {
+      game_id: activeGame.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: "ENUM-ACTIVE-PACK",
+    });
+    await createLotteryPack(prismaClient, {
+      game_id: inactiveGame.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: "ENUM-INACTIVE-PACK",
+    });
+    await createLotteryPack(prismaClient, {
+      game_id: discontinuedGame.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: "ENUM-DISCONTINUED-PACK",
+    });
+
+    // WHEN: I query packs
+    const response = await storeManagerApiRequest.get(
+      `/api/lottery/packs?store_id=${storeManagerUser.store_id}`,
+    );
+
+    // THEN: All three game status values are correctly returned
+    expect(response.status(), "Expected 200 OK status").toBe(200);
+    const body = await response.json();
+
+    // Get unique game statuses from response
+    const gameStatuses = new Set(
+      body.data
+        .filter((p: any) => p.game?.status)
+        .map((p: any) => p.game.status),
+    );
+
+    expect(
+      gameStatuses.has("ACTIVE"),
+      "ACTIVE game status should be present",
+    ).toBe(true);
+    expect(
+      gameStatuses.has("INACTIVE"),
+      "INACTIVE game status should be present",
+    ).toBe(true);
+    expect(
+      gameStatuses.has("DISCONTINUED"),
+      "DISCONTINUED game status should be present",
+    ).toBe(true);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // AUDIT LOGGING TESTS
   // ═══════════════════════════════════════════════════════════════════════════
 

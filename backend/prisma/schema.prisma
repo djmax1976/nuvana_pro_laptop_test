@@ -1171,11 +1171,21 @@ model Shift {
   external_shift_id String?               @db.VarChar(255)
   external_data     Json?
   synced_at         DateTime?             @db.Timestamptz(6)
+
+  // === BUSINESS DAY ASSOCIATION ===
+  // Links shift to the business day (DaySummary) that was active when shift opened.
+  // This is the authoritative source for shift-to-day grouping.
+  // Nullable to handle edge cases where day summary doesn't exist yet.
+  // DB-006: TENANT_ISOLATION - Day summary is always within same store scope
+  day_summary_id    String?               @db.Uuid
+
   opener            User                  @relation("ShiftOpener", fields: [opened_by], references: [user_id])
   cashier           Cashier               @relation(fields: [cashier_id], references: [cashier_id])
   approver          User?                 @relation("ShiftApprover", fields: [approved_by], references: [user_id])
   pos_terminal      POSTerminal?          @relation(fields: [pos_terminal_id], references: [pos_terminal_id])
   store             Store                 @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  // Business day association - relates shift to active day when opened
+  day_summary       DaySummary?           @relation(fields: [day_summary_id], references: [day_summary_id], onDelete: SetNull)
   transactions      Transaction[]
   cashier_sessions  CashierSession[]
   lottery_openings  LotteryShiftOpening[]
@@ -1202,6 +1212,8 @@ model Shift {
   @@index([store_id, status])
   @@index([store_id, opened_at])
   @@index([public_id])
+  @@index([day_summary_id])
+  @@index([store_id, day_summary_id])
   // NOTE: Additional partial index for active shift lookups exists in migration
   // 20251217_add_performance_indexes: idx_shifts_terminal_status_open
   // WHERE pos_terminal_id = X AND status = Y AND closed_at IS NULL
@@ -1776,10 +1788,17 @@ model LotteryBusinessDay {
   /// Default: 1 hour from pending_close_at
   pending_close_expires_at DateTime? @db.Timestamptz(6)
 
+  /// FK to day_summaries - Links lottery business day to its corresponding day summary
+  /// DB-006: TENANT_ISOLATION - Both lottery_business_days and day_summaries share store_id scope
+  /// Nullable to support backfill of existing records and orphan recovery scenarios
+  day_summary_id String? @db.Uuid
+
   created_at    DateTime  @default(now()) @db.Timestamptz(6)
   updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
 
   store              Store            @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  /// Relation to day_summary for coordinated day close operations
+  day_summary        DaySummary?      @relation(fields: [day_summary_id], references: [day_summary_id], onDelete: SetNull)
   openedByUser       User?            @relation("LotteryDayOpenedBy", fields: [opened_by], references: [user_id], onDelete: SetNull)
   closedByUser       User?            @relation("LotteryDayClosedBy", fields: [closed_by], references: [user_id], onDelete: SetNull)
   pendingCloseByUser User?            @relation("LotteryDayPendingCloseBy", fields: [pending_close_by], references: [user_id], onDelete: SetNull)
@@ -1788,7 +1807,10 @@ model LotteryBusinessDay {
   // Scanned Documents (OCR Feature)
   scanned_documents  ScannedDocument[]
 
-  @@unique([store_id, business_date])
+  /// Removed unique constraint: Multiple lottery days can exist for same store/date
+  /// (closed day + new open day after day close)
+  /// Non-unique index retained for backward-compatible lookups
+  @@index([store_id, business_date])
   @@index([store_id])
   @@index([store_id, status])
   @@index([business_date])
@@ -1797,6 +1819,8 @@ model LotteryBusinessDay {
   @@index([pending_close_by])
   /// Index for cleanup job: find expired pending states
   @@index([status, pending_close_expires_at])
+  /// Index for FK lookups to day_summary
+  @@index([day_summary_id])
   @@map("lottery_business_days")
 }
 
@@ -2670,6 +2694,12 @@ model DaySummary {
   hourly_summaries     DayHourlySummary[]
   // Scanned Documents (OCR Feature)
   scanned_documents    ScannedDocument[]
+  // Shifts that belong to this business day
+  // These are shifts opened while this day was active (OPEN status)
+  shifts               Shift[]
+  // Lottery business days linked to this day summary
+  // Typically one-to-one, but supports multiple during day transitions
+  lottery_business_days LotteryBusinessDay[]
 
   // === INDEXES ===
   @@unique([store_id, business_date])

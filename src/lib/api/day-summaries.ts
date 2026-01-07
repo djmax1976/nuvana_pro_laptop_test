@@ -676,3 +676,109 @@ export function useRefreshDaySummary() {
     },
   });
 }
+
+// ============ Day Close Reconciliation Types ============
+
+/**
+ * Shift detail for reconciliation view
+ */
+export interface ReconciliationShiftDetail {
+  shift_id: string;
+  terminal_name: string | null;
+  cashier_name: string;
+  opened_at: string;
+  closed_at: string | null;
+  status: string;
+  opening_cash: number;
+  closing_cash: number | null;
+  expected_cash: number | null;
+  variance: number | null;
+  net_sales: number;
+  transaction_count: number;
+  lottery_sales: number | null;
+  lottery_tickets_sold: number | null;
+}
+
+/**
+ * Lottery bin closed detail for reconciliation view
+ */
+export interface ReconciliationLotteryBin {
+  bin_number: number;
+  pack_number: string;
+  game_name: string;
+  game_price: number;
+  starting_serial: string;
+  closing_serial: string;
+  tickets_sold: number;
+  sales_amount: number;
+}
+
+/**
+ * Complete Day Close reconciliation response
+ */
+export interface DayCloseReconciliationResponse {
+  store_id: string;
+  business_date: string;
+  status: DaySummaryStatus;
+  closed_at: string | null;
+  closed_by: string | null;
+  closed_by_name: string | null;
+
+  shifts: ReconciliationShiftDetail[];
+
+  lottery: {
+    is_closed: boolean;
+    closed_at: string | null;
+    bins_closed: ReconciliationLotteryBin[];
+    total_sales: number;
+    total_tickets_sold: number;
+  };
+
+  day_totals: {
+    shift_count: number;
+    gross_sales: number;
+    net_sales: number;
+    tax_collected: number;
+    transaction_count: number;
+    total_opening_cash: number;
+    total_closing_cash: number;
+    total_expected_cash: number;
+    total_cash_variance: number;
+    lottery_sales: number | null;
+    lottery_net: number | null;
+  };
+
+  notes: string | null;
+}
+
+// ============ Day Close Reconciliation API ============
+
+/**
+ * Get Day Close reconciliation data
+ */
+export async function getDayCloseReconciliation(
+  storeId: string,
+  date: string,
+): Promise<ApiResponse<DayCloseReconciliationResponse>> {
+  const endpoint = `/api/stores/${storeId}/day-summary/${date}/reconciliation`;
+  const response =
+    await apiClient.get<ApiResponse<DayCloseReconciliationResponse>>(endpoint);
+  return response.data;
+}
+
+/**
+ * Hook to fetch Day Close reconciliation data
+ */
+export function useDayCloseReconciliation(
+  storeId: string | null,
+  date: string | null,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: [...daySummaryKeys.all, "reconciliation", storeId, date],
+    queryFn: () => getDayCloseReconciliation(storeId!, date!),
+    enabled: options?.enabled !== false && storeId !== null && date !== null,
+    select: (response) => response.data,
+    staleTime: 30000,
+  });
+}

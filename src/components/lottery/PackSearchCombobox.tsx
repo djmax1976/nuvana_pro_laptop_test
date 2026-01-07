@@ -37,6 +37,7 @@ import {
   useCallback,
 } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,17 @@ import {
   isValidSerialNumber,
   parseSerializedNumber,
 } from "@/lib/utils/lottery-serial-parser";
+
+/**
+ * Expected barcode length for lottery serial numbers
+ */
+const EXPECTED_BARCODE_LENGTH = 24;
+
+/**
+ * Timeout after last input to validate barcode length (ms)
+ * If no more input comes within this window and digits != 24, show error
+ */
+const SCAN_VALIDATION_TIMEOUT_MS = 400;
 
 /**
  * Pack option for selection
@@ -141,7 +153,7 @@ export const PackSearchCombobox = forwardRef<
     onPackSelect,
     onClear,
     label = "Pack",
-    placeholder = "Search by game name or pack number...",
+    placeholder = "Scan barcode or search by game name...",
     disabled = false,
     error,
     statusFilter = "RECEIVED",
@@ -149,6 +161,8 @@ export const PackSearchCombobox = forwardRef<
   },
   ref,
 ) {
+  const { toast } = useToast();
+
   // ============================================================================
   // INTERNAL UI STATE ONLY (not derived from props, no sync needed)
   // ============================================================================
@@ -164,6 +178,9 @@ export const PackSearchCombobox = forwardRef<
   // Debounce search query for API calls
   const debouncedSearch = useDebounce(searchQuery, 500);
 
+  // Timer ref for scan validation (400ms after last input)
+  const scanValidationTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   // ============================================================================
   // IMPERATIVE HANDLE (for parent to control focus/clear)
   // ============================================================================
@@ -175,6 +192,11 @@ export const PackSearchCombobox = forwardRef<
       },
       clear: () => {
         onSearchQueryChange("");
+        // Clear any pending scan validation timer
+        if (scanValidationTimerRef.current) {
+          clearTimeout(scanValidationTimerRef.current);
+          scanValidationTimerRef.current = null;
+        }
         onClear?.();
       },
     }),
@@ -261,26 +283,90 @@ export const PackSearchCombobox = forwardRef<
   // EVENT HANDLERS
   // ============================================================================
 
+  /**
+   * Clear input and refocus for next scan
+   */
+  const clearAndRefocus = useCallback(() => {
+    onSearchQueryChange("");
+    if (scanValidationTimerRef.current) {
+      clearTimeout(scanValidationTimerRef.current);
+      scanValidationTimerRef.current = null;
+    }
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, [onSearchQueryChange]);
+
+  /**
+   * Handle input change with simple 400ms validation
+   *
+   * Logic:
+   * - On every input change, reset the 400ms timer
+   * - If input is all digits and timer fires:
+   *   - If digits != 24: show error, clear, refocus
+   *   - If digits == 24: valid scan (process normally)
+   * - Text search (non-numeric) skips validation
+   */
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const query = e.target.value;
+      const isAllDigits = /^\d+$/.test(query);
+
+      // Clear any pending validation timer
+      if (scanValidationTimerRef.current) {
+        clearTimeout(scanValidationTimerRef.current);
+        scanValidationTimerRef.current = null;
+      }
+
+      // For numeric input, start 400ms validation timer
+      if (isAllDigits && query.length > 0) {
+        // Too long - reject immediately
+        if (query.length > EXPECTED_BARCODE_LENGTH) {
+          toast({
+            title: "Invalid input. Please scan again.",
+            variant: "destructive",
+          });
+          clearAndRefocus();
+          return;
+        }
+
+        // Start 400ms timer - if no more input comes and length != 24, show error
+        const capturedLength = query.length;
+        scanValidationTimerRef.current = setTimeout(() => {
+          if (capturedLength !== EXPECTED_BARCODE_LENGTH) {
+            toast({
+              title: "Invalid input. Please scan again.",
+              variant: "destructive",
+            });
+            clearAndRefocus();
+          }
+        }, SCAN_VALIDATION_TIMEOUT_MS);
+      }
+
       onSearchQueryChange(query);
       setIsOpen(true);
     },
-    [onSearchQueryChange],
+    [onSearchQueryChange, toast, clearAndRefocus],
   );
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (scanValidationTimerRef.current) {
+        clearTimeout(scanValidationTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleSelectPack = useCallback(
     (pack: PackSearchOption) => {
       // Notify parent of selection
       onPackSelect(pack);
-      // CRITICAL FIX: Clear search query instead of setting to display name
-      // Setting to display name caused scanner input to append to existing text,
-      // resulting in garbled searches that always matched the same pack.
-      // Parent component (EnhancedPackActivationForm) owns the state and will
-      // clear it after processing the selection.
-      // MCP FE-001: STATE_MANAGEMENT - Parent owns state, child notifies only
+      // Clear search query
       onSearchQueryChange("");
+      // Clear any pending validation timer
+      if (scanValidationTimerRef.current) {
+        clearTimeout(scanValidationTimerRef.current);
+        scanValidationTimerRef.current = null;
+      }
       // Close dropdown
       setIsOpen(false);
     },
@@ -309,16 +395,11 @@ export const PackSearchCombobox = forwardRef<
           break;
         case "Enter":
           e.preventDefault();
-          // CRITICAL FIX: Handle scanner race condition
-          // Scanners send Enter before the 500ms debounce completes.
-          // If search is pending, queue the selection for when results arrive.
-          // MCP SEC-014: INPUT_VALIDATION - Validate search state before selection
+          // Handle scanner race condition - Enter arrives before debounce completes
           if (searchQuery.trim() !== debouncedSearch.trim()) {
-            // Search is still pending - queue selection for when results arrive
             setPendingEnterSelect(true);
             return;
           }
-          // Search is current - select immediately
           // eslint-disable-next-line security/detect-object-injection -- highlightedIndex is a controlled number index
           if (packs[highlightedIndex]) {
             // eslint-disable-next-line security/detect-object-injection -- highlightedIndex is a controlled number index
@@ -403,6 +484,9 @@ export const PackSearchCombobox = forwardRef<
             error && "border-red-500 focus-visible:ring-red-500",
           )}
           autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           role="combobox"
           aria-expanded={isOpen}
           aria-controls="pack-listbox"

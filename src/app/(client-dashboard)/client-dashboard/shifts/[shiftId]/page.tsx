@@ -20,7 +20,7 @@
  */
 
 import { useParams, useRouter } from "next/navigation";
-import { useShiftDetail } from "@/lib/api/shifts";
+import { useShiftDetail, useShiftLotterySummary } from "@/lib/api/shifts";
 import { useShiftSummary } from "@/lib/api/shift-summary";
 import { Loader2, ArrowLeft, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,13 @@ export default function ShiftDetailPage() {
     isLoading: isLoadingSummary,
     error: summaryError,
   } = useShiftSummary(shiftId, { enabled: shouldFetchSummary });
+
+  // Fetch comprehensive lottery summary for full reconciliation view
+  const {
+    data: lotterySummaryData,
+    isLoading: isLoadingLotterySummary,
+    error: lotterySummaryError,
+  } = useShiftLotterySummary(shiftId, { enabled: shouldFetchSummary });
 
   // Handle back navigation
   const handleBack = () => {
@@ -158,6 +165,9 @@ export default function ShiftDetailPage() {
           summary={summaryData}
           isLoadingSummary={isLoadingSummary}
           summaryError={summaryError}
+          lotterySummary={lotterySummaryData}
+          isLoadingLotterySummary={isLoadingLotterySummary}
+          lotterySummaryError={lotterySummaryError}
         />
       )}
     </div>

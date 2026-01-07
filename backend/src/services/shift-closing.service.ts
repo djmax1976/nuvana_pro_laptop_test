@@ -13,7 +13,10 @@
 
 import { prisma } from "../utils/db";
 import { Prisma, LotteryPackStatus } from "@prisma/client";
-import { calculateExpectedCount } from "./lottery.service";
+import {
+  calculateExpectedCount,
+  calculateExpectedCountForDepletion,
+} from "./lottery.service";
 
 /**
  * Input for a single pack closing
@@ -195,8 +198,9 @@ export async function closeLotteryForShift(
           continue;
         }
 
-        // Calculate tickets sold (expected count) - ending = serial_end for sold packs
-        const expected = calculateExpectedCount(
+        // Calculate tickets sold for DEPLETION - uses (serial_end + 1) - opening
+        // serial_end is the LAST ticket index, so depletion formula adds +1
+        const expected = calculateExpectedCountForDepletion(
           opening.opening_serial,
           soldPack.serial_end,
         );
@@ -375,28 +379,12 @@ export async function closeLotteryForShift(
           },
         });
 
-        // Determine if pack is depleted (ending >= serial_end)
-        const endingSerialNum = parseInt(closing.ending_serial, 10);
-        const serialEndNum = parseInt(pack.serial_end, 10);
-        const isDepleted =
-          !isNaN(endingSerialNum) &&
-          !isNaN(serialEndNum) &&
-          endingSerialNum >= serialEndNum;
-
-        // Update pack status if depleted
-        if (isDepleted && pack.status === LotteryPackStatus.ACTIVE) {
-          await tx.lotteryPack.update({
-            where: { pack_id: closing.pack_id },
-            data: {
-              status: LotteryPackStatus.DEPLETED,
-              depleted_at: new Date(),
-              depleted_by: closedBy,
-              depleted_shift_id: shiftId,
-              depletion_reason: "SHIFT_CLOSE",
-            },
-          });
-          result.packs_depleted++;
-        }
+        // NOTE: Pack depletion is NOT automatically triggered during shift close.
+        // Packs are only marked as DEPLETED through explicit user actions:
+        // 1. Manual "Mark Sold Out" button
+        // 2. "Bins Need Attention" modal → Sold Out checkbox
+        // 3. Auto-replace when new pack is activated in the same bin
+        // This prevents accidental depletion when ending serial happens to match serial_end.
 
         // Create LotteryVariance if variance exists
         if (difference !== 0) {
@@ -421,6 +409,7 @@ export async function closeLotteryForShift(
         }
 
         // Create AuditLog entry (non-blocking - don't fail if audit fails)
+        // LM-001: LOGGING - Structured audit log with consistent fields
         try {
           await tx.auditLog.create({
             data: {
@@ -441,13 +430,12 @@ export async function closeLotteryForShift(
                 expected_count: expected,
                 actual_count: actual,
                 difference: difference,
-                pack_status_updated: isDepleted ? "DEPLETED" : "ACTIVE",
               } as Record<string, any>,
               reason: `Lottery shift closing created for pack ${pack.pack_number} - Entry: ${closing.entry_method}, Expected: ${expected}, Actual: ${actual}, Difference: ${difference}`,
             },
           });
         } catch (auditError) {
-          // Log error but don't fail the operation
+          // API-003: ERROR_HANDLING - Log error server-side but don't fail the operation
           console.error(
             "Failed to create audit log for shift closing:",
             auditError,

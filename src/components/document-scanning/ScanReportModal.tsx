@@ -498,7 +498,13 @@ export function ScanReportModal({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent
+        className={cn(
+          "max-w-2xl",
+          // Use wider modal in verification state for side-by-side comparison
+          state === "verifying" && "max-w-4xl",
+        )}
+      >
         <DialogHeader>
           <DialogTitle>Scan Lottery Report</DialogTitle>
           <DialogDescription>
@@ -615,13 +621,13 @@ function OCRVerificationView({
         {/* Image preview (left side) */}
         <div className="space-y-2">
           <h4 className="font-medium text-sm">Scanned Document</h4>
-          <div className="aspect-[4/3] bg-muted rounded-lg overflow-hidden border">
+          <div className="min-h-[300px] max-h-[500px] bg-muted rounded-lg overflow-hidden border flex items-center justify-center">
             {previewUrl && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={previewUrl}
                 alt="Scanned document"
-                className="w-full h-full object-contain"
+                className="max-w-full max-h-[480px] object-contain"
                 data-testid="verification-image"
               />
             )}

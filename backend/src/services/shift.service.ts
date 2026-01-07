@@ -23,6 +23,9 @@ import {
   UNCLOSED_SHIFT_STATUSES,
   type TransitionContext,
 } from "./shift-state-machine";
+import type { ShiftLotterySummaryResponse } from "../types/shift-lottery-summary.types";
+import { daySummaryService } from "./day-summary.service";
+import { DaySummaryStatus } from "@prisma/client";
 
 /**
  * Audit context for logging operations
@@ -114,6 +117,10 @@ export interface PaginationOptions {
 /**
  * Shift response for list queries
  * Story 4.7: Shift Management UI
+ *
+ * Enterprise Standards Applied:
+ * - DB-006: TENANT_ISOLATION - day_summary_id links to store-scoped day summary
+ * - API-008: OUTPUT_FILTERING - Only display-safe fields included
  */
 export interface ShiftResponse {
   shift_id: string;
@@ -133,6 +140,9 @@ export interface ShiftResponse {
   store_name?: string;
   cashier_name?: string;
   opener_name?: string;
+  // Business day association - links shift to its DaySummary
+  // This is the authoritative source for shift-to-day grouping in the UI
+  day_summary_id: string | null;
 }
 
 /**
@@ -579,7 +589,18 @@ export class ShiftService {
         tx,
       );
 
-      // Create shift record with shift_number and opening_cash
+      // Get or create the active business day for this store
+      // Business Rule: Shift belongs to the day that is currently OPEN
+      // DB-006: TENANT_ISOLATION - Day summary scoped to store_id
+      // PHASE 5: Pass userId to enable lottery day creation with audit trail
+      const daySummaryId = await this.getOrCreateActiveDaySummaryId(
+        terminal.store_id,
+        terminal.store.timezone,
+        tx,
+        auditContext.userId,
+      );
+
+      // Create shift record with shift_number, opening_cash, and day_summary_id
       const newShift = await tx.shift.create({
         data: {
           store_id: terminal.store_id,
@@ -590,6 +611,8 @@ export class ShiftService {
           status: ShiftStatus.OPEN,
           opened_at: new Date(),
           shift_number: shiftNumber,
+          // Associate shift with the active business day
+          day_summary_id: daySummaryId,
         },
       });
 
@@ -611,6 +634,7 @@ export class ShiftService {
               status: newShift.status,
               opened_at: newShift.opened_at.toISOString(),
               shift_number: newShift.shift_number,
+              day_summary_id: newShift.day_summary_id,
             } as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
@@ -795,6 +819,224 @@ export class ShiftService {
   }
 
   /**
+   * Get or create the active business day for a store.
+   *
+   * Business Rule: A shift must be associated with the business day that is OPEN
+   * when the shift is created. This correctly handles overnight operations where
+   * a business day started on one calendar date may include shifts opened on
+   * the next calendar date.
+   *
+   * Algorithm:
+   * 1. Check for an OPEN day summary for this store
+   * 2. If found, return its ID (shift belongs to this active day)
+   * 3. If not found, create a new day summary for today's date
+   * 4. PHASE 5: Ensure lottery business day exists and is linked
+   *
+   * Enterprise Standards Applied:
+   * - DB-006: TENANT_ISOLATION - All queries scoped by store_id
+   * - DB-001: ORM_USAGE - Using Prisma query builders
+   * - SEC-006: SQL_INJECTION - All parameters bound via Prisma ORM
+   * - API-003: ERROR_HANDLING - Structured error handling with non-blocking fallback
+   * - SEC-017: AUDIT_TRAILS - Structured logging for observability
+   *
+   * @param storeId - Store UUID (for tenant isolation)
+   * @param storeTimezone - Store's timezone for business date calculation
+   * @param tx - Optional Prisma transaction client
+   * @param openedByUserId - Optional user ID for lottery day creation audit trail
+   * @returns Day summary ID for the active business day, or null if creation fails
+   */
+  async getOrCreateActiveDaySummaryId(
+    storeId: string,
+    storeTimezone: string | null,
+    tx?: Prisma.TransactionClient,
+    openedByUserId?: string,
+  ): Promise<string | null> {
+    const client = tx || prisma;
+
+    try {
+      // STEP 1: Find any OPEN day summary for this store
+      // DB-006: TENANT_ISOLATION - Filter by store_id
+      const openDaySummary = await client.daySummary.findFirst({
+        where: {
+          store_id: storeId,
+          status: DaySummaryStatus.OPEN,
+        },
+        select: {
+          day_summary_id: true,
+          business_date: true,
+        },
+        orderBy: {
+          business_date: "desc", // Most recent open day
+        },
+      });
+
+      let daySummaryId: string;
+      let businessDate: Date;
+
+      // If we found an open day summary, use it
+      if (openDaySummary) {
+        daySummaryId = openDaySummary.day_summary_id;
+        businessDate = openDaySummary.business_date;
+      } else {
+        // STEP 2: No open day found - create one for today's business date
+        // Use store timezone if available, otherwise UTC
+        const now = new Date();
+
+        if (storeTimezone) {
+          // Convert current time to store's local timezone to get business date
+          const storeLocalTime = toStoreTime(now, storeTimezone);
+          businessDate = startOfDay(storeLocalTime);
+        } else {
+          // Fallback to UTC start of day
+          businessDate = startOfDay(now);
+        }
+
+        // Create new day summary
+        // Using getOrCreateDaySummary from daySummaryService ensures idempotency
+        const newDaySummary = await daySummaryService.getOrCreateDaySummary(
+          storeId,
+          businessDate,
+        );
+        daySummaryId = newDaySummary.day_summary_id;
+      }
+
+      // =========================================================================
+      // PHASE 5: LOTTERY BUSINESS DAY SAFETY FALLBACK
+      // =========================================================================
+      // Ensure a lottery business day exists and is linked to the day summary.
+      // This is a safety fallback - normally day close creates the next day.
+      //
+      // BUSINESS RULE:
+      // - Find existing OPEN lottery day for this store (status-based lookup)
+      // - If none exists, create new lottery day linked to the day summary
+      //
+      // MCP Guidance Applied:
+      // - DB-006: TENANT_ISOLATION - Scoped by store_id
+      // - DB-001: ORM_USAGE - Using Prisma ORM with query builder
+      // - SEC-006: SQL_INJECTION - All parameters bound via Prisma ORM
+      // - API-003: ERROR_HANDLING - Non-blocking with structured logging
+      // - SEC-017: AUDIT_TRAILS - Structured logging for observability
+      // =========================================================================
+      await this.ensureLotteryBusinessDayExists(
+        client,
+        storeId,
+        businessDate,
+        daySummaryId,
+        openedByUserId,
+      );
+
+      return daySummaryId;
+    } catch (error) {
+      // Log error but don't fail shift creation
+      // The day_summary_id is nullable and can be backfilled later
+      // SEC-017: AUDIT_TRAILS - Log for investigation
+      console.error(
+        `[ShiftService] Failed to get/create active day summary for store ${storeId}:`,
+        error,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Ensure a lottery business day exists for the given store and business date.
+   *
+   * PHASE 5: Shift Open Safety Fallback
+   * This is a safety mechanism that ensures lottery operations work even if:
+   * - Day close didn't create the next day (edge case)
+   * - System was bootstrapped without lottery days
+   * - Manual recovery from inconsistent state
+   *
+   * The method is non-blocking - lottery day creation failure does not fail
+   * the parent operation (shift creation).
+   *
+   * @security
+   * - DB-006: TENANT_ISOLATION - Scoped to store_id
+   * - DB-001: ORM_USAGE - Uses Prisma ORM with query builder
+   * - SEC-006: SQL_INJECTION - All parameters bound via Prisma ORM
+   * - API-003: ERROR_HANDLING - Non-blocking, logs errors
+   * - SEC-017: AUDIT_TRAILS - Structured logging for observability
+   *
+   * @param client - Prisma client or transaction client
+   * @param storeId - Store UUID (for tenant isolation)
+   * @param businessDate - Business date for the lottery day
+   * @param daySummaryId - Day summary ID to link the lottery day to
+   * @param openedByUserId - Optional user ID for audit trail
+   */
+  private async ensureLotteryBusinessDayExists(
+    client: Prisma.TransactionClient | typeof prisma,
+    storeId: string,
+    businessDate: Date,
+    daySummaryId: string,
+    openedByUserId?: string,
+  ): Promise<void> {
+    try {
+      // STEP 1: Find any OPEN lottery day for this store (status-based lookup)
+      // DB-006: TENANT_ISOLATION - Scoped by store_id
+      // SEC-014: INPUT_VALIDATION - Status values are hardcoded enums
+      const existingOpenDay = await client.lotteryBusinessDay.findFirst({
+        where: {
+          store_id: storeId,
+          status: "OPEN",
+        },
+        select: {
+          day_id: true,
+          day_summary_id: true,
+        },
+        orderBy: {
+          opened_at: "desc", // Most recent first
+        },
+      });
+
+      if (existingOpenDay) {
+        // OPEN lottery day exists - check if it needs to be linked to day summary
+        // This handles the case where lottery day was created without FK link
+        if (!existingOpenDay.day_summary_id && daySummaryId) {
+          // SEC-017: AUDIT_TRAILS - Log the linking for observability
+          console.log(
+            `[ShiftService] Linking existing lottery day ${existingOpenDay.day_id} to day summary ${daySummaryId}`,
+          );
+          await client.lotteryBusinessDay.update({
+            where: { day_id: existingOpenDay.day_id },
+            data: { day_summary_id: daySummaryId },
+          });
+        }
+        return;
+      }
+
+      // STEP 2: No OPEN lottery day found - create one linked to day summary
+      // This is a fallback scenario (normally day close creates the next day)
+      // DB-006: TENANT_ISOLATION - store_id enforces tenant scope
+      // DB-001: ORM_USAGE - Using Prisma ORM, no raw SQL
+      const normalizedBusinessDate = startOfDay(businessDate);
+      const newLotteryDay = await client.lotteryBusinessDay.create({
+        data: {
+          store_id: storeId,
+          business_date: normalizedBusinessDate,
+          status: "OPEN",
+          opened_at: new Date(),
+          opened_by: openedByUserId || null,
+          // Link to the day summary for FK relationship
+          day_summary_id: daySummaryId,
+        },
+      });
+
+      // SEC-017: AUDIT_TRAILS - Log successful creation
+      console.log(
+        `[ShiftService] Created fallback lottery day ${newLotteryDay.day_id} for store ${storeId}, linked to day summary ${daySummaryId}`,
+      );
+    } catch (lotteryDayError) {
+      // Log but don't fail parent operation - lottery day creation is non-critical
+      // SEC-017: AUDIT_TRAILS - Log for investigation
+      // API-003: ERROR_HANDLING - Non-blocking error handling
+      console.error(
+        "[ShiftService] Failed to ensure LotteryBusinessDay exists:",
+        lotteryDayError,
+      );
+    }
+  }
+
+  /**
    * Validate that POS terminal exists, belongs to store, and is available for shift opening
    *
    * Note: POSTerminal model uses soft-delete only (deleted_at field). There is no status field.
@@ -898,9 +1140,27 @@ export class ShiftService {
       );
     }
 
+    // Get store timezone for business day calculation
+    const store = await prisma.store.findUnique({
+      where: { store_id: data.store_id },
+      select: { timezone: true },
+    });
+
     // Create shift and audit log in a transaction for atomicity
     const shift = await prisma.$transaction(async (tx) => {
-      // Create shift record
+      // Get or create the active business day for this store
+      // Business Rule: Shift belongs to the day that is currently OPEN
+      // DB-006: TENANT_ISOLATION - Day summary scoped to store_id
+      // PHASE 5: Pass userId to enable lottery day creation with audit trail
+      // Note: getOrCreateActiveDaySummaryId now also ensures lottery day exists
+      const daySummaryId = await this.getOrCreateActiveDaySummaryId(
+        data.store_id,
+        store?.timezone || null,
+        tx,
+        auditContext.userId,
+      );
+
+      // Create shift record with day_summary_id
       // Note: cashier_id is guaranteed to be defined by route layer, but TypeScript needs assertion
       const newShift = await tx.shift.create({
         data: {
@@ -911,41 +1171,10 @@ export class ShiftService {
           opening_cash: data.opening_cash,
           status: ShiftStatus.OPEN,
           opened_at: new Date(),
+          // Associate shift with the active business day
+          day_summary_id: daySummaryId,
         },
       });
-
-      // Auto-create LotteryBusinessDay if this is the first shift of the day
-      // Day boundaries are based on calendar date in store's timezone
-      try {
-        const today = startOfDay(new Date());
-        const existingDay = await tx.lotteryBusinessDay.findUnique({
-          where: {
-            store_id_business_date: {
-              store_id: data.store_id,
-              business_date: today,
-            },
-          },
-        });
-
-        if (!existingDay) {
-          // Create new LotteryBusinessDay for today
-          await tx.lotteryBusinessDay.create({
-            data: {
-              store_id: data.store_id,
-              business_date: today,
-              status: "OPEN",
-              opened_by: auditContext.userId,
-              opened_at: new Date(),
-            },
-          });
-        }
-      } catch (lotteryDayError) {
-        // Log but don't fail shift creation - lottery day creation is non-critical
-        console.error(
-          "Failed to create/check LotteryBusinessDay:",
-          lotteryDayError,
-        );
-      }
 
       // Create audit log entry (non-blocking - don't fail if audit fails)
       try {
@@ -964,6 +1193,7 @@ export class ShiftService {
               opening_cash: newShift.opening_cash.toString(),
               status: newShift.status,
               opened_at: newShift.opened_at.toISOString(),
+              day_summary_id: newShift.day_summary_id,
             } as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
@@ -1851,6 +2081,7 @@ export class ShiftService {
     });
 
     // Transform to response format
+    // DB-006: TENANT_ISOLATION - day_summary_id is within same store scope
     const transformedShifts: ShiftResponse[] = shifts.map((shift: any) => ({
       shift_id: shift.shift_id,
       store_id: shift.store_id,
@@ -1872,6 +2103,8 @@ export class ShiftService {
       store_name: shift.store?.name,
       cashier_name: shift.cashier?.name,
       opener_name: shift.opener?.name,
+      // Business day association for correct shift-to-day grouping
+      day_summary_id: shift.day_summary_id || null,
     }));
 
     return {
@@ -1952,13 +2185,32 @@ export class ShiftService {
       }
     }
 
-    // Calculate variance_amount and variance_percentage from stored variance field
-    const varianceAmount = shift.variance ? Number(shift.variance) : null;
-    const expectedCash = shift.expected_cash
-      ? Number(shift.expected_cash)
-      : null;
-    const variancePercentage =
-      varianceAmount !== null && expectedCash !== null && expectedCash > 0
+    // Get ShiftSummary for more reliable variance data
+    // The shift record may have null variance/expected_cash but ShiftSummary is populated at close time
+    const shiftSummary = await prisma.shiftSummary.findUnique({
+      where: { shift_id: shiftId },
+      select: {
+        expected_cash: true,
+        cash_variance: true,
+        variance_percentage: true,
+      },
+    });
+
+    // Calculate variance_amount and variance_percentage
+    // Prefer ShiftSummary values (more reliable) over shift record values
+    const varianceAmount = shiftSummary?.cash_variance
+      ? Number(shiftSummary.cash_variance)
+      : shift.variance
+        ? Number(shift.variance)
+        : null;
+    const expectedCash = shiftSummary?.expected_cash
+      ? Number(shiftSummary.expected_cash)
+      : shift.expected_cash
+        ? Number(shift.expected_cash)
+        : null;
+    const variancePercentage = shiftSummary?.variance_percentage
+      ? Number(shiftSummary.variance_percentage)
+      : varianceAmount !== null && expectedCash !== null && expectedCash > 0
         ? (varianceAmount / expectedCash) * 100
         : null;
 
@@ -1988,6 +2240,8 @@ export class ShiftService {
       store_name: shift.store?.name,
       cashier_name: shift.cashier?.name,
       opener_name: shift.opener?.name,
+      // Business day association - links shift to its DaySummary
+      day_summary_id: shift.day_summary_id || null,
       transaction_count: transactionCount,
       variance_reason: shift.variance_reason || null,
       approved_by: shift.approved_by || null,
@@ -2600,6 +2854,525 @@ export class ShiftService {
       payment_methods: paymentMethods,
       from_summary_table: false,
     };
+  }
+
+  /**
+   * Get comprehensive lottery summary for a closed shift
+   *
+   * Returns all data needed to display the full reconciliation view matching
+   * the Day Close Wizard Step 3 layout, including:
+   * - Shift info (terminal, cashier, timing, cash)
+   * - Lottery totals and per-bin breakdown
+   * - Money received breakdown
+   * - Sales breakdown by department
+   * - Returned, depleted, and activated packs
+   *
+   * @security
+   * - DB-006: TENANT_ISOLATION - Validates user access to store
+   * - SEC-006: SQL_INJECTION - Uses Prisma ORM, no raw SQL
+   * - API-003: ERROR_HANDLING - Throws typed errors for handling
+   *
+   * @param shiftId - UUID of the shift
+   * @param userId - UUID of the requesting user (for access control)
+   * @returns Complete lottery summary for the shift
+   * @throws ShiftServiceError if shift not found or access denied
+   */
+  async getShiftLotterySummary(
+    shiftId: string,
+    userId: string,
+  ): Promise<ShiftLotterySummaryResponse> {
+    // Validate shiftId format
+    if (!shiftId || typeof shiftId !== "string") {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        "Invalid shift ID",
+      );
+    }
+
+    // Query shift with all related data needed for summary
+    const shift = await prisma.shift.findUnique({
+      where: { shift_id: shiftId },
+      include: {
+        store: {
+          select: {
+            store_id: true,
+            timezone: true,
+          },
+        },
+        cashier: {
+          select: {
+            name: true,
+          },
+        },
+        pos_terminal: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    // Validate shift exists
+    if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found`,
+        { shift_id: shiftId },
+      );
+    }
+
+    // DB-006: TENANT_ISOLATION - Validate user has access to this store
+    const hasAccess = await this.checkUserStoreAccess(userId, shift.store_id);
+    if (!hasAccess) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found or you do not have access`,
+        { shift_id: shiftId },
+      );
+    }
+
+    // Get ShiftSummary if available (contains business_date and aggregated data)
+    const shiftSummary = await prisma.shiftSummary.findUnique({
+      where: { shift_id: shiftId },
+      include: {
+        tender_summaries: true,
+        department_summaries: true,
+      },
+    });
+
+    // Determine business date for LOTTERY lookup
+    // IMPORTANT: For lottery data, we must use shift.closed_at (when lottery was reconciled)
+    // NOT ShiftSummary.business_date (which may be from shift.opened_at)
+    // The lottery day is created/closed based on when the shift ends, not when it starts
+    // A shift opened on Jan 4 but closed on Jan 6 has its lottery on Jan 6's business day
+    const lotteryBusinessDate = shift.closed_at || shift.opened_at;
+
+    // Format business date as YYYY-MM-DD for queries
+    const businessDateStr = lotteryBusinessDate.toISOString().split("T")[0];
+
+    // Query LotteryBusinessDay for this store and date
+    // Only fetch status and closed_at - day_packs are NOT included because
+    // bins_closed data belongs to Day Close, not individual shifts
+    // PHASE 3: Status-based lookup - find lottery day linked to same day_summary as shift
+    // DB-006: TENANT_ISOLATION - store_id enforces tenant scoping
+    const lotteryBusinessDay = await prisma.lotteryBusinessDay.findFirst({
+      where: {
+        store_id: shift.store_id,
+        business_date: new Date(businessDateStr),
+      },
+      select: {
+        status: true,
+        closed_at: true,
+        business_date: true,
+      },
+      orderBy: {
+        opened_at: "desc", // Most recent first
+      },
+    });
+
+    // =========================================================================
+    // ARCHITECTURAL FIX: bins_closed is DAY-LEVEL data, not SHIFT-LEVEL
+    // =========================================================================
+    // DB-006: TENANT_ISOLATION - Lottery bin closings belong to LotteryBusinessDay
+    // SEC-014: Data integrity - Shifts should NOT display other shifts' lottery data
+    //
+    // The bins_closed array is intentionally empty for shift summary responses.
+    // Lottery closing data (LotteryDayPack) belongs to the Day Close, not to
+    // individual shifts. When a user clicks on a "Day Close" row in Lottery
+    // Management, they will see the bins_closed data from the dedicated
+    // Day Close reconciliation endpoint.
+    //
+    // This prevents the bug where lottery data from a day close "leaks" into
+    // shifts that happened on the same calendar date but weren't involved in
+    // the lottery close.
+    // =========================================================================
+    const binsClosed: ShiftLotterySummaryResponse["bins_closed"] = [];
+
+    // Determine business period boundaries for pack queries
+    // For closed shift summary view, we show packs acted on during the SHIFT period
+    // This is because a shift may span multiple lottery business days, and we want
+    // to show all activity that happened during that shift regardless of lottery day boundaries
+    const businessPeriodStart = shift.opened_at;
+    const businessPeriodEnd = shift.closed_at || undefined;
+
+    // Query depleted packs for this business period
+    // DB-006: TENANT_ISOLATION - store_id filter enforces tenant scoping
+    const depletedPacks = await prisma.lotteryPack.findMany({
+      where: {
+        store_id: shift.store_id,
+        status: "DEPLETED",
+        depleted_at: {
+          gte: businessPeriodStart,
+          ...(businessPeriodEnd ? { lte: businessPeriodEnd } : {}),
+        },
+      },
+      include: {
+        game: {
+          select: {
+            name: true,
+            price: true,
+          },
+        },
+        bin: {
+          select: {
+            display_order: true,
+          },
+        },
+      },
+      orderBy: { depleted_at: "desc" },
+    });
+
+    const depletedPacksData: ShiftLotterySummaryResponse["depleted_packs"] =
+      depletedPacks.map((pack) => ({
+        pack_id: pack.pack_id,
+        pack_number: pack.pack_number,
+        game_name: pack.game.name,
+        game_price: Number(pack.game.price),
+        bin_number: pack.bin ? pack.bin.display_order + 1 : 0,
+        activated_at: pack.activated_at?.toISOString() || "",
+        depleted_at: pack.depleted_at?.toISOString() || "",
+      }));
+
+    // Query returned packs for this business period
+    const returnedPacks = await prisma.lotteryPack.findMany({
+      where: {
+        store_id: shift.store_id,
+        status: "RETURNED",
+        returned_at: {
+          gte: businessPeriodStart,
+          ...(businessPeriodEnd ? { lte: businessPeriodEnd } : {}),
+        },
+      },
+      include: {
+        game: {
+          select: {
+            name: true,
+            price: true,
+          },
+        },
+        bin: {
+          select: {
+            display_order: true,
+          },
+        },
+        returnedByUser: {
+          select: {
+            name: true,
+          },
+        },
+      },
+      orderBy: { returned_at: "desc" },
+    });
+
+    const returnedPacksData: ShiftLotterySummaryResponse["returned_packs"] =
+      returnedPacks.map((pack) => ({
+        pack_id: pack.pack_id,
+        pack_number: pack.pack_number,
+        game_name: pack.game.name,
+        game_price: Number(pack.game.price),
+        bin_number: pack.bin ? pack.bin.display_order + 1 : 0,
+        activated_at: pack.activated_at?.toISOString() || "",
+        returned_at: pack.returned_at?.toISOString() || "",
+        return_reason: pack.return_reason || null,
+        return_notes: pack.return_notes || null,
+        last_sold_serial: pack.last_sold_serial || null,
+        tickets_sold_on_return: pack.tickets_sold_on_return ?? null,
+        return_sales_amount: pack.return_sales_amount
+          ? Number(pack.return_sales_amount)
+          : null,
+        returned_by_name: pack.returnedByUser?.name || null,
+      }));
+
+    // Query activated packs for this business period
+    const activatedPacks = await prisma.lotteryPack.findMany({
+      where: {
+        store_id: shift.store_id,
+        activated_at: {
+          gte: businessPeriodStart,
+          ...(businessPeriodEnd ? { lte: businessPeriodEnd } : {}),
+          not: null,
+        },
+      },
+      include: {
+        game: {
+          select: {
+            name: true,
+            price: true,
+          },
+        },
+        bin: {
+          select: {
+            display_order: true,
+          },
+        },
+      },
+      orderBy: { activated_at: "desc" },
+    });
+
+    const activatedPacksData: ShiftLotterySummaryResponse["activated_packs"] =
+      activatedPacks.map((pack) => ({
+        pack_id: pack.pack_id,
+        pack_number: pack.pack_number,
+        game_name: pack.game.name,
+        game_price: Number(pack.game.price),
+        bin_number: pack.bin ? pack.bin.display_order + 1 : 0,
+        activated_at: pack.activated_at?.toISOString() || "",
+        status: pack.status as "ACTIVE" | "DEPLETED" | "RETURNED",
+      }));
+
+    // Build money received summary from ShiftSummary tender data
+    const moneyReceived: ShiftLotterySummaryResponse["money_received"] = {
+      pos: {
+        cash: 0,
+        creditCard: 0,
+        debitCard: 0,
+        ebt: 0,
+        cashPayouts: 0,
+        lotteryPayouts: shiftSummary?.lottery_cashes
+          ? Number(shiftSummary.lottery_cashes)
+          : 0,
+        gamingPayouts: 0,
+      },
+      reports: {
+        cashPayouts: 0,
+        lotteryPayouts: shiftSummary?.lottery_cashes
+          ? Number(shiftSummary.lottery_cashes)
+          : 0,
+        gamingPayouts: 0,
+      },
+    };
+
+    // Map tender summaries to money received
+    if (shiftSummary?.tender_summaries) {
+      for (const tender of shiftSummary.tender_summaries) {
+        const code = tender.tender_code.toUpperCase();
+        const amount = Number(tender.total_amount);
+
+        if (code === "CASH" || code.includes("CASH")) {
+          moneyReceived.pos.cash = amount;
+        } else if (code === "CREDIT" || code.includes("CREDIT")) {
+          moneyReceived.pos.creditCard = amount;
+        } else if (code === "DEBIT" || code.includes("DEBIT")) {
+          moneyReceived.pos.debitCard = amount;
+        } else if (code === "EBT" || code.includes("EBT")) {
+          moneyReceived.pos.ebt = amount;
+        }
+      }
+    }
+
+    // Build sales breakdown from ShiftSummary department data
+    const salesBreakdown: ShiftLotterySummaryResponse["sales_breakdown"] = {
+      pos: {
+        gasSales: 0,
+        grocery: 0,
+        tobacco: 0,
+        beverages: 0,
+        snacks: 0,
+        other: 0,
+        scratchOff: shiftSummary?.lottery_sales
+          ? Number(shiftSummary.lottery_sales)
+          : 0,
+        instantCashes: 0,
+        onlineLottery: 0,
+        onlineCashes: 0,
+        salesTax: shiftSummary?.tax_collected
+          ? Number(shiftSummary.tax_collected)
+          : 0,
+      },
+      reports: {
+        scratchOff: shiftSummary?.lottery_sales
+          ? Number(shiftSummary.lottery_sales)
+          : 0,
+        instantCashes: 0,
+        onlineLottery: 0,
+        onlineCashes: 0,
+      },
+    };
+
+    // Map department summaries to sales breakdown
+    if (shiftSummary?.department_summaries) {
+      for (const dept of shiftSummary.department_summaries) {
+        const code = dept.department_code.toUpperCase();
+        const amount = Number(dept.net_sales);
+
+        if (code === "GAS" || code.includes("FUEL")) {
+          salesBreakdown.pos.gasSales = amount;
+        } else if (code === "GROCERY" || code.includes("GROC")) {
+          salesBreakdown.pos.grocery = amount;
+        } else if (code === "TOBACCO" || code.includes("CIG")) {
+          salesBreakdown.pos.tobacco = amount;
+        } else if (code === "BEVERAGES" || code.includes("BEV")) {
+          salesBreakdown.pos.beverages = amount;
+        } else if (code === "SNACKS" || code.includes("SNACK")) {
+          salesBreakdown.pos.snacks = amount;
+        } else {
+          salesBreakdown.pos.other += amount;
+        }
+      }
+    }
+
+    // =========================================================================
+    // LOTTERY TOTALS: Use ShiftSummary data (aggregated at shift close)
+    // =========================================================================
+    // The lottery totals in ShiftSummary represent what was recorded when the
+    // shift was closed, which may include scanned reports or other sources.
+    // We no longer calculate from bins_closed since that's day-level data.
+    // =========================================================================
+
+    // Build response
+    const response: ShiftLotterySummaryResponse = {
+      shift_id: shiftId,
+      store_id: shift.store_id,
+      business_date: businessDateStr,
+      lottery_closed: lotteryBusinessDay?.status === "CLOSED",
+      lottery_closed_at: lotteryBusinessDay?.closed_at?.toISOString() || null,
+
+      lottery_totals: {
+        // Use ShiftSummary data exclusively - this is shift-level data
+        lottery_sales: shiftSummary?.lottery_sales
+          ? Number(shiftSummary.lottery_sales)
+          : 0,
+        lottery_cashes: shiftSummary?.lottery_cashes
+          ? Number(shiftSummary.lottery_cashes)
+          : 0,
+        lottery_net: shiftSummary?.lottery_net
+          ? Number(shiftSummary.lottery_net)
+          : 0,
+        packs_sold: shiftSummary?.lottery_packs_sold ?? 0,
+        tickets_sold: shiftSummary?.lottery_tickets_sold ?? 0,
+      },
+
+      bins_closed: binsClosed,
+      depleted_packs: depletedPacksData,
+      returned_packs: returnedPacksData,
+      activated_packs: activatedPacksData,
+
+      // Build open business period metadata for pack section components
+      open_business_period: {
+        started_at: businessPeriodStart.toISOString(),
+        last_closed_date:
+          lotteryBusinessDay?.status === "CLOSED"
+            ? businessDateStr
+            : await this.getPreviousClosedDate(shift.store_id, businessDateStr),
+        days_since_last_close:
+          lotteryBusinessDay?.status === "CLOSED"
+            ? 0
+            : await this.getDaysSinceLastClose(shift.store_id, businessDateStr),
+        is_first_period: await this.isFirstBusinessPeriod(
+          shift.store_id,
+          businessDateStr,
+        ),
+      },
+
+      money_received: moneyReceived,
+      sales_breakdown: salesBreakdown,
+
+      shift_info: {
+        terminal_name: shift.pos_terminal?.name || null,
+        shift_number: shift.shift_number || null,
+        cashier_name: shift.cashier?.name || "Unknown",
+        opened_at: shift.opened_at.toISOString(),
+        closed_at: shift.closed_at?.toISOString() || null,
+        opening_cash: Number(shift.opening_cash),
+        closing_cash: shift.closing_cash ? Number(shift.closing_cash) : null,
+        // Use ShiftSummary for expected_cash and variance (more reliable than shift record)
+        expected_cash: shiftSummary?.expected_cash
+          ? Number(shiftSummary.expected_cash)
+          : shift.expected_cash
+            ? Number(shift.expected_cash)
+            : null,
+        variance: shiftSummary?.cash_variance
+          ? Number(shiftSummary.cash_variance)
+          : shift.variance
+            ? Number(shift.variance)
+            : null,
+      },
+    };
+
+    return response;
+  }
+
+  /**
+   * Get the previous closed business day date for a store
+   *
+   * @security DB-006: TENANT_ISOLATION - store_id filter enforces tenant scoping
+   * @param storeId - Store UUID
+   * @param currentDateStr - Current business date (YYYY-MM-DD)
+   * @returns Previous closed date string or null if none found
+   */
+  private async getPreviousClosedDate(
+    storeId: string,
+    currentDateStr: string,
+  ): Promise<string | null> {
+    const previousClosed = await prisma.lotteryBusinessDay.findFirst({
+      where: {
+        store_id: storeId,
+        status: "CLOSED",
+        business_date: { lt: new Date(currentDateStr) },
+      },
+      orderBy: { business_date: "desc" },
+      select: { business_date: true },
+    });
+
+    return previousClosed?.business_date.toISOString().split("T")[0] || null;
+  }
+
+  /**
+   * Calculate days since last closed business day
+   *
+   * @security DB-006: TENANT_ISOLATION - store_id filter enforces tenant scoping
+   * @param storeId - Store UUID
+   * @param currentDateStr - Current business date (YYYY-MM-DD)
+   * @returns Number of days since last close, or null if no previous close
+   */
+  private async getDaysSinceLastClose(
+    storeId: string,
+    currentDateStr: string,
+  ): Promise<number | null> {
+    const previousClosed = await prisma.lotteryBusinessDay.findFirst({
+      where: {
+        store_id: storeId,
+        status: "CLOSED",
+        business_date: { lt: new Date(currentDateStr) },
+      },
+      orderBy: { business_date: "desc" },
+      select: { business_date: true },
+    });
+
+    if (!previousClosed) {
+      return null;
+    }
+
+    const currentDate = new Date(currentDateStr);
+    const previousDate = previousClosed.business_date;
+    const diffTime = currentDate.getTime() - previousDate.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    return diffDays;
+  }
+
+  /**
+   * Check if this is the first business period (no prior day closes)
+   *
+   * @security DB-006: TENANT_ISOLATION - store_id filter enforces tenant scoping
+   * @param storeId - Store UUID
+   * @param currentDateStr - Current business date (YYYY-MM-DD)
+   * @returns True if no previous closed business days exist
+   */
+  private async isFirstBusinessPeriod(
+    storeId: string,
+    currentDateStr: string,
+  ): Promise<boolean> {
+    const previousClosed = await prisma.lotteryBusinessDay.findFirst({
+      where: {
+        store_id: storeId,
+        status: "CLOSED",
+        business_date: { lt: new Date(currentDateStr) },
+      },
+      select: { day_id: true },
+    });
+
+    return previousClosed === null;
   }
 }
 

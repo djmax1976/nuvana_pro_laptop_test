@@ -56,6 +56,7 @@ describe("4.7-COMPONENT: ShiftDetailModal Component", () => {
     closed_at: "2024-01-01T18:00:00Z",
     store_name: "Store 1",
     cashier_name: "John Doe",
+    day_summary_id: "day-summary-1",
   };
 
   const mockShiftDetail: ShiftDetailResponse = {

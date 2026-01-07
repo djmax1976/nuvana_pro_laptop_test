@@ -77,6 +77,8 @@ import {
 } from "@/lib/api/lottery";
 import { parseSerializedNumber } from "@/lib/utils/lottery-serial-parser";
 import { cn } from "@/lib/utils";
+import { formatDateTimeShort } from "@/utils/date-format.utils";
+import { useStoreTimezone } from "@/contexts/StoreContext";
 import { ManualEntryAuthModal } from "@/components/lottery/ManualEntryAuthModal";
 import {
   UnscannedBinWarningModal,
@@ -91,6 +93,9 @@ import { ActivatedPacksSection } from "@/components/lottery/ActivatedPacksSectio
 
 /**
  * Scanned bin state - tracks which bins have been scanned and their ending serials
+ *
+ * MCP Guidance Applied:
+ * - FE-001: STATE_MANAGEMENT - Track source of closing serial for correct calculation
  */
 export interface ScannedBin {
   bin_id: string;
@@ -99,6 +104,13 @@ export interface ScannedBin {
   pack_number: string;
   game_name: string;
   closing_serial: string;
+  /**
+   * True if this bin was marked as sold out (depleted).
+   * Affects ticket calculation formula:
+   * - Sold out: (serial_end + 1) - starting (serial_end is last index)
+   * - Normal scan: ending - starting (ending is next position)
+   */
+  is_sold_out?: boolean;
 }
 
 /**
@@ -213,11 +225,11 @@ interface DayCloseModeScannerProps {
 }
 
 /**
- * SCANNER_DEBOUNCE_MS - Debounce time for scanner detection
- * Scanner input is typically fast (< 100ms between chars)
- * Manual typing is slower, so we wait 400ms before processing
+ * SCAN_VALIDATION_TIMEOUT_MS - Time to wait after last keystroke before validating
+ * Scanner input completes in ~120-250ms for 24 digits
+ * If 400ms passes with no more input and length != 24, it's invalid
  */
-const SCANNER_DEBOUNCE_MS = 400;
+const SCAN_VALIDATION_TIMEOUT_MS = 400;
 
 /**
  * SERIAL_LENGTH - Expected length of lottery serial number
@@ -245,6 +257,15 @@ export function DayCloseModeScanner({
   const { toast } = useToast();
   const { playSuccess, playError, isMuted, toggleMute } =
     useNotificationSound();
+
+  // ========================================================================
+  // HOOKS
+  // MCP: FE-001 STATE_MANAGEMENT - Access store timezone for date formatting
+  // ========================================================================
+  const storeTimezone = useStoreTimezone();
+
+  // Ref for 400ms scan validation timer
+  const scanValidationTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // ============ STATE MANAGEMENT ============
   // Controlled vs uncontrolled pattern for scanned bins
@@ -321,11 +342,10 @@ export function DayCloseModeScanner({
     unscannedBins: UnscannedBinInfo[];
   }>({ open: false, unscannedBins: [] });
 
-  // Refs for DOM and timers
+  // Refs for DOM
   const inlineInputRef = useRef<HTMLInputElement>(null);
   const floatingInputRef = useRef<HTMLInputElement>(null);
   const inlineScanSectionRef = useRef<HTMLDivElement>(null);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Refs for manual entry input focus management
   const manualInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
@@ -426,7 +446,6 @@ export function DayCloseModeScanner({
         game_price: bin.pack!.game_price,
         starting_serial: bin.pack!.starting_serial,
         serial_end: bin.pack!.serial_end,
-        is_first_period: bin.pack!.is_first_period,
       }));
   }, [activeBins, scannedBins, manualEntryState.isActive, manualEndingValues]);
 
@@ -451,8 +470,8 @@ export function DayCloseModeScanner({
   // ============ CLEANUP ============
   useEffect(() => {
     return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
+      if (scanValidationTimerRef.current) {
+        clearTimeout(scanValidationTimerRef.current);
       }
     };
   }, []);
@@ -525,6 +544,64 @@ export function DayCloseModeScanner({
   );
 
   /**
+   * Check if a pack number matches a returned pack
+   *
+   * SEC-014: INPUT_VALIDATION - Strict type validation before comparison
+   * FE-001: STATE_MANAGEMENT - Pure function with no side effects
+   *
+   * @param packNumber - The pack number to check (validated 11-digit string)
+   * @returns The matching ReturnedPackDay or undefined if not found
+   */
+  const findReturnedPack = useCallback(
+    (packNumber: string): ReturnedPackDay | undefined => {
+      // SEC-014: Validate input type before processing
+      if (typeof packNumber !== "string" || packNumber.length === 0) {
+        return undefined;
+      }
+
+      // SEC-014: Validate returnedPacks array exists and is an array
+      if (!Array.isArray(returnedPacks) || returnedPacks.length === 0) {
+        return undefined;
+      }
+
+      // Find matching returned pack with strict equality check
+      return returnedPacks.find(
+        (pack) =>
+          typeof pack.pack_number === "string" &&
+          pack.pack_number === packNumber,
+      );
+    },
+    [returnedPacks],
+  );
+
+  /**
+   * Format returned pack date for user display
+   *
+   * SEC-014: INPUT_VALIDATION - Validate date string before parsing
+   * FE-005: UI_SECURITY - Safe date formatting without exposing internal data
+   *
+   * @param isoDateString - ISO date string from returned_at field
+   * @returns Formatted date string or fallback text
+   */
+  const formatReturnedDate = useCallback(
+    (isoDateString: string): string => {
+      // SEC-014: Validate input is a non-empty string
+      if (typeof isoDateString !== "string" || isoDateString.length === 0) {
+        return "earlier today";
+      }
+
+      try {
+        // Use centralized timezone-aware formatting utility
+        return formatDateTimeShort(isoDateString, storeTimezone);
+      } catch {
+        // SEC-014: Fail safely with fallback value
+        return "earlier today";
+      }
+    },
+    [storeTimezone],
+  );
+
+  /**
    * Process a complete 24-digit serial number
    * MCP: FE-002 FORM_VALIDATION, SEC-014 INPUT_VALIDATION
    */
@@ -547,6 +624,26 @@ export function DayCloseModeScanner({
         );
 
         if (!matchingBin || !matchingBin.pack) {
+          // SEC-014: Check if pack was returned before showing generic error
+          // This provides specific user guidance instead of confusing "not found" message
+          const returnedPack = findReturnedPack(packNumber);
+
+          if (returnedPack) {
+            // Pack exists but was returned - show specific error with context
+            // FE-005: UI_SECURITY - Only display necessary info (game name, date)
+            // Do not expose internal IDs or sensitive return details
+            const returnedDate = formatReturnedDate(returnedPack.returned_at);
+            playError();
+            toast({
+              title: "Pack already returned",
+              description: `${returnedPack.game_name} (Pack ${packNumber}) was returned on ${returnedDate}. See Returned Packs section above.`,
+              variant: "destructive",
+            });
+            clearInputAndFocus(inputRef);
+            return;
+          }
+
+          // Truly not found - pack doesn't exist in active bins or returned packs
           playError();
           toast({
             title: "Pack not found",
@@ -650,34 +747,72 @@ export function DayCloseModeScanner({
       clearInputAndFocus,
       playSuccess,
       playError,
+      findReturnedPack,
+      formatReturnedDate,
     ],
   );
 
   /**
-   * Handle input change with debouncing for scanner detection
-   * MCP: SEC-014 INPUT_VALIDATION - Sanitize input
+   * Handle input change with simple 400ms debounce validation
+   * - If input stops for 400ms and length != 24, show error
+   * - If length > 24, show error immediately
+   * - On error: clear input and refocus
    */
   const handleInputChange = useCallback(
     (
       e: ChangeEvent<HTMLInputElement>,
       inputRef: React.RefObject<HTMLInputElement | null>,
     ) => {
-      const cleanedValue = e.target.value.replace(/\D/g, ""); // Only digits
-      setInputValue(cleanedValue);
+      const value = e.target.value;
+      // Only allow digits
+      const cleanedValue = value.replace(/\D/g, "");
 
-      // Clear existing debounce
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
+      // Clear any pending validation timer
+      if (scanValidationTimerRef.current) {
+        clearTimeout(scanValidationTimerRef.current);
+        scanValidationTimerRef.current = null;
       }
 
-      // Set new debounce timer
-      debounceTimerRef.current = setTimeout(() => {
+      // Handle numeric input
+      if (cleanedValue.length > 0) {
+        // Too long - reject immediately
+        if (cleanedValue.length > SERIAL_LENGTH) {
+          playError();
+          toast({
+            title: "Invalid input. Please scan again.",
+            variant: "destructive",
+          });
+          setInputValue("");
+          setTimeout(() => inputRef.current?.focus(), 50);
+          return;
+        }
+
+        setInputValue(cleanedValue);
+
+        // If exactly 24 digits, process immediately
         if (cleanedValue.length === SERIAL_LENGTH) {
           processSerial(cleanedValue, inputRef);
+          return;
         }
-      }, SCANNER_DEBOUNCE_MS);
+
+        // Start 400ms timer - if no more input comes and length != 24, show error
+        const capturedLength = cleanedValue.length;
+        scanValidationTimerRef.current = setTimeout(() => {
+          if (capturedLength !== SERIAL_LENGTH) {
+            playError();
+            toast({
+              title: "Invalid input. Please scan again.",
+              variant: "destructive",
+            });
+            setInputValue("");
+            setTimeout(() => inputRef.current?.focus(), 50);
+          }
+        }, SCAN_VALIDATION_TIMEOUT_MS);
+      } else {
+        setInputValue(cleanedValue);
+      }
     },
-    [processSerial],
+    [processSerial, toast, playError],
   );
 
   /**
@@ -914,9 +1049,13 @@ export function DayCloseModeScanner({
 
     setIsSubmitting(true);
     try {
+      // SEC-014: Include is_sold_out flag for correct backend calculation
+      // Sold-out packs use depletion formula: (serial_end + 1) - starting
+      // Normal scans use standard formula: ending - starting
       const closings = scannedBins.map((bin) => ({
         pack_id: bin.pack_id,
         closing_serial: bin.closing_serial,
+        is_sold_out: bin.is_sold_out === true,
       }));
 
       // Phase 1: Prepare close - validates and stores pending data
@@ -1007,6 +1146,7 @@ export function DayCloseModeScanner({
     setIsSubmitting(true);
     try {
       // Build closings array: combine scanned bins + manually entered values
+      // SEC-014: Include is_sold_out flag for correct backend calculation
       const closings = activeBins.map((bin) => {
         // Check if this bin was scanned
         const scannedBin = scannedBins.find((s) => s.bin_id === bin.bin_id);
@@ -1014,12 +1154,14 @@ export function DayCloseModeScanner({
           return {
             pack_id: scannedBin.pack_id,
             closing_serial: scannedBin.closing_serial,
+            is_sold_out: scannedBin.is_sold_out === true,
           };
         }
-        // Otherwise use manual entry value
+        // Otherwise use manual entry value (manual entries are never sold-out)
         return {
           pack_id: bin.pack!.pack_id,
           closing_serial: manualEndingValues[bin.bin_id],
+          is_sold_out: false,
         };
       });
 
@@ -1113,6 +1255,7 @@ export function DayCloseModeScanner({
       // Process any sold out decisions - add directly to scannedBins (not manual entry)
       if (result.decisions && result.decisions.length > 0) {
         // Add sold out bins to scannedBins so they show green on main page
+        // Mark as is_sold_out so calculateTotalSales uses depletion formula
         const newScannedBins: ScannedBin[] = result.decisions.map(
           (decision) => ({
             bin_id: decision.bin_id,
@@ -1121,6 +1264,7 @@ export function DayCloseModeScanner({
             pack_number: decision.pack_number,
             game_name: decision.game_name,
             closing_serial: decision.ending_serial,
+            is_sold_out: true, // Use depletion formula: (serial_end + 1) - starting
           }),
         );
 
@@ -1158,36 +1302,134 @@ export function DayCloseModeScanner({
   }, [binsWithoutEnding]);
 
   /**
-   * Calculate tickets sold with correct fencepost handling
+   * Calculate tickets sold using serial difference
    *
-   * @param closingSerial - The closing/ending serial number (3 digits)
-   * @param startingSerial - The starting serial number (3 digits)
-   * @param isFirstPeriod - Whether this is the pack's first period
-   * @returns Number of tickets sold (never negative)
+   * Formula: tickets_sold = ending_serial - starting_serial
+   *
+   * The starting serial represents the NEXT ticket to be sold (first unsold),
+   * and the ending serial represents the NEXT ticket to be sold after sales.
+   * The difference gives the exact count of tickets sold during the period.
+   *
+   * Serial Position Semantics:
+   * - Starting serial: Position of the first ticket available for sale
+   * - Ending serial: Position after the last ticket sold (next available)
+   *
+   * Examples:
+   * - Starting: 0, Ending: 0 = 0 tickets sold (no sales, still at position 0)
+   * - Starting: 0, Ending: 1 = 1 ticket sold (ticket #0 sold, now at position 1)
+   * - Starting: 0, Ending: 15 = 15 tickets sold (tickets #0-14 sold)
+   * - Starting: 5, Ending: 10 = 5 tickets sold (tickets #5-9 sold)
+   * - Starting: 0, Ending: 50 = 50 tickets sold (full 50-ticket pack)
+   *
+   * @param endingSerial - The ending serial position (3 digits, e.g., "015")
+   * @param startingSerial - The starting serial position (3 digits, e.g., "000")
+   * @returns Number of tickets sold (never negative, 0 for invalid input)
+   *
+   * MCP Guidance Applied:
+   * - SEC-014: INPUT_VALIDATION - Strict numeric validation with NaN guard and bounds check
+   * - FE-001: STATE_MANAGEMENT - Pure function with no side effects, memoized with useCallback
+   * - API-003: ERROR_HANDLING - Returns 0 for invalid input (fail-safe for UI calculations)
+   * - FE-020: REACT_OPTIMIZATION - useCallback prevents unnecessary re-renders
    */
   const calculateTicketsSold = useCallback(
-    (
-      closingSerial: string,
-      startingSerial: string,
-      isFirstPeriod: boolean,
-    ): number => {
-      const closingNum = parseInt(closingSerial, 10);
-      const startingNum = parseInt(startingSerial, 10);
-
-      // Guard against NaN
-      if (Number.isNaN(closingNum) || Number.isNaN(startingNum)) {
+    (endingSerial: string, startingSerial: string): number => {
+      // SEC-014: Validate input types before processing
+      if (
+        typeof endingSerial !== "string" ||
+        typeof startingSerial !== "string"
+      ) {
         return 0;
       }
 
-      // Fencepost error prevention:
-      // - New pack (first period): tickets = closing - starting + 1 (inclusive)
-      //   Example: serial_start=000, closing=029 → 30 tickets (000-029 inclusive)
-      // - Continuing pack: tickets = closing - starting (exclusive of starting)
-      //   Example: prev_ending=045, closing=089 → 44 tickets (046-089, exclusive of 045)
-      const ticketsSold = isFirstPeriod
-        ? closingNum - startingNum + 1
-        : closingNum - startingNum;
+      // SEC-014: Parse with explicit radix to prevent octal interpretation
+      const endingNum = parseInt(endingSerial, 10);
+      const startingNum = parseInt(startingSerial, 10);
 
+      // SEC-014: Strict NaN validation using Number.isNaN (not global isNaN)
+      // This handles empty strings, non-numeric input, null coercion, etc.
+      if (Number.isNaN(endingNum) || Number.isNaN(startingNum)) {
+        return 0;
+      }
+
+      // SEC-014: Validate serial range (reasonable bounds check)
+      const MAX_SERIAL = 999;
+      if (
+        endingNum < 0 ||
+        endingNum > MAX_SERIAL ||
+        startingNum < 0 ||
+        startingNum > MAX_SERIAL
+      ) {
+        return 0;
+      }
+
+      // Calculate tickets sold: ending - starting
+      // This gives the exact count of tickets sold during the period
+      // Example: starting=0, ending=15 means tickets 0-14 were sold = 15 tickets
+      const ticketsSold = endingNum - startingNum;
+
+      // Ensure non-negative result (ending should never be less than starting)
+      // Math.max provides defense-in-depth against data integrity issues
+      return Math.max(0, ticketsSold);
+    },
+    [],
+  );
+
+  /**
+   * Calculate tickets sold for DEPLETED packs (manual or auto sold-out)
+   *
+   * Formula: tickets_sold = (serial_end + 1) - starting_serial
+   *
+   * IMPORTANT: This function is specifically for DEPLETION scenarios where:
+   * 1. Manual depletion - user marks pack as "sold out"
+   * 2. Auto depletion - new pack activated in same bin, old pack auto-closes
+   *
+   * In depletion cases, serial_end represents the LAST ticket INDEX (e.g., "029" for
+   * a 30-ticket pack), NOT the next position. Therefore we add 1 to convert from
+   * last-index to count.
+   *
+   * @param serialEnd - The pack's last ticket INDEX (3 digits, e.g., "029" for 30-ticket pack)
+   * @param startingSerial - The starting serial position (3 digits, e.g., "000")
+   * @returns Number of tickets sold (never negative, 0 for invalid input)
+   *
+   * MCP Guidance Applied:
+   * - SEC-014: INPUT_VALIDATION - Strict numeric validation with NaN guard and bounds check
+   * - FE-001: STATE_MANAGEMENT - Pure function with no side effects, memoized with useCallback
+   * - API-003: ERROR_HANDLING - Returns 0 for invalid input (fail-safe for UI calculations)
+   * - FE-020: REACT_OPTIMIZATION - useCallback prevents unnecessary re-renders
+   */
+  const calculateTicketsSoldForDepletion = useCallback(
+    (serialEnd: string, startingSerial: string): number => {
+      // SEC-014: Validate input types before processing
+      if (typeof serialEnd !== "string" || typeof startingSerial !== "string") {
+        return 0;
+      }
+
+      // SEC-014: Parse with explicit radix to prevent octal interpretation
+      const serialEndNum = parseInt(serialEnd, 10);
+      const startingNum = parseInt(startingSerial, 10);
+
+      // SEC-014: Strict NaN validation using Number.isNaN (not global isNaN)
+      if (Number.isNaN(serialEndNum) || Number.isNaN(startingNum)) {
+        return 0;
+      }
+
+      // SEC-014: Validate serial range (reasonable bounds check)
+      const MAX_SERIAL = 999;
+      if (
+        serialEndNum < 0 ||
+        serialEndNum > MAX_SERIAL ||
+        startingNum < 0 ||
+        startingNum > MAX_SERIAL
+      ) {
+        return 0;
+      }
+
+      // Depletion formula: (serial_end + 1) - starting = tickets sold
+      // serial_end is the LAST ticket index, so +1 converts to count
+      // Example: serial_end=29, starting=0 → (29+1)-0 = 30 tickets (full 30-ticket pack)
+      const ticketsSold = serialEndNum + 1 - startingNum;
+
+      // Ensure non-negative result
       return Math.max(0, ticketsSold);
     },
     [],
@@ -1195,6 +1437,10 @@ export function DayCloseModeScanner({
 
   /**
    * Calculate total lottery sales from scanned bins + manual entry values
+   *
+   * Uses different formulas based on bin type:
+   * - Normal scan/manual entry: ending - starting
+   * - Sold out (depletion): (serial_end + 1) - starting
    */
   const calculateTotalSales = useMemo(() => {
     return activeBins.reduce((total, bin) => {
@@ -1203,21 +1449,27 @@ export function DayCloseModeScanner({
       // First check scanned bins
       const scannedBin = scannedBins.find((s) => s.bin_id === bin.bin_id);
       let closingSerial: string | undefined;
+      let isSoldOut = false;
 
       if (scannedBin) {
         closingSerial = scannedBin.closing_serial;
+        isSoldOut = scannedBin.is_sold_out === true;
       } else if (manualEntryState.isActive && manualEndingValues[bin.bin_id]) {
         closingSerial = manualEndingValues[bin.bin_id];
       }
 
       if (!closingSerial || closingSerial.length !== 3) return total;
 
-      // Use helper with correct fencepost handling
-      const ticketsSold = calculateTicketsSold(
-        closingSerial,
-        bin.pack.starting_serial,
-        bin.pack.is_first_period,
-      );
+      // Use correct formula based on whether bin was marked sold out
+      // Sold out: (serial_end + 1) - starting (closing_serial IS serial_end)
+      // Normal: ending - starting (closing_serial is next position)
+      const ticketsSold = isSoldOut
+        ? calculateTicketsSoldForDepletion(
+            closingSerial,
+            bin.pack.starting_serial,
+          )
+        : calculateTicketsSold(closingSerial, bin.pack.starting_serial);
+
       return total + ticketsSold * bin.pack.game_price;
     }, 0);
   }, [
@@ -1226,6 +1478,7 @@ export function DayCloseModeScanner({
     manualEntryState.isActive,
     manualEndingValues,
     calculateTicketsSold,
+    calculateTicketsSoldForDepletion,
   ]);
 
   // ============ RENDER ============
@@ -1260,6 +1513,10 @@ export function DayCloseModeScanner({
                 className="w-full text-lg font-mono bg-white text-foreground border-2 border-white focus:border-primary/50"
                 data-testid="floating-serial-input"
                 aria-label="Scan lottery serial number"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-mono">
                 {inputValue.length}/{SERIAL_LENGTH}
@@ -1420,12 +1677,16 @@ export function DayCloseModeScanner({
                       type="text"
                       value={inputValue}
                       onChange={(e) => handleInputChange(e, inlineInputRef)}
-                      placeholder="Scan barcode or enter 24-digit serial..."
+                      placeholder="Scan barcode..."
                       maxLength={SERIAL_LENGTH}
                       disabled={isSubmitting}
                       className="w-full text-lg font-mono"
                       data-testid="inline-serial-input"
-                      aria-label="Enter 24-digit serialized number"
+                      aria-label="Scan 24-digit barcode"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-mono">
                       {inputValue.length}/{SERIAL_LENGTH}
@@ -1526,12 +1787,17 @@ export function DayCloseModeScanner({
                   }
 
                   if (closingSerial && bin.pack) {
-                    // Use helper with correct fencepost handling
-                    ticketsSold = calculateTicketsSold(
-                      closingSerial,
-                      bin.pack.starting_serial,
-                      bin.pack.is_first_period,
-                    );
+                    // Use correct formula based on whether bin was marked sold out
+                    const isSoldOut = scannedBin?.is_sold_out === true;
+                    ticketsSold = isSoldOut
+                      ? calculateTicketsSoldForDepletion(
+                          closingSerial,
+                          bin.pack.starting_serial,
+                        )
+                      : calculateTicketsSold(
+                          closingSerial,
+                          bin.pack.starting_serial,
+                        );
                     salesAmount = ticketsSold * bin.pack.game_price;
                   }
 
@@ -1688,12 +1954,19 @@ export function DayCloseModeScanner({
                         closingSerial = manualEndingValues[bin.bin_id];
                       }
                       if (!closingSerial) return total;
-                      // Use helper with correct fencepost handling
-                      const ticketsSold = calculateTicketsSold(
-                        closingSerial,
-                        bin.pack.starting_serial,
-                        bin.pack.is_first_period,
-                      );
+                      // Check if bin was marked sold out - use depletion formula
+                      const isSoldOut = scannedBin?.is_sold_out === true;
+                      // Serial difference: tickets_sold = ending - starting (normal)
+                      // Depletion: tickets_sold = (serial_end + 1) - starting
+                      const ticketsSold = isSoldOut
+                        ? calculateTicketsSoldForDepletion(
+                            closingSerial,
+                            bin.pack.starting_serial,
+                          )
+                        : calculateTicketsSold(
+                            closingSerial,
+                            bin.pack.starting_serial,
+                          );
                       return total + ticketsSold;
                     }, 0)}
                   </td>

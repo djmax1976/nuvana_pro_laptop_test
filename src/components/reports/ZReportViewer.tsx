@@ -15,6 +15,11 @@ import {
   useMarkZReportPrinted,
 } from "@/lib/api/reports";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  formatBusinessDateShort,
+  formatDateTime,
+} from "@/utils/date-format.utils";
+import { useStoreTimezone } from "@/contexts/StoreContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -53,30 +58,12 @@ export function ZReportViewer({
   onExport,
 }: ZReportViewerProps) {
   const { toast } = useToast();
+  const storeTimezone = useStoreTimezone();
   const [isVerifying, setIsVerifying] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
 
   const verifyMutation = useVerifyZReportIntegrity();
   const printMutation = useMarkZReportPrinted();
-
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString("en-US", {
-      weekday: "short",
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  const formatShortDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  };
 
   const handleVerify = async () => {
     setIsVerifying(true);
@@ -135,7 +122,7 @@ export function ZReportViewer({
             Z Report #{report.z_number}
           </h2>
           <p className="text-muted-foreground">
-            {formatShortDate(report.business_date)}
+            {formatBusinessDateShort(report.business_date)}
           </p>
         </div>
         <div className="flex gap-2 print:hidden">
@@ -216,19 +203,19 @@ export function ZReportViewer({
             <div>
               <span className="text-sm text-muted-foreground">Opened:</span>
               <span className="ml-2 font-medium">
-                {formatDate(report.shift_opened_at)}
+                {formatDateTime(report.shift_opened_at, storeTimezone)}
               </span>
             </div>
             <div>
               <span className="text-sm text-muted-foreground">Closed:</span>
               <span className="ml-2 font-medium">
-                {formatDate(report.shift_closed_at)}
+                {formatDateTime(report.shift_closed_at, storeTimezone)}
               </span>
             </div>
             <div>
               <span className="text-sm text-muted-foreground">Generated:</span>
               <span className="ml-2 font-medium">
-                {formatDate(report.generated_at)}
+                {formatDateTime(report.generated_at, storeTimezone)}
               </span>
             </div>
           </div>
@@ -428,7 +415,10 @@ export function ZReportViewer({
         <p>Report ID: {report.z_report_id}</p>
         <p>Shift ID: {report.shift_id}</p>
         {report.last_printed_at && (
-          <p>Last Printed: {formatDate(report.last_printed_at)}</p>
+          <p>
+            Last Printed:{" "}
+            {formatDateTime(report.last_printed_at, storeTimezone)}
+          </p>
         )}
       </div>
     </div>

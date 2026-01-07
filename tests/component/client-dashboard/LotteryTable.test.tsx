@@ -111,6 +111,11 @@ function renderWithQueryClient(ui: React.ReactElement) {
 }
 
 describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
+  /**
+   * Mock packs with game.status and can_return fields
+   * SEC-010: AUTHZ - can_return comes from backend
+   * Story: Game Status Display - game.status for lifecycle badge
+   */
   const mockPacks = [
     {
       pack_id: "pack-1",
@@ -125,11 +130,13 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
       activated_at: "2025-01-16T10:00:00Z",
       depleted_at: null,
       returned_at: null,
+      can_return: true, // SEC-010: Backend authorization
       game: {
         game_id: "game-1",
         game_code: "001",
         name: "Mega Millions",
         price: 5.0,
+        status: "ACTIVE", // Game lifecycle status
       },
       bin: {
         bin_id: "bin-1",
@@ -151,11 +158,13 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
       activated_at: "2025-01-16T10:00:00Z",
       depleted_at: null,
       returned_at: null,
+      can_return: true, // SEC-010: Backend authorization
       game: {
         game_id: "game-1",
         game_code: "001",
         name: "Mega Millions",
         price: 5.0,
+        status: "ACTIVE", // Game lifecycle status
       },
       bin: {
         bin_id: "bin-2",
@@ -177,11 +186,13 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
       activated_at: null,
       depleted_at: null,
       returned_at: null,
+      can_return: true, // SEC-010: Backend authorization - RECEIVED can be returned
       game: {
         game_id: "game-2",
         game_code: "002",
         name: "Powerball",
         price: 10.0,
+        status: "ACTIVE", // Game lifecycle status
       },
       bin: null,
     },
@@ -297,20 +308,27 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     ).toBeInTheDocument();
   });
 
-  it("6.10.1-COMPONENT-007: [P2] should show status badges with pack counts", async () => {
+  it("6.10.1-COMPONENT-007: [P2] should show game status badge (not pack count badges)", async () => {
     // GIVEN: LotteryTable component with mixed status packs
     // WHEN: Component is rendered
     renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
-    // THEN: Status badges are displayed with counts
+    // THEN: Game status badges are displayed (not pack count badges)
+    // Story: Game Status Display - Parent row shows game lifecycle status
     expect(
-      screen.getByText("2 Active"),
-      "2 Active badge should be displayed for Mega Millions",
+      screen.getByTestId("game-status-badge-game-1"),
+      "Game status badge should be displayed for Mega Millions",
     ).toBeInTheDocument();
     expect(
-      screen.getByText("1 Received"),
-      "1 Received badge should be displayed for Powerball",
+      screen.getByTestId("game-status-badge-game-2"),
+      "Game status badge should be displayed for Powerball",
     ).toBeInTheDocument();
+
+    // AND: Old pack count badges should NOT be present (replaced by game status)
+    expect(
+      screen.queryByText("2 Active"),
+      "Pack count badges should NOT be displayed",
+    ).not.toBeInTheDocument();
   });
 
   it("6.10.1-COMPONENT-008: [P2] should filter out DEPLETED and RETURNED packs from default view", async () => {
@@ -352,13 +370,16 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: DEPLETED pack is NOT counted in default view (still shows 2 for Mega Millions)
+    // The table shows total pack count, which is 2 for the filtered view (excluding DEPLETED)
+    const gameRow = screen.getByTestId("lottery-table-row-game-1");
     expect(
-      screen.getByText("2"),
+      within(gameRow).getByText("2"),
       "Pack count should still be 2 (DEPLETED not counted in default view)",
     ).toBeInTheDocument();
+    // Game status badge is shown instead of pack count badges
     expect(
-      screen.getByText("2 Active"),
-      "Active count should still be 2",
+      screen.getByTestId("game-status-badge-game-1"),
+      "Game status badge should be displayed",
     ).toBeInTheDocument();
   });
 
@@ -581,7 +602,8 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     expect(within(packDetails).getByText("Activated At")).toBeInTheDocument();
     expect(within(packDetails).getByText("Returned At")).toBeInTheDocument();
     expect(within(packDetails).getByText("Status")).toBeInTheDocument();
-    expect(within(packDetails).getByText("Returned")).toBeInTheDocument();
+    // "Returned" was replaced with "Actions" for Return button
+    expect(within(packDetails).getByText("Actions")).toBeInTheDocument();
 
     // AND: Pack data rows are visible (pack number only, no serial range)
     expect(screen.getByText("#P001")).toBeInTheDocument();
@@ -1186,7 +1208,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     expect(screen.queryByText("Powerball")).not.toBeInTheDocument();
   });
 
-  it("6.10.1-COMPONENT-RETURN-003: [P2] should show Returned badge with count in game summary", async () => {
+  it("6.10.1-COMPONENT-RETURN-003: [P2] should show returned packs when RETURNED filter is selected", async () => {
     // GIVEN: LotteryTable with RETURNED packs
     const packsWithReturned = [
       ...mockPacks,
@@ -1203,11 +1225,13 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
         activated_at: null,
         depleted_at: null,
         returned_at: "2025-01-15T10:00:00Z",
+        can_return: false, // Already returned
         game: {
           game_id: "game-1",
           game_code: "001",
           name: "Mega Millions",
           price: 5.0,
+          status: "ACTIVE",
         },
         bin: null,
       },
@@ -1224,7 +1248,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     const user = userEvent.setup();
     renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
-    // WHEN: User selects RETURNED status filter to see the badge
+    // WHEN: User selects RETURNED status filter
     const statusSelect = screen.getByTestId("filter-status");
     await user.click(statusSelect);
     const returnedOption = await screen.findByRole("option", {
@@ -1232,12 +1256,28 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     });
     await user.click(returnedOption);
 
-    // THEN: Returned badge is shown with count
-    expect(screen.getByText("1 Returned")).toBeInTheDocument();
+    // THEN: Game row is visible with pack count of 1 (only the returned pack)
+    const gameRow = screen.getByTestId("lottery-table-row-game-1");
+    expect(gameRow).toBeInTheDocument();
+    // The table shows total pack count in the Pack Count column (which is 1 for this filtered view)
+    expect(within(gameRow).getByText("1")).toBeInTheDocument();
   });
 
-  it("6.10.1-COMPONENT-RETURN-004: [P2] should show return checkbox in expanded pack row", async () => {
-    // GIVEN: LotteryTable component
+  it("6.10.1-COMPONENT-RETURN-004: [P2] should show Return button in expanded pack row", async () => {
+    // GIVEN: LotteryTable component with packs that have can_return field
+    const packsWithCanReturn = mockPacks.map((pack) => ({
+      ...pack,
+      can_return: pack.status === "ACTIVE" || pack.status === "RECEIVED",
+    }));
+
+    (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: packsWithCanReturn,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
     const user = userEvent.setup();
     renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
@@ -1245,13 +1285,14 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     const gameRow = screen.getByTestId("lottery-table-row-game-1");
     await user.click(gameRow);
 
-    // THEN: Return checkboxes are displayed for each pack
-    expect(screen.getByTestId("return-checkbox-pack-1")).toBeInTheDocument();
-    expect(screen.getByTestId("return-checkbox-pack-2")).toBeInTheDocument();
+    // THEN: Return buttons are displayed for each pack (replaced checkboxes)
+    expect(screen.getByTestId("return-pack-btn-pack-1")).toBeInTheDocument();
+    expect(screen.getByTestId("return-pack-btn-pack-2")).toBeInTheDocument();
   });
 
-  it("6.10.1-COMPONENT-RETURN-005: [P2] should disable return checkbox for already RETURNED packs", async () => {
+  it("6.10.1-COMPONENT-RETURN-005: [P2] should disable Return button for already RETURNED packs", async () => {
     // GIVEN: LotteryTable with RETURNED pack
+    // SEC-010: AUTHZ - can_return=false for already returned packs (from backend)
     const packsWithReturned = [
       {
         pack_id: "pack-returned",
@@ -1266,11 +1307,13 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
         activated_at: null,
         depleted_at: null,
         returned_at: "2025-01-15T10:00:00Z",
+        can_return: false, // Backend says cannot return again
         game: {
           game_id: "game-3",
           game_code: "003",
           name: "Returned Game",
           price: 3.0,
+          status: "ACTIVE",
         },
         bin: null,
       },
@@ -1299,10 +1342,13 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     const gameRow = screen.getByTestId("lottery-table-row-game-3");
     await user.click(gameRow);
 
-    // THEN: Return checkbox is checked and disabled
-    const checkbox = screen.getByTestId("return-checkbox-pack-returned");
-    expect(checkbox).toBeDisabled();
-    expect(checkbox).toHaveAttribute("aria-label", "Pack already returned");
+    // THEN: Return button is disabled (replaced checkbox)
+    const returnBtn = screen.getByTestId("return-pack-btn-pack-returned");
+    expect(returnBtn).toBeDisabled();
+    expect(returnBtn).toHaveAttribute(
+      "aria-label",
+      "Pack P100 already returned",
+    );
   });
 
   it("6.10.1-COMPONENT-RETURN-006: [P2] should show aligned columns in expanded pack sub-list", async () => {
@@ -1321,7 +1367,8 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     expect(within(packDetails).getByText("Activated At")).toBeInTheDocument();
     expect(within(packDetails).getByText("Returned At")).toBeInTheDocument();
     expect(within(packDetails).getByText("Status")).toBeInTheDocument();
-    expect(within(packDetails).getByText("Returned")).toBeInTheDocument();
+    // "Returned" column header was replaced with "Actions" for Return button
+    expect(within(packDetails).getByText("Actions")).toBeInTheDocument();
   });
 
   it("6.10.1-COMPONENT-RETURN-007: [P2] should show Pack # only in aligned sub-list (no serial range)", async () => {

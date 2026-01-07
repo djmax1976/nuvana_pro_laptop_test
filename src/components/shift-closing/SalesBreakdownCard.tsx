@@ -137,9 +137,10 @@ interface DualColumnLineItemProps {
   label: string;
   reportsValue: number;
   posValue: number;
-  onReportsChange: (value: number) => void;
+  onReportsChange?: (value: number) => void;
   highlight?: boolean;
   disabled?: boolean;
+  readOnly?: boolean;
 }
 
 function DualColumnLineItem({
@@ -150,6 +151,7 @@ function DualColumnLineItem({
   onReportsChange,
   highlight = false,
   disabled = false,
+  readOnly = false,
 }: DualColumnLineItemProps) {
   // Use local state for the input value to allow free-form editing
   const [inputValue, setInputValue] = useState(reportsValue.toFixed(2));
@@ -166,10 +168,12 @@ function DualColumnLineItem({
   }, []);
 
   const handleBlur = useCallback(() => {
-    const sanitized = sanitizeNumericInput(inputValue);
-    onReportsChange(sanitized);
-    // Format the display value on blur
-    setInputValue(sanitized.toFixed(2));
+    if (onReportsChange) {
+      const sanitized = sanitizeNumericInput(inputValue);
+      onReportsChange(sanitized);
+      // Format the display value on blur
+      setInputValue(sanitized.toFixed(2));
+    }
   }, [inputValue, onReportsChange]);
 
   const rowClass = highlight
@@ -183,25 +187,33 @@ function DualColumnLineItem({
   return (
     <div className={rowClass} data-testid={`sales-row-${id}`}>
       <div className={labelClass}>{label}</div>
-      <div className="flex items-center justify-end gap-1">
-        <span className="text-muted-foreground text-xs">$</span>
-        <Input
-          id={`reports-${id}`}
-          type="text"
-          inputMode="decimal"
-          value={inputValue}
-          onChange={handleChange}
-          onBlur={handleBlur}
-          disabled={disabled}
-          className={`w-20 h-8 text-right font-mono text-sm ${
-            highlight
-              ? "bg-green-100 dark:bg-green-900/50 border-green-300 dark:border-green-700"
-              : ""
-          }`}
-          data-testid={`sales-reports-${id}`}
-          aria-label={`${label} reports total`}
-        />
-      </div>
+      {readOnly ? (
+        // Read-only mode: plain text display
+        <div className="text-right font-mono text-sm">
+          {formatCurrency(reportsValue)}
+        </div>
+      ) : (
+        // Edit mode: input field
+        <div className="flex items-center justify-end gap-1">
+          <span className="text-muted-foreground text-xs">$</span>
+          <Input
+            id={`reports-${id}`}
+            type="text"
+            inputMode="decimal"
+            value={inputValue}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            disabled={disabled}
+            className={`w-20 h-8 text-right font-mono text-sm ${
+              highlight
+                ? "bg-green-100 dark:bg-green-900/50 border-green-300 dark:border-green-700"
+                : ""
+            }`}
+            data-testid={`sales-reports-${id}`}
+            aria-label={`${label} reports total`}
+          />
+        </div>
+      )}
       <div className="text-right font-mono text-sm">
         {formatCurrency(posValue)}
       </div>
@@ -243,6 +255,11 @@ function TotalsRow({ label, reportsValue, posValue }: TotalsRowProps) {
  * - Lottery items (Scratch Off, Online Lottery) - Both Reports input and POS values
  * - Sales Tax - POS only
  * - Total Sales for both columns
+ *
+ * Supports read-only mode for historical shift views where all values
+ * are displayed as plain text instead of editable inputs.
+ *
+ * @security SEC-014: INPUT_VALIDATION - Defensive null checks for API data
  */
 export function SalesBreakdownCard({
   state,
@@ -250,11 +267,15 @@ export function SalesBreakdownCard({
   onPOSChange,
   disabled = false,
   editablePOS = false,
+  readOnly = false,
 }: SalesBreakdownCardProps) {
   // Create individual field change handlers for reports
+  // SEC-014: INPUT_VALIDATION - Handler validates state before applying updates
   const createReportsChangeHandler = useCallback(
     (field: keyof SalesBreakdownReportsState) => (value: number) => {
-      onReportsChange({ [field]: value });
+      if (onReportsChange) {
+        onReportsChange({ [field]: value });
+      }
     },
     [onReportsChange],
   );
@@ -269,12 +290,18 @@ export function SalesBreakdownCard({
     [onPOSChange],
   );
 
-  // Memoize total sales calculations
+  // Memoize total sales calculations - uses defensive null checks inside calculateTotalSalesReports/POS
   const totalSalesReports = useMemo(
     () => calculateTotalSalesReports(state),
     [state],
   );
   const totalSalesPOS = useMemo(() => calculateTotalSalesPOS(state), [state]);
+
+  // SEC-014: Defensive null checks - return null if state structure is invalid
+  // This MUST come AFTER all hooks to satisfy Rules of Hooks
+  if (!state?.pos || !state?.reports) {
+    return null;
+  }
 
   return (
     <Card data-testid="sales-breakdown-card">
@@ -356,6 +383,7 @@ export function SalesBreakdownCard({
           onReportsChange={createReportsChangeHandler("scratchOff")}
           highlight
           disabled={disabled}
+          readOnly={readOnly}
         />
         <DualColumnLineItem
           id="instant-cashes"
@@ -365,6 +393,7 @@ export function SalesBreakdownCard({
           onReportsChange={createReportsChangeHandler("instantCashes")}
           highlight
           disabled={disabled}
+          readOnly={readOnly}
         />
         <DualColumnLineItem
           id="online-lottery"
@@ -374,6 +403,7 @@ export function SalesBreakdownCard({
           onReportsChange={createReportsChangeHandler("onlineLottery")}
           highlight
           disabled={disabled}
+          readOnly={readOnly}
         />
         <DualColumnLineItem
           id="online-cashes"
@@ -383,6 +413,7 @@ export function SalesBreakdownCard({
           onReportsChange={createReportsChangeHandler("onlineCashes")}
           highlight
           disabled={disabled}
+          readOnly={readOnly}
         />
 
         <Separator className="my-4" />

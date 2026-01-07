@@ -79,3 +79,6 @@ bmad/
 # Local Netlify folder
 .netlify
 docs/
+
+# Uploaded files (user data)
+backend/uploads/

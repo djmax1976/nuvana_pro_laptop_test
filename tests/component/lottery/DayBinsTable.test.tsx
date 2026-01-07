@@ -1912,4 +1912,295 @@ describe("DayBinsTable Component", () => {
       expect(onMarkSoldOut).toHaveBeenCalledWith("pack-003");
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RETURN PACK BUTTON TESTS
+  // Story: Lottery Pack Return Feature
+  // MCP: SEC-010 AUTHZ - ACTIVE and RECEIVED packs can be returned
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TRACEABILITY:
+  // | Test ID  | Requirement                    | Priority |
+  // |----------|--------------------------------|----------|
+  // | RET-001  | Return button renders          | P0       |
+  // | RET-002  | Return button calls callback   | P0       |
+  // | RET-003  | Return button has aria-label   | P1       |
+  // | RET-004  | Return hidden in manual mode   | P0       |
+  // | RET-005  | No Return for empty bins       | P0       |
+  // | RET-006  | XSS in aria-label              | P0       |
+  // | RET-007  | Multiple bins Return buttons   | P1       |
+  // | RET-008  | Actions column visibility      | P0       |
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("Return Pack Button", () => {
+    const mockBinsWithPacks: DayBin[] = [
+      {
+        bin_id: "bin-001",
+        bin_number: 1,
+        name: "Bin 1",
+        is_active: true,
+        pack: {
+          pack_id: "pack-001",
+          pack_number: "1234567",
+          game_name: "Mega Millions",
+          game_price: 5.0,
+          starting_serial: "001",
+          ending_serial: "025",
+          serial_end: "050",
+          is_first_period: true,
+        },
+      },
+      {
+        bin_id: "bin-002",
+        bin_number: 2,
+        name: "Bin 2",
+        is_active: true,
+        pack: null, // Empty bin
+      },
+      {
+        bin_id: "bin-003",
+        bin_number: 3,
+        name: "Bin 3",
+        is_active: true,
+        pack: {
+          pack_id: "pack-003",
+          pack_number: "7654321",
+          game_name: "Powerball",
+          game_price: 10.0,
+          starting_serial: "050",
+          ending_serial: null,
+          serial_end: "100",
+          is_first_period: true,
+        },
+      },
+    ];
+
+    it("RET-001: [P0] should render Return button when onReturnPack is provided", () => {
+      // GIVEN: DayBinsTable with onReturnPack callback
+      const onReturnPack = vi.fn();
+
+      // WHEN: Component is rendered (NOT in manual entry mode)
+      render(
+        <DayBinsTable bins={mockBinsWithPacks} onReturnPack={onReturnPack} />,
+      );
+
+      // THEN: Return buttons are rendered for bins with packs
+      expect(screen.getByTestId("return-pack-btn-bin-001")).toBeInTheDocument();
+      expect(screen.getByTestId("return-pack-btn-bin-003")).toBeInTheDocument();
+    });
+
+    it("RET-002: [P0] should call onReturnPack with pack_id when clicked", () => {
+      // GIVEN: DayBinsTable with onReturnPack callback
+      const onReturnPack = vi.fn();
+      render(
+        <DayBinsTable bins={mockBinsWithPacks} onReturnPack={onReturnPack} />,
+      );
+
+      // WHEN: Return button is clicked
+      const button = screen.getByTestId("return-pack-btn-bin-001");
+      fireEvent.click(button);
+
+      // THEN: onReturnPack is called with the pack_id
+      expect(onReturnPack).toHaveBeenCalledWith("pack-001");
+    });
+
+    it("RET-003: [P1] should have accessible aria-label on Return button", () => {
+      // GIVEN: DayBinsTable with onReturnPack callback
+      const onReturnPack = vi.fn();
+      render(
+        <DayBinsTable bins={mockBinsWithPacks} onReturnPack={onReturnPack} />,
+      );
+
+      // THEN: Button has descriptive aria-label
+      const button = screen.getByTestId("return-pack-btn-bin-001");
+      expect(button).toHaveAttribute(
+        "aria-label",
+        "Return pack 1234567 to supplier",
+      );
+    });
+
+    it("RET-004: [P0] should NOT render Return button in manual entry mode", () => {
+      // GIVEN: DayBinsTable with onReturnPack but IN manual entry mode
+      const onReturnPack = vi.fn();
+      const onEndingChange = vi.fn();
+
+      // WHEN: Component is rendered in manual entry mode
+      render(
+        <DayBinsTable
+          bins={mockBinsWithPacks}
+          onReturnPack={onReturnPack}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // THEN: Return buttons are NOT rendered
+      expect(
+        screen.queryByTestId("return-pack-btn-bin-001"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("return-pack-btn-bin-003"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("RET-005: [P0] should NOT render Return button for empty bins", () => {
+      // GIVEN: DayBinsTable with onReturnPack callback
+      const onReturnPack = vi.fn();
+      render(
+        <DayBinsTable bins={mockBinsWithPacks} onReturnPack={onReturnPack} />,
+      );
+
+      // THEN: Empty bin (bin-002) does not have Return button
+      expect(
+        screen.queryByTestId("return-pack-btn-bin-002"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("RET-006: [P0] [SECURITY] should prevent XSS in Return button aria-label", () => {
+      // GIVEN: Bin with XSS attempt in pack number
+      const xssPayload = "<script>alert('xss')</script>";
+      const xssBins: DayBin[] = [
+        {
+          bin_id: "bin-xss",
+          bin_number: 1,
+          name: "Bin XSS",
+          is_active: true,
+          pack: {
+            pack_id: "pack-xss",
+            pack_number: xssPayload,
+            game_name: "Safe Game",
+            game_price: 5.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "050",
+            is_first_period: true,
+          },
+        },
+      ];
+
+      const onReturnPack = vi.fn();
+
+      // WHEN: Component is rendered
+      render(<DayBinsTable bins={xssBins} onReturnPack={onReturnPack} />);
+
+      // THEN: Button is rendered (not broken by XSS)
+      const button = screen.getByTestId("return-pack-btn-bin-xss");
+      expect(button).toBeInTheDocument();
+
+      // AND: aria-label contains escaped payload (not executed)
+      expect(button).toHaveAttribute(
+        "aria-label",
+        `Return pack ${xssPayload} to supplier`,
+      );
+    });
+
+    it("RET-007: [P1] should call onReturnPack with correct pack_id for different bins", () => {
+      // GIVEN: DayBinsTable with multiple bins
+      const onReturnPack = vi.fn();
+      render(
+        <DayBinsTable bins={mockBinsWithPacks} onReturnPack={onReturnPack} />,
+      );
+
+      // WHEN: Click first bin's Return button
+      fireEvent.click(screen.getByTestId("return-pack-btn-bin-001"));
+
+      // THEN: Called with pack-001
+      expect(onReturnPack).toHaveBeenCalledWith("pack-001");
+
+      // WHEN: Click third bin's Return button
+      fireEvent.click(screen.getByTestId("return-pack-btn-bin-003"));
+
+      // THEN: Called with pack-003
+      expect(onReturnPack).toHaveBeenCalledWith("pack-003");
+    });
+
+    it("RET-008: [P0] should render Actions column header when onReturnPack provided", () => {
+      // GIVEN: DayBinsTable with onReturnPack callback
+      const onReturnPack = vi.fn();
+
+      // WHEN: Component is rendered
+      render(
+        <DayBinsTable bins={mockBinsWithPacks} onReturnPack={onReturnPack} />,
+      );
+
+      // THEN: Actions column header is visible
+      expect(screen.getByText("Actions")).toBeInTheDocument();
+    });
+
+    it("RET-009: [P1] should NOT render Actions column when no action handlers provided", () => {
+      // GIVEN: DayBinsTable without any action handlers
+      // WHEN: Component is rendered
+      render(<DayBinsTable bins={mockBinsWithPacks} />);
+
+      // THEN: Actions column header is NOT visible
+      expect(screen.queryByText("Actions")).not.toBeInTheDocument();
+    });
+
+    it("RET-010: [P1] should stop propagation when Return button clicked (no row click)", () => {
+      // GIVEN: DayBinsTable with both onRowClick and onReturnPack
+      const onRowClick = vi.fn();
+      const onReturnPack = vi.fn();
+      render(
+        <DayBinsTable
+          bins={mockBinsWithPacks}
+          onRowClick={onRowClick}
+          onReturnPack={onReturnPack}
+        />,
+      );
+
+      // WHEN: Return button is clicked
+      fireEvent.click(screen.getByTestId("return-pack-btn-bin-001"));
+
+      // THEN: onReturnPack is called but NOT onRowClick
+      expect(onReturnPack).toHaveBeenCalledWith("pack-001");
+      expect(onRowClick).not.toHaveBeenCalled();
+    });
+
+    it("RET-011: [P1] should render both Return and Mark Sold buttons when appropriate", () => {
+      // GIVEN: DayBinsTable with both handlers but NOT in manual entry mode
+      const onReturnPack = vi.fn();
+      const onMarkSoldOut = vi.fn();
+
+      // WHEN: Component is rendered (NOT in manual entry mode)
+      render(
+        <DayBinsTable
+          bins={mockBinsWithPacks}
+          onReturnPack={onReturnPack}
+          onMarkSoldOut={onMarkSoldOut}
+          manualEntryMode={false}
+        />,
+      );
+
+      // THEN: Only Return button is visible (Mark Sold requires manual entry mode)
+      expect(screen.getByTestId("return-pack-btn-bin-001")).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("mark-sold-btn-bin-001"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("RET-012: [P1] should switch from Return to Mark Sold when entering manual mode", () => {
+      // GIVEN: DayBinsTable with both handlers
+      const onReturnPack = vi.fn();
+      const onMarkSoldOut = vi.fn();
+      const onEndingChange = vi.fn();
+
+      // WHEN: Component is rendered IN manual entry mode
+      render(
+        <DayBinsTable
+          bins={mockBinsWithPacks}
+          onReturnPack={onReturnPack}
+          onMarkSoldOut={onMarkSoldOut}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // THEN: Mark Sold is visible, Return is NOT
+      expect(screen.getByTestId("mark-sold-btn-bin-001")).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("return-pack-btn-bin-001"),
+      ).not.toBeInTheDocument();
+    });
+  });
 });

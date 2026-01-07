@@ -49,6 +49,10 @@ export interface PaginationOptions {
 
 /**
  * Shift response
+ *
+ * Enterprise Standards Applied:
+ * - DB-006: TENANT_ISOLATION - day_summary_id links to store-scoped day summary
+ * - API-008: OUTPUT_FILTERING - Only display-safe fields included
  */
 export interface ShiftResponse {
   shift_id: string;
@@ -72,6 +76,9 @@ export interface ShiftResponse {
   net_sales?: number;
   x_report_count?: number;
   has_z_report?: boolean;
+  // Business day association - links shift to its DaySummary
+  // This is the authoritative source for shift-to-day grouping in the UI
+  day_summary_id: string | null;
 }
 
 /**
@@ -721,6 +728,230 @@ export function useOpenShiftsCheck(
     staleTime: 10000, // 10 seconds - refresh frequently during day close flow
     refetchOnMount: true,
     refetchOnWindowFocus: true,
+    select: (response) => response.data,
+  });
+}
+
+// ============ Shift Lottery Summary Types & Hook ============
+
+/**
+ * Lottery bin close summary for historical shift view
+ * Matches the Day Close Wizard Step 3 display
+ */
+export interface LotteryBinCloseSummary {
+  bin_number: number;
+  pack_number: string;
+  game_name: string;
+  game_price: number;
+  starting_serial: string;
+  closing_serial: string;
+  tickets_sold: number;
+  sales_amount: number;
+}
+
+/**
+ * Depleted pack summary for historical shift view
+ */
+export interface DepletedPackSummary {
+  pack_id: string;
+  pack_number: string;
+  game_name: string;
+  game_price: number;
+  bin_number: number;
+  activated_at: string;
+  depleted_at: string;
+}
+
+/**
+ * Returned pack summary for historical shift view
+ */
+export interface ReturnedPackSummary {
+  pack_id: string;
+  pack_number: string;
+  game_name: string;
+  game_price: number;
+  bin_number: number;
+  activated_at: string;
+  returned_at: string;
+  return_reason: string | null;
+  return_notes: string | null;
+  last_sold_serial: string | null;
+  tickets_sold_on_return: number | null;
+  return_sales_amount: number | null;
+  returned_by_name: string | null;
+}
+
+/**
+ * Activated pack summary for historical shift view
+ */
+export interface ActivatedPackSummary {
+  pack_id: string;
+  pack_number: string;
+  game_name: string;
+  game_price: number;
+  bin_number: number;
+  activated_at: string;
+  status: "ACTIVE" | "DEPLETED" | "RETURNED";
+}
+
+/**
+ * Open business period metadata for pack section components
+ * Used by ReturnedPacksSection, DepletedPacksSection, ActivatedPacksSection
+ * to display appropriate context (e.g., "X days since last close")
+ *
+ * @security FE-005: UI_SECURITY - Display-only metadata, no sensitive data
+ */
+export interface ShiftOpenBusinessPeriod {
+  /** When the business period started (last day close timestamp) */
+  started_at: string | null;
+  /** The business date of the last closed day (YYYY-MM-DD) */
+  last_closed_date: string | null;
+  /** Number of days since last close (for UI warning if > 1) */
+  days_since_last_close: number | null;
+  /** True if this is the first period (no prior day closes) */
+  is_first_period: boolean;
+}
+
+/**
+ * Money received state for read-only display
+ * Matches MoneyReceivedState structure for component compatibility
+ */
+export interface ShiftMoneyReceivedSummary {
+  pos: {
+    cash: number;
+    creditCard: number;
+    debitCard: number;
+    ebt: number;
+    cashPayouts: number;
+    lotteryPayouts: number;
+    gamingPayouts: number;
+  };
+  reports: {
+    cashPayouts: number;
+    lotteryPayouts: number;
+    gamingPayouts: number;
+  };
+}
+
+/**
+ * Sales breakdown state for read-only display
+ * Matches SalesBreakdownState structure for component compatibility
+ */
+export interface ShiftSalesBreakdownSummary {
+  pos: {
+    gasSales: number;
+    grocery: number;
+    tobacco: number;
+    beverages: number;
+    snacks: number;
+    other: number;
+    scratchOff: number;
+    instantCashes: number;
+    onlineLottery: number;
+    onlineCashes: number;
+    salesTax: number;
+  };
+  reports: {
+    scratchOff: number;
+    instantCashes: number;
+    onlineLottery: number;
+    onlineCashes: number;
+  };
+}
+
+/**
+ * Complete shift lottery summary response
+ * Contains all data needed to render the full reconciliation view
+ * matching Day Close Wizard Step 3
+ *
+ * @security FE-005: UI_SECURITY - No sensitive data exposed
+ */
+export interface ShiftLotterySummaryResponse {
+  shift_id: string;
+  store_id: string;
+  business_date: string;
+  lottery_closed: boolean;
+  lottery_closed_at: string | null;
+
+  lottery_totals: {
+    lottery_sales: number;
+    lottery_cashes: number;
+    lottery_net: number;
+    packs_sold: number;
+    tickets_sold: number;
+  };
+
+  bins_closed: LotteryBinCloseSummary[];
+  depleted_packs: DepletedPackSummary[];
+  returned_packs: ReturnedPackSummary[];
+  activated_packs: ActivatedPackSummary[];
+  /** Open business period metadata for pack section components */
+  open_business_period: ShiftOpenBusinessPeriod;
+  money_received: ShiftMoneyReceivedSummary;
+  sales_breakdown: ShiftSalesBreakdownSummary;
+
+  shift_info: {
+    terminal_name: string | null;
+    shift_number: number | null;
+    cashier_name: string;
+    opened_at: string;
+    closed_at: string | null;
+    opening_cash: number;
+    closing_cash: number | null;
+    expected_cash: number | null;
+    variance: number | null;
+  };
+}
+
+/**
+ * Query keys for shift lottery summary
+ */
+export const shiftLotterySummaryKeys = {
+  all: ["shift-lottery-summary"] as const,
+  detail: (shiftId: string) =>
+    [...shiftLotterySummaryKeys.all, shiftId] as const,
+};
+
+/**
+ * Get comprehensive lottery summary for a closed shift
+ *
+ * Returns all data needed to display the full reconciliation view matching
+ * the Day Close Wizard Step 3 layout, including lottery details, money received,
+ * sales breakdown, and pack activity.
+ *
+ * @param shiftId - UUID of the shift
+ * @returns Complete lottery summary for the shift
+ */
+export async function getShiftLotterySummary(
+  shiftId: string,
+): Promise<ApiResponse<ShiftLotterySummaryResponse>> {
+  const response = await apiClient.get<
+    ApiResponse<ShiftLotterySummaryResponse>
+  >(`/api/shifts/${shiftId}/lottery-summary`);
+  return response.data;
+}
+
+/**
+ * React Query hook for shift lottery summary
+ *
+ * Fetches comprehensive lottery data for a closed shift to display
+ * the full reconciliation view matching Day Close Wizard Step 3.
+ *
+ * @param shiftId - UUID of the shift
+ * @param options - Query options (enabled, etc.)
+ * @returns Query result with lottery summary data
+ *
+ * @security FE-005: UI_SECURITY - Read-only data display
+ */
+export function useShiftLotterySummary(
+  shiftId: string | undefined,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: shiftLotterySummaryKeys.detail(shiftId!),
+    queryFn: () => getShiftLotterySummary(shiftId!),
+    enabled: options?.enabled !== false && !!shiftId,
+    staleTime: 5 * 60 * 1000, // 5 minutes - historical data doesn't change often
     select: (response) => response.data,
   });
 }

@@ -38,6 +38,7 @@ describe("CLIENT-DASHBOARD-COMPONENT: ClosedShiftSummary Component", () => {
     store_name: "Main Street Store",
     cashier_name: "John Smith",
     opener_name: "Manager Jones",
+    day_summary_id: "day-summary-1",
     transaction_count: 45,
     variance_reason: "Customer returned cash payment",
     approved_by: "approver-1",

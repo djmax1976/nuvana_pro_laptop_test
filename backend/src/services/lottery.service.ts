@@ -13,29 +13,153 @@
 import { prisma } from "../utils/db";
 
 /**
- * Calculate expected ticket count based on opening and closing serials
- * Formula: expected = closing_serial - opening_serial + 1
+ * Calculate expected ticket count using serial difference
  *
- * @param openingSerial - Opening serial number (string, e.g., "0001")
- * @param closingSerial - Closing serial number (string, e.g., "0050")
- * @returns Expected count of tickets that should have been sold
+ * Formula: tickets_sold = closing_serial - opening_serial
+ *
+ * The opening serial represents the NEXT ticket to be sold (first unsold),
+ * and the closing serial represents the NEXT ticket to be sold after sales.
+ * The difference gives the exact count of tickets sold during the period.
+ *
+ * Serial Position Semantics:
+ * - Opening serial: Position of the first ticket available for sale
+ * - Closing serial: Position after the last ticket sold (next available)
+ *
+ * Examples:
+ * - Opening: 0, Closing: 0 = 0 tickets sold (no sales, still at position 0)
+ * - Opening: 0, Closing: 1 = 1 ticket sold (ticket #0 sold, now at position 1)
+ * - Opening: 0, Closing: 15 = 15 tickets sold (tickets #0-14 sold)
+ * - Opening: 5, Closing: 10 = 5 tickets sold (tickets #5-9 sold)
+ * - Opening: 45, Closing: 90 = 45 tickets sold (tickets #45-89 sold)
+ *
+ * @param openingSerial - Opening serial position (string, e.g., "000")
+ * @param closingSerial - Closing serial position (string, e.g., "015")
+ * @returns Expected count of tickets sold (never negative)
  * @throws Error if serials are not numeric
+ *
+ * SEC-014: INPUT_VALIDATION - Strict numeric validation with type coercion prevention
+ * API-003: ERROR_HANDLING - Clear error message for invalid input with context
  */
 export function calculateExpectedCount(
   openingSerial: string,
   closingSerial: string,
 ): number {
-  // Parse serials as integers (assumes numeric serials, common for lottery tickets)
-  const openingSerialNum = parseInt(openingSerial, 10);
-  const closingSerialNum = parseInt(closingSerial, 10);
-
-  if (isNaN(openingSerialNum) || isNaN(closingSerialNum)) {
+  // SEC-014: Validate input types before processing
+  if (typeof openingSerial !== "string" || typeof closingSerial !== "string") {
     throw new Error(
-      `Invalid serial format: opening=${openingSerial}, closing=${closingSerial}. Serials must be numeric.`,
+      `Invalid serial type: opening=${typeof openingSerial}, closing=${typeof closingSerial}. Serials must be strings.`,
     );
   }
 
-  return closingSerialNum - openingSerialNum + 1;
+  // SEC-014: Parse with explicit radix to prevent octal interpretation
+  const openingSerialNum = parseInt(openingSerial, 10);
+  const closingSerialNum = parseInt(closingSerial, 10);
+
+  // SEC-014: Strict NaN validation using Number.isNaN (not global isNaN)
+  if (Number.isNaN(openingSerialNum) || Number.isNaN(closingSerialNum)) {
+    throw new Error(
+      `Invalid serial format: opening="${openingSerial}", closing="${closingSerial}". Serials must be numeric strings.`,
+    );
+  }
+
+  // SEC-014: Validate serial range (reasonable bounds check)
+  const MAX_SERIAL = 999;
+  if (
+    openingSerialNum < 0 ||
+    openingSerialNum > MAX_SERIAL ||
+    closingSerialNum < 0 ||
+    closingSerialNum > MAX_SERIAL
+  ) {
+    throw new Error(
+      `Serial out of valid range [0-${MAX_SERIAL}]: opening=${openingSerialNum}, closing=${closingSerialNum}.`,
+    );
+  }
+
+  // Calculate tickets sold: closing - opening
+  // This gives the exact count of tickets sold during the period
+  // Example: opening=0, closing=15 means tickets 0-14 were sold = 15 tickets
+  const ticketsSold = closingSerialNum - openingSerialNum;
+
+  // Ensure non-negative result (closing should never be less than opening)
+  // Math.max provides defense-in-depth against data integrity issues
+  return Math.max(0, ticketsSold);
+}
+
+/**
+ * Calculate expected ticket count for DEPLETED packs (manual or auto sold-out)
+ *
+ * Formula: tickets_sold = (serial_end + 1) - opening_serial
+ *
+ * IMPORTANT: This function is specifically for DEPLETION scenarios where:
+ * 1. Manual depletion - user marks pack as "sold out"
+ * 2. Auto depletion - new pack activated in same bin, old pack auto-closes
+ *
+ * In depletion cases, serial_end represents the LAST ticket INDEX (e.g., "014" for
+ * a 15-ticket pack), NOT the next position. Therefore we add 1 to convert from
+ * last-index to count.
+ *
+ * This differs from normal scanning where the closing serial IS the next position.
+ *
+ * Serial Position Semantics for Depletion:
+ * - Opening serial: Position of the first ticket available for sale
+ * - Serial end: LAST ticket index in the pack (needs +1 for count)
+ *
+ * Examples (15-ticket pack with serial_end="014"):
+ * - Opening: "000", serial_end: "014" → (14 + 1) - 0 = 15 tickets sold (full pack)
+ * - Opening: "005", serial_end: "014" → (14 + 1) - 5 = 10 tickets sold (partial)
+ * - Opening: "010", serial_end: "014" → (14 + 1) - 10 = 5 tickets sold (end of pack)
+ *
+ * @param openingSerial - Opening serial position (string, e.g., "000")
+ * @param serialEnd - The pack's last ticket INDEX (string, e.g., "014" for 15-ticket pack)
+ * @returns Expected count of tickets sold (never negative)
+ * @throws Error if serials are not numeric or out of range
+ *
+ * SEC-014: INPUT_VALIDATION - Strict numeric validation with type coercion prevention
+ * API-003: ERROR_HANDLING - Clear error message for invalid input with context
+ */
+export function calculateExpectedCountForDepletion(
+  openingSerial: string,
+  serialEnd: string,
+): number {
+  // SEC-014: Validate input types before processing
+  if (typeof openingSerial !== "string" || typeof serialEnd !== "string") {
+    throw new Error(
+      `Invalid serial type: opening=${typeof openingSerial}, serialEnd=${typeof serialEnd}. Serials must be strings.`,
+    );
+  }
+
+  // SEC-014: Parse with explicit radix to prevent octal interpretation
+  const openingSerialNum = parseInt(openingSerial, 10);
+  const serialEndNum = parseInt(serialEnd, 10);
+
+  // SEC-014: Strict NaN validation using Number.isNaN (not global isNaN)
+  if (Number.isNaN(openingSerialNum) || Number.isNaN(serialEndNum)) {
+    throw new Error(
+      `Invalid serial format: opening="${openingSerial}", serialEnd="${serialEnd}". Serials must be numeric strings.`,
+    );
+  }
+
+  // SEC-014: Validate serial range (reasonable bounds check)
+  const MAX_SERIAL = 999;
+  if (
+    openingSerialNum < 0 ||
+    openingSerialNum > MAX_SERIAL ||
+    serialEndNum < 0 ||
+    serialEndNum > MAX_SERIAL
+  ) {
+    throw new Error(
+      `Serial out of valid range [0-${MAX_SERIAL}]: opening=${openingSerialNum}, serialEnd=${serialEndNum}.`,
+    );
+  }
+
+  // Depletion formula: (serial_end + 1) - opening = tickets sold
+  // serial_end is the LAST ticket index, so +1 converts to count
+  // Example: serial_end=14, opening=0 → (14+1)-0 = 15 tickets (full 15-ticket pack)
+  const ticketsSold = serialEndNum + 1 - openingSerialNum;
+
+  // Ensure non-negative result (serial_end+1 should never be less than opening)
+  // Math.max provides defense-in-depth against data integrity issues
+  return Math.max(0, ticketsSold);
 }
 
 /**

@@ -4,6 +4,43 @@
  * Test file for the compact UnscannedBinWarningModal component used in lottery day close.
  * This component handles bins that have not been scanned during day close.
  *
+ * @test-level COMPONENT
+ * @justification Tests React component behavior with user interactions
+ * @story Lottery Day Close - Edge Case Handling
+ * @priority P0 (Critical - Data Integrity)
+ *
+ * TRACEABILITY MATRIX:
+ * ┌─────────────────────────────────────────────────────────────────────────────────┐
+ * │ Test Section         │ Tests        │ Coverage Area                    │ Pri   │
+ * ├─────────────────────────────────────────────────────────────────────────────────┤
+ * │ Modal Rendering      │ 6 tests      │ UI display, visibility           │ P1    │
+ * │ Checkbox Selection   │ 6 tests      │ User interaction, state changes  │ P0    │
+ * │ Select All           │ 8 tests      │ Bulk selection, indeterminate    │ P1    │
+ * │ Calculations         │ 5 tests      │ Ticket count, sales amount       │ P0    │
+ * │ Button Behavior      │ 5 tests      │ Actions, callbacks               │ P0    │
+ * │ Accessibility        │ 4 tests      │ ARIA, screen readers             │ P1    │
+ * │ Edge Cases           │ 4 tests      │ State reset, large datasets      │ P1    │
+ * └─────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * TESTING PYRAMID PLACEMENT:
+ * ┌─────────────────────────────────────────────────────────────────────────────────┐
+ * │ Level                │ Coverage                         │ Files                 │
+ * ├─────────────────────────────────────────────────────────────────────────────────┤
+ * │ Unit                 │ calculateTicketsSold logic       │ frontend-ticket-*.ts  │
+ * │ Component (this)     │ UI behavior, user interaction    │ This file             │
+ * │ Integration          │ Frontend-backend parity          │ *-consistency.*.ts    │
+ * │ E2E                  │ Full day close workflow          │ lottery-day-close.e2e │
+ * └─────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * SECURITY STANDARDS TESTED:
+ * - SEC-014: INPUT_VALIDATION - Numeric validation in calculations
+ * - FE-005: UI_SECURITY - Price validation before multiplication
+ * - FE-001: STATE_MANAGEMENT - Clean state transitions
+ *
+ * CALCULATION FORMULA TESTED:
+ * tickets_sold = (ending_serial + 1) - starting_serial
+ * This is the "fencepost" inclusive counting formula.
+ *
  * Key Features Tested:
  * - Compact table rendering with bin details (Bin #, Game, $, Pack, Sold Out checkbox)
  * - Checkbox selection for marking packs as sold out
@@ -12,22 +49,11 @@
  * - Modal cancel/close behavior
  * - State reset on modal reopen
  *
- * Test Categories:
- * 1. Modal Rendering
- * 2. Checkbox Selection
- * 3. Calculations (tickets sold, sales amount)
- * 4. Button Behavior
- * 5. Accessibility
- * 6. Edge Cases
- *
  * MCP Testing Guidelines Applied:
  * - Tests isolated with proper mocking
  * - Descriptive test names following naming convention
  * - data-testid attributes for reliable element selection
  * - Async operations properly awaited
- *
- * @story Lottery Day Close - Edge Case Handling
- * @priority P0 (Critical - Data Integrity)
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -40,8 +66,7 @@ import {
 } from "@/components/lottery/UnscannedBinWarningModal";
 
 // Sample test data - represents bins without ending serials
-// is_first_period=true indicates these are new packs (starting_serial is first ticket to count)
-// Formula: tickets = closing - starting + 1 (inclusive counting)
+// Simple calculation: tickets = ending - starting
 const mockUnscannedBins: UnscannedBinInfo[] = [
   {
     bin_id: "bin-1",
@@ -51,8 +76,7 @@ const mockUnscannedBins: UnscannedBinInfo[] = [
     game_name: "Lucky 7s",
     game_price: 5.0,
     starting_serial: "000",
-    serial_end: "014",
-    is_first_period: true, // New pack - inclusive counting: 014 - 000 + 1 = 15 tickets
+    serial_end: "014", // (014 + 1) - 000 = 15 tickets (inclusive counting)
   },
   {
     bin_id: "bin-2",
@@ -62,8 +86,7 @@ const mockUnscannedBins: UnscannedBinInfo[] = [
     game_name: "Cash Bonanza",
     game_price: 10.0,
     starting_serial: "005",
-    serial_end: "054",
-    is_first_period: true, // New pack - inclusive counting: 054 - 005 + 1 = 50 tickets
+    serial_end: "054", // (054 + 1) - 005 = 50 tickets (inclusive counting)
   },
 ];
 
@@ -207,7 +230,6 @@ describe("UnscannedBinWarningModal", () => {
           game_price: 20.0,
           starting_serial: "000",
           serial_end: "049",
-          is_first_period: true,
         },
       ];
 
@@ -555,8 +577,8 @@ describe("UnscannedBinWarningModal", () => {
 
       const result = mockOnConfirm.mock.calls[0][0] as UnscannedBinModalResult;
 
-      // Bin 1: starting=000, serial_end=014, is_first_period=true
-      // Formula: 014 - 000 + 1 = 15 tickets (inclusive counting for new packs)
+      // Bin 1: starting=000, serial_end=014
+      // Inclusive calculation: (014 + 1) - 000 = 15 tickets
       expect(result.decisions?.[0].tickets_sold).toBe(15);
     });
 
@@ -579,7 +601,7 @@ describe("UnscannedBinWarningModal", () => {
 
       const result = mockOnConfirm.mock.calls[0][0] as UnscannedBinModalResult;
 
-      // Bin 1: is_first_period=true, so 15 tickets × $5 = $75
+      // Bin 1: 15 tickets × $5 = $75 (inclusive counting)
       expect(result.decisions?.[0].sales_amount).toBe(75);
     });
 
@@ -625,30 +647,29 @@ describe("UnscannedBinWarningModal", () => {
 
       expect(result.decisions).toHaveLength(2);
 
-      // Bin 1: is_first_period=true, (014 - 000 + 1) = 15 tickets × $5 = $75
+      // Bin 1: (014 + 1) - 000 = 15 tickets × $5 = $75 (inclusive counting)
       const bin1 = result.decisions?.find((d) => d.bin_id === "bin-1");
       expect(bin1?.tickets_sold).toBe(15);
       expect(bin1?.sales_amount).toBe(75);
 
-      // Bin 2: is_first_period=true, (054 - 005 + 1) = 50 tickets × $10 = $500
+      // Bin 2: (054 + 1) - 005 = 50 tickets × $10 = $500 (inclusive counting)
       const bin2 = result.decisions?.find((d) => d.bin_id === "bin-2");
       expect(bin2?.tickets_sold).toBe(50);
       expect(bin2?.sales_amount).toBe(500);
     });
 
-    it("should handle edge case where starting equals ending (1 ticket for first period)", async () => {
+    it("should handle single-ticket pack (starting equals ending = 1 ticket)", async () => {
       const user = userEvent.setup();
       const singleTicketBin: UnscannedBinInfo[] = [
         {
-          bin_id: "bin-zero",
+          bin_id: "bin-single",
           bin_number: 1,
-          pack_id: "pack-zero",
+          pack_id: "pack-single",
           pack_number: "9999999",
           game_name: "Single Ticket Pack",
           game_price: 5.0,
           starting_serial: "000",
-          serial_end: "000", // Same as starting
-          is_first_period: true, // First period: 000 - 000 + 1 = 1 ticket
+          serial_end: "000", // Single ticket pack: (000 + 1) - 000 = 1 ticket
         },
       ];
 
@@ -662,12 +683,13 @@ describe("UnscannedBinWarningModal", () => {
         />,
       );
 
-      await user.click(screen.getByTestId("bin-sold-out-bin-zero"));
+      await user.click(screen.getByTestId("bin-sold-out-bin-single"));
       await user.click(screen.getByTestId("unscanned-bin-modal-return"));
 
       const result = mockOnConfirm.mock.calls[0][0] as UnscannedBinModalResult;
 
-      // is_first_period=true: 000 - 000 + 1 = 1 ticket
+      // Inclusive calculation: (000 + 1) - 000 = 1 ticket sold
+      // A pack where serial_end equals starting_serial is a single-ticket pack
       expect(result.decisions?.[0].tickets_sold).toBe(1);
       expect(result.decisions?.[0].sales_amount).toBe(5);
     });
@@ -819,7 +841,6 @@ describe("UnscannedBinWarningModal", () => {
           game_price: 20.0,
           starting_serial: "000",
           serial_end: "049",
-          is_first_period: true,
         },
       ];
 
@@ -896,7 +917,6 @@ describe("UnscannedBinWarningModal", () => {
           game_price: (i + 1) * 5,
           starting_serial: "000",
           serial_end: "049",
-          is_first_period: true,
         }),
       );
 
@@ -959,7 +979,7 @@ describe("UnscannedBinWarningModal", () => {
       const result = mockOnConfirm.mock.calls[0][0] as UnscannedBinModalResult;
       const decision = result.decisions?.[0];
 
-      // is_first_period=true: 014 - 000 + 1 = 15 tickets × $5 = $75
+      // Inclusive calculation: (014 + 1) - 000 = 15 tickets × $5 = $75
       expect(decision).toMatchObject({
         bin_id: "bin-1",
         bin_number: 1,

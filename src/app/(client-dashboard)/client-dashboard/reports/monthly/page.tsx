@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/utils";
+import { formatBusinessDate } from "@/utils/date-format.utils";
 import {
   Calendar,
   ChevronLeft,
@@ -328,13 +329,9 @@ export default function MonthlyReportsPage() {
                         {report.daily_breakdown.map((day: DayBreakdownItem) => (
                           <TableRow key={day.business_date}>
                             <TableCell className="font-medium">
-                              {new Date(day.business_date).toLocaleDateString(
-                                "en-US",
-                                {
-                                  weekday: "short",
-                                  month: "short",
-                                  day: "numeric",
-                                },
+                              {formatBusinessDate(
+                                day.business_date,
+                                "EEE, MMM d",
                               )}
                             </TableCell>
                             <TableCell className="text-right">

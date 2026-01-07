@@ -167,14 +167,16 @@ export interface LotteryStatusBannerProps {
 export interface MoneyReceivedCardProps {
   /** Current state values */
   state: MoneyReceivedState;
-  /** Callback to update reports state (manual inputs) */
-  onReportsChange: (newState: Partial<MoneyReceivedReportsState>) => void;
+  /** Callback to update reports state (manual inputs) - optional in readOnly mode */
+  onReportsChange?: (newState: Partial<MoneyReceivedReportsState>) => void;
   /** Callback to update POS state (for testing purposes) */
   onPOSChange?: (newState: Partial<MoneyReceivedPOSState>) => void;
   /** Whether inputs are disabled */
   disabled?: boolean;
   /** Whether to allow editing POS values (for testing) */
   editablePOS?: boolean;
+  /** Whether to render in read-only mode (plain text instead of inputs) */
+  readOnly?: boolean;
 }
 
 /**
@@ -183,14 +185,16 @@ export interface MoneyReceivedCardProps {
 export interface SalesBreakdownCardProps {
   /** Current state values */
   state: SalesBreakdownState;
-  /** Callback to update reports state (manual inputs) */
-  onReportsChange: (newState: Partial<SalesBreakdownReportsState>) => void;
+  /** Callback to update reports state (manual inputs) - optional in readOnly mode */
+  onReportsChange?: (newState: Partial<SalesBreakdownReportsState>) => void;
   /** Callback to update POS state (for testing purposes) */
   onPOSChange?: (newState: Partial<SalesBreakdownPOSState>) => void;
   /** Whether inputs are disabled */
   disabled?: boolean;
   /** Whether to allow editing POS values (for testing) */
   editablePOS?: boolean;
+  /** Whether to render in read-only mode (plain text instead of inputs) */
+  readOnly?: boolean;
 }
 
 /**
@@ -218,71 +222,103 @@ export interface ClosingTotals {
 /**
  * Calculate net cash from money received state (Reports column)
  * Formula: POS(Cash+Credit+Debit+EBT) - REPORTS(Payouts)
+ *
+ * @security SEC-014: INPUT_VALIDATION - Defensive null checks for API data
  * @param state - Money received state
- * @returns Net cash amount for reports
+ * @returns Net cash amount for reports, or 0 if state is invalid
  */
 export function calculateNetCashReports(state: MoneyReceivedState): number {
+  // SEC-014: Defensive null checks - return 0 if state structure is invalid
+  if (!state?.pos || !state?.reports) {
+    return 0;
+  }
+
   const posReceipts =
-    state.pos.cash + state.pos.creditCard + state.pos.debitCard + state.pos.ebt;
+    (state.pos.cash ?? 0) +
+    (state.pos.creditCard ?? 0) +
+    (state.pos.debitCard ?? 0) +
+    (state.pos.ebt ?? 0);
   const reportsPayouts =
-    state.reports.cashPayouts +
-    state.reports.lotteryPayouts +
-    state.reports.gamingPayouts;
+    (state.reports.cashPayouts ?? 0) +
+    (state.reports.lotteryPayouts ?? 0) +
+    (state.reports.gamingPayouts ?? 0);
   return posReceipts - reportsPayouts;
 }
 
 /**
  * Calculate net cash from money received state (POS column)
+ *
+ * @security SEC-014: INPUT_VALIDATION - Defensive null checks for API data
  * @param state - Money received state
- * @returns Net cash amount for POS
+ * @returns Net cash amount for POS, or 0 if state is invalid
  */
 export function calculateNetCashPOS(state: MoneyReceivedState): number {
+  // SEC-014: Defensive null checks - return 0 if state structure is invalid
+  if (!state?.pos) {
+    return 0;
+  }
+
   return (
-    state.pos.cash +
-    state.pos.creditCard +
-    state.pos.debitCard +
-    state.pos.ebt -
-    state.pos.cashPayouts -
-    state.pos.lotteryPayouts -
-    state.pos.gamingPayouts
+    (state.pos.cash ?? 0) +
+    (state.pos.creditCard ?? 0) +
+    (state.pos.debitCard ?? 0) +
+    (state.pos.ebt ?? 0) -
+    (state.pos.cashPayouts ?? 0) -
+    (state.pos.lotteryPayouts ?? 0) -
+    (state.pos.gamingPayouts ?? 0)
   );
 }
 
 /**
  * Calculate total sales from sales breakdown state (Reports column)
  * Formula: POS(Gas+Grocery+Tobacco+Beverages+Snacks+Other+Tax) + REPORTS(Lottery)
+ *
+ * @security SEC-014: INPUT_VALIDATION - Defensive null checks for API data
  * @param state - Sales breakdown state
- * @returns Total sales amount for reports
+ * @returns Total sales amount for reports, or 0 if state is invalid
  */
 export function calculateTotalSalesReports(state: SalesBreakdownState): number {
+  // SEC-014: Defensive null checks - return 0 if state structure is invalid
+  if (!state?.pos || !state?.reports) {
+    return 0;
+  }
+
   const posDepartments =
-    state.pos.gasSales +
-    state.pos.grocery +
-    state.pos.tobacco +
-    state.pos.beverages +
-    state.pos.snacks +
-    state.pos.other +
-    state.pos.salesTax;
-  const reportsLottery = state.reports.scratchOff + state.reports.onlineLottery;
+    (state.pos.gasSales ?? 0) +
+    (state.pos.grocery ?? 0) +
+    (state.pos.tobacco ?? 0) +
+    (state.pos.beverages ?? 0) +
+    (state.pos.snacks ?? 0) +
+    (state.pos.other ?? 0) +
+    (state.pos.salesTax ?? 0);
+  const reportsLottery =
+    (state.reports.scratchOff ?? 0) + (state.reports.onlineLottery ?? 0);
   return posDepartments + reportsLottery;
 }
 
 /**
  * Calculate total sales from sales breakdown state (POS column)
+ *
+ * @security SEC-014: INPUT_VALIDATION - Defensive null checks for API data
  * @param state - Sales breakdown state
- * @returns Total sales amount for POS
+ * @returns Total sales amount for POS, or 0 if state is invalid
  */
 export function calculateTotalSalesPOS(state: SalesBreakdownState): number {
+  // SEC-014: Defensive null checks - return 0 if state structure is invalid
+  if (!state?.pos) {
+    return 0;
+  }
+
   return (
-    state.pos.gasSales +
-    state.pos.grocery +
-    state.pos.tobacco +
-    state.pos.beverages +
-    state.pos.snacks +
-    state.pos.other +
-    state.pos.scratchOff +
-    state.pos.onlineLottery +
-    state.pos.salesTax
+    (state.pos.gasSales ?? 0) +
+    (state.pos.grocery ?? 0) +
+    (state.pos.tobacco ?? 0) +
+    (state.pos.beverages ?? 0) +
+    (state.pos.snacks ?? 0) +
+    (state.pos.other ?? 0) +
+    (state.pos.scratchOff ?? 0) +
+    (state.pos.onlineLottery ?? 0) +
+    (state.pos.salesTax ?? 0)
   );
 }
 
