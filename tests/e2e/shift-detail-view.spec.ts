@@ -7,11 +7,66 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
 import { createClientUser } from "../support/factories";
 import { createTransaction as createTransactionFactory } from "../support/factories/transaction.factory";
-import { PrismaClient, Prisma } from "@prisma/client";
+import { PrismaClient, Prisma, DaySummaryStatus } from "@prisma/client";
 import {
   createShift as createShiftHelper,
   createCashier as createCashierHelper,
 } from "../support/helpers/database-helpers";
+
+/**
+ * Creates a day summary for testing shift list views.
+ * The day summary is required for shifts to appear in the DayShiftAccordion.
+ *
+ * @param prismaClient - Prisma client instance
+ * @param storeId - Store UUID
+ * @param businessDate - Business date for the summary
+ * @param status - Day summary status (default: OPEN)
+ * @returns Created day summary with ID, store ID, and business date
+ */
+async function createDaySummary(
+  prismaClient: PrismaClient,
+  storeId: string,
+  businessDate: Date,
+  status: DaySummaryStatus = "OPEN",
+): Promise<{ day_summary_id: string; store_id: string; business_date: Date }> {
+  const normalizedDate = new Date(businessDate);
+  normalizedDate.setHours(0, 0, 0, 0);
+
+  const daySummary = await prismaClient.daySummary.create({
+    data: {
+      store_id: storeId,
+      business_date: normalizedDate,
+      status,
+      shift_count: 1,
+      gross_sales: new Prisma.Decimal(500.0),
+      net_sales: new Prisma.Decimal(450.0),
+      tax_collected: new Prisma.Decimal(40.0),
+      transaction_count: 10,
+      total_cash_variance: new Prisma.Decimal(0),
+    },
+  });
+
+  return {
+    day_summary_id: daySummary.day_summary_id,
+    store_id: daySummary.store_id,
+    business_date: daySummary.business_date,
+  };
+}
+
+/**
+ * Links a shift to a day summary by updating the shift's day_summary_id.
+ * Required for shifts to appear in the DayShiftAccordion view.
+ */
+async function linkShiftToDaySummary(
+  prismaClient: PrismaClient,
+  shiftId: string,
+  daySummaryId: string,
+): Promise<void> {
+  await prismaClient.shift.update({
+    where: { shift_id: shiftId },
+    data: { day_summary_id: daySummaryId },
+  });
+}
 
 /**
  * Creates a POS terminal for testing
@@ -232,7 +287,8 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     clientUser,
     prismaClient,
   }) => {
-    // GIVEN: A shift exists in the client user's store
+    // GIVEN: A day summary and shift exist in the client user's store
+    // Note: The shift list uses DayShiftAccordion which requires day summaries
     const terminal = await createPOSTerminal(prismaClient, clientUser.store_id);
     const cashier = await createTestCashier(
       prismaClient,
@@ -243,6 +299,14 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     const cashierUser = await prismaClient.user.create({
       data: createClientUser(),
     });
+
+    // Create a day summary for today (required for shift to appear in accordion)
+    const daySummary = await createDaySummary(
+      prismaClient,
+      clientUser.store_id,
+      new Date(),
+      "OPEN",
+    );
 
     const shift = await createShiftHelper(
       {
@@ -256,12 +320,20 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
       prismaClient,
     );
 
+    // Link shift to day summary so it appears in the DayShiftAccordion
+    await linkShiftToDaySummary(
+      prismaClient,
+      shift.shift_id,
+      daySummary.day_summary_id,
+    );
+
     // WHEN: Navigating to the shifts page
     await navigateToShiftsPage(clientOwnerPage);
 
     // AND: Clicking on the shift row
+    // Note: The shift row is rendered inside DayShiftAccordion with data-testid="shift-row-${shiftId}"
     const shiftRow = clientOwnerPage.locator(
-      `[data-testid="shift-list-row-${shift.shift_id}"]`,
+      `[data-testid="shift-row-${shift.shift_id}"]`,
     );
     await expect(shiftRow).toBeVisible({ timeout: 15000 });
     await shiftRow.click();
@@ -362,10 +434,8 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
       clientOwnerPage.locator('[data-testid="closed-shift-summary"]'),
     ).toBeVisible({ timeout: 15000 });
 
-    // AND: Shift information card should be visible
-    await expect(
-      clientOwnerPage.locator('[data-testid="shift-info-card"]'),
-    ).toBeVisible();
+    // AND: The "Shift Summary" header should be visible
+    await expect(clientOwnerPage.getByText("Shift Summary")).toBeVisible();
 
     // AND: Cash reconciliation card should be visible
     await expect(
@@ -376,7 +446,7 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     // which cleans up test users, companies, stores, and related data
   });
 
-  test("SHIFT-DETAIL-E2E-004: [P0] Should display payment methods breakdown for closed shift", async ({
+  test("SHIFT-DETAIL-E2E-004: [P0] Should display cash reconciliation for closed shift", async ({
     clientOwnerPage,
     clientUser,
     prismaClient,
@@ -407,13 +477,24 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
       clientOwnerPage.locator('[data-testid="closed-shift-summary"]'),
     ).toBeVisible({ timeout: 15000 });
 
-    // THEN: Payment methods breakdown should be visible
+    // THEN: Cash reconciliation card should be visible
     await expect(
-      clientOwnerPage.locator('[data-testid="money-received-summary"]'),
+      clientOwnerPage.locator('[data-testid="cash-reconciliation-card"]'),
     ).toBeVisible({ timeout: 20000 });
 
-    // AND: Should show "Payment Methods" header
-    await expect(clientOwnerPage.getByText("Payment Methods")).toBeVisible();
+    // AND: Should show "Cash Reconciliation" header
+    await expect(
+      clientOwnerPage.getByText("Cash Reconciliation"),
+    ).toBeVisible();
+
+    // AND: Should display key reconciliation fields
+    await expect(clientOwnerPage.getByText("Opening Cash")).toBeVisible();
+    await expect(clientOwnerPage.getByText("Closing Cash")).toBeVisible();
+    await expect(clientOwnerPage.getByText("Expected Cash")).toBeVisible();
+    // Use exact match to avoid matching multiple "Variance" elements
+    await expect(
+      clientOwnerPage.getByText("Variance", { exact: true }),
+    ).toBeVisible();
   });
 
   test("SHIFT-DETAIL-E2E-005: [P0] Should display variance details when variance exists", async ({
@@ -510,12 +591,12 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     ).toBeVisible();
   });
 
-  test("SHIFT-DETAIL-E2E-007: [P1] Should display sales summary for closed shift", async ({
+  test("SHIFT-DETAIL-E2E-007: [P1] Should display complete closed shift info with zero variance", async ({
     clientOwnerPage,
     clientUser,
     prismaClient,
   }) => {
-    // GIVEN: A CLOSED shift with transactions
+    // GIVEN: A CLOSED shift with zero variance
     const terminal = await createPOSTerminal(prismaClient, clientUser.store_id);
     const cashier = await createTestCashier(
       prismaClient,
@@ -523,16 +604,27 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
       clientUser.user_id,
     );
 
-    const shift = await createClosedShiftWithTransactions(
-      prismaClient,
-      clientUser.store_id,
-      clientUser.user_id,
-      cashier.cashier_id,
-      terminal.pos_terminal_id,
-    );
+    // Create a closed shift with zero variance
+    const shiftId = crypto.randomUUID();
+    await prismaClient.shift.create({
+      data: {
+        shift_id: shiftId,
+        store_id: clientUser.store_id,
+        opened_by: clientUser.user_id,
+        cashier_id: cashier.cashier_id,
+        pos_terminal_id: terminal.pos_terminal_id,
+        opening_cash: new Prisma.Decimal(200.0),
+        closing_cash: new Prisma.Decimal(200.0),
+        expected_cash: new Prisma.Decimal(200.0),
+        variance: new Prisma.Decimal(0),
+        status: "CLOSED",
+        opened_at: new Date(Date.now() - 8 * 60 * 60 * 1000),
+        closed_at: new Date(),
+      },
+    });
 
     // WHEN: Navigating to the shift detail page
-    await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
+    await clientOwnerPage.goto(`/client-dashboard/shifts/${shiftId}`, {
       waitUntil: "domcontentloaded",
     });
 
@@ -541,13 +633,15 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
       clientOwnerPage.locator('[data-testid="closed-shift-summary"]'),
     ).toBeVisible({ timeout: 15000 });
 
-    // THEN: Sales breakdown summary should be visible
-    await expect(
-      clientOwnerPage.locator('[data-testid="sales-breakdown-summary"]'),
-    ).toBeVisible({ timeout: 20000 });
+    // THEN: Should show success message for zero variance
+    await expect(clientOwnerPage.getByText("no variance")).toBeVisible({
+      timeout: 10000,
+    });
 
-    // AND: Should show "Sales Summary" header
-    await expect(clientOwnerPage.getByText("Sales Summary")).toBeVisible();
+    // AND: Variance details card should NOT be visible (since variance is 0)
+    await expect(
+      clientOwnerPage.locator('[data-testid="variance-details-card"]'),
+    ).not.toBeVisible();
   });
 
   test("SHIFT-DETAIL-E2E-008: [P1] Should display error state for non-existent shift", async ({

@@ -2,6 +2,22 @@
  * @test-level E2E
  * @justification End-to-end tests for shift management UI - validates complete user journey from opening shifts to variance approval
  * @story 4-7-shift-management-ui
+ *
+ * ARCHITECTURE NOTES:
+ * The Shift Management UI uses a DayShiftAccordion component that displays:
+ * - Day summaries as parent accordion rows
+ * - Shifts as children nested within their associated day summary
+ *
+ * For shifts to be visible in the UI, they MUST be linked to a DaySummary via
+ * the day_summary_id foreign key. Shifts without day_summary_id won't appear
+ * in the accordion view.
+ *
+ * Test IDs in the implementation:
+ * - Day accordion: data-testid="day-accordion-{businessDate}"
+ * - Day header: data-testid="day-accordion-header-{businessDate}"
+ * - Shift rows: data-testid="shift-row-{shiftId}"
+ * - Main container: data-testid="shift-list-table" (when data exists)
+ * - Empty state: data-testid="shift-list-empty"
  */
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
@@ -11,7 +27,7 @@ import {
   createClientUser,
   createUser,
 } from "../support/factories";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import {
   createShift as createShiftHelper,
   createCashier as createCashierHelper,
@@ -39,11 +55,17 @@ async function createCompanyWithStore(
 /**
  * Helper function to create a test cashier using the database helper
  * This ensures proper employee_id generation and all required fields are set
+ *
+ * @param prismaClient - Prisma client instance
+ * @param storeId - Store UUID
+ * @param createdByUserId - User ID of the creator
+ * @param name - Optional custom name for the cashier
  */
 async function createTestCashier(
   prismaClient: PrismaClient,
   storeId: string,
   createdByUserId: string,
+  name?: string,
 ): Promise<{
   cashier_id: string;
   store_id: string;
@@ -54,9 +76,100 @@ async function createTestCashier(
     {
       store_id: storeId,
       created_by: createdByUserId,
+      name,
     },
     prismaClient,
   );
+}
+
+/**
+ * Helper function to create a day summary for testing
+ * REQUIRED for shifts to be visible in the DayShiftAccordion UI
+ *
+ * @security DB-006: TENANT_ISOLATION - Day summaries are scoped by store_id
+ */
+async function createDaySummary(
+  prismaClient: PrismaClient,
+  storeId: string,
+  businessDate: Date,
+  status: "OPEN" | "PENDING_CLOSE" | "CLOSED" = "OPEN",
+  closedBy?: string,
+): Promise<{ day_summary_id: string; status: string; business_date: Date }> {
+  const normalizedDate = new Date(businessDate);
+  normalizedDate.setHours(0, 0, 0, 0);
+
+  const daySummary = await prismaClient.daySummary.create({
+    data: {
+      store_id: storeId,
+      business_date: normalizedDate,
+      status,
+      shift_count: 0,
+      gross_sales: new Prisma.Decimal(0),
+      net_sales: new Prisma.Decimal(0),
+      tax_collected: new Prisma.Decimal(0),
+      transaction_count: 0,
+      total_cash_variance: new Prisma.Decimal(0),
+      closed_at: status === "CLOSED" ? new Date() : null,
+      closed_by: closedBy || null,
+    },
+  });
+
+  return {
+    day_summary_id: daySummary.day_summary_id,
+    status: daySummary.status,
+    business_date: normalizedDate,
+  };
+}
+
+/**
+ * Helper function to create a shift and link it to a day summary
+ * The shift will be visible in the accordion UI when linked to a day summary
+ *
+ * @returns Shift with day_summary_id populated
+ */
+async function createShiftWithDaySummary(
+  prismaClient: PrismaClient,
+  options: {
+    store_id: string;
+    cashier_id: string;
+    opened_by: string;
+    day_summary_id: string;
+    status?: "OPEN" | "CLOSED";
+    opening_cash?: number;
+    closing_cash?: number | null;
+    opened_at?: Date;
+    closed_at?: Date | null;
+  },
+): Promise<{
+  shift_id: string;
+  store_id: string;
+  cashier_id: string;
+  day_summary_id: string;
+}> {
+  const shift = await createShiftHelper(
+    {
+      store_id: options.store_id,
+      cashier_id: options.cashier_id,
+      opened_by: options.opened_by,
+      status: options.status || "OPEN",
+      opening_cash: options.opening_cash || 100.0,
+      closed_at: options.closed_at,
+    },
+    prismaClient,
+  );
+
+  // Link the shift to the day summary
+  await prismaClient.shift.update({
+    where: { shift_id: shift.shift_id },
+    data: { day_summary_id: options.day_summary_id },
+  });
+
+  return {
+    shift_id: shift.shift_id,
+    store_id: shift.store_id,
+    cashier_id: shift.cashier_id,
+    day_summary_id: options.day_summary_id,
+  };
 }
 
 /**
@@ -289,66 +402,75 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     prismaClient,
   }) => {
     // GIVEN: Using clientUser's own store with shifts from different cashiers
-    // Note: The current ShiftList UI filters by cashier, date range, and report type
-    // (not by shift status - status filtering is not implemented in the current UI)
+    // The ShiftList UI uses DayShiftAccordion which groups shifts by day summary.
+    // Shifts MUST have a day_summary_id to be visible in the accordion.
+    // Cashier filter is applied client-side after data is fetched.
     const store_id = clientUser.store_id;
 
     const cashierUser = await prismaClient.user.create({
       data: createClientUser(),
     });
 
-    // Create first cashier with a shift
+    // Create a day summary for today - required for shifts to appear in accordion
+    const today = new Date();
+    const daySummary = await createDaySummary(
+      prismaClient,
+      store_id,
+      today,
+      "OPEN",
+    );
+
+    // Create first cashier with a unique name for filtering
     const cashier1 = await createTestCashier(
       prismaClient,
       store_id,
       clientUser.user_id,
+      "FilterTest Cashier Alpha",
     );
 
-    // Create second cashier with a shift
+    // Create second cashier with a unique name
     const cashier2 = await createTestCashier(
       prismaClient,
       store_id,
       clientUser.user_id,
+      "FilterTest Cashier Beta",
     );
 
-    const shift1 = await createShiftHelper(
-      {
-        store_id: store_id,
-        cashier_id: cashier1.cashier_id,
-        opened_by: cashierUser.user_id,
-        status: "OPEN",
-        opening_cash: 100.0,
-      },
-      prismaClient,
-    );
+    // Create shifts linked to the day summary
+    const shift1 = await createShiftWithDaySummary(prismaClient, {
+      store_id: store_id,
+      cashier_id: cashier1.cashier_id,
+      opened_by: cashierUser.user_id,
+      day_summary_id: daySummary.day_summary_id,
+      status: "OPEN",
+      opening_cash: 100.0,
+    });
 
-    const shift2 = await createShiftHelper(
-      {
-        store_id: store_id,
-        cashier_id: cashier2.cashier_id,
-        opened_by: cashierUser.user_id,
-        status: "OPEN",
-        opening_cash: 200.0,
-      },
-      prismaClient,
-    );
+    const shift2 = await createShiftWithDaySummary(prismaClient, {
+      store_id: store_id,
+      cashier_id: cashier2.cashier_id,
+      opened_by: cashierUser.user_id,
+      day_summary_id: daySummary.day_summary_id,
+      status: "OPEN",
+      opening_cash: 200.0,
+    });
 
     // WHEN: Navigating to shifts page
     await navigateToShiftsPage(clientOwnerPage);
 
-    // Wait for the shifts table to load and display all shifts
+    // Wait for the shifts table (accordion container) to load
     const table = clientOwnerPage.locator('[data-testid="shift-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
 
-    // Wait for both shifts to be visible initially
+    // In the DayShiftAccordion, shifts are rendered with data-testid="shift-row-{shiftId}"
     const shift1Row = clientOwnerPage.locator(
-      `[data-testid="shift-list-row-${shift1.shift_id}"]`,
+      `[data-testid="shift-row-${shift1.shift_id}"]`,
     );
     const shift2Row = clientOwnerPage.locator(
-      `[data-testid="shift-list-row-${shift2.shift_id}"]`,
+      `[data-testid="shift-row-${shift2.shift_id}"]`,
     );
 
-    // Both shifts should be visible before filtering
+    // Both shifts should be visible before filtering (accordions are expanded by default)
     await expect(shift1Row).toBeVisible({ timeout: 10000 });
     await expect(shift2Row).toBeVisible({ timeout: 10000 });
 
@@ -357,7 +479,7 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     await expect(cashierFilter).toBeVisible({ timeout: 10000 });
     await cashierFilter.click();
 
-    // Wait for dropdown to open and select cashier 1
+    // Wait for dropdown to open and select cashier 1 by name
     const cashier1Option = clientOwnerPage
       .locator(`[role="option"]:has-text("${cashier1.name}")`)
       .first();
@@ -372,8 +494,8 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     await expect(applyButton).toBeVisible({ timeout: 5000 });
     await applyButton.click();
 
-    // Wait for the table to update (allow time for filter to apply)
-    // The cashier filter is applied client-side, so we need to wait for the UI to update
+    // Wait for the table to update (filter is applied client-side via React state)
+    // The ShiftList component filters shifts using appliedFilters.cashierId
     await clientOwnerPage.waitForTimeout(500);
 
     // THEN: Only cashier 1's shift should be visible
@@ -498,7 +620,8 @@ test.describe("4.7-E2E: Shift Management UI", () => {
       expect(isTableVisible).toBe(false);
 
       // Verify that we're not showing any shift data
-      const shiftsRows = page.locator('[data-testid^="shift-list-row-"]');
+      // In the DayShiftAccordion, shifts are rendered with data-testid="shift-row-{shiftId}"
+      const shiftsRows = page.locator('[data-testid^="shift-row-"]');
       const rowCount = await shiftsRows.count();
       expect(rowCount).toBe(0);
     }
@@ -510,7 +633,12 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     prismaClient,
   }) => {
     // GIVEN: Two stores exist with shifts, user only has access to one store
-    // Use clientUser's own store for the accessible shift
+    // The ShiftList UI uses DayShiftAccordion which groups shifts by day summary.
+    // Shifts MUST have a day_summary_id to be visible in the accordion.
+    //
+    // RLS (Row Level Security) is enforced at the API level - the backend only
+    // returns shifts for stores the user has access to. The frontend simply
+    // renders what the API returns.
     const accessibleStoreId = clientUser.store_id;
 
     // Create a completely separate company/store that clientUser does NOT have access to
@@ -524,46 +652,62 @@ test.describe("4.7-E2E: Shift Management UI", () => {
       data: createClientUser(),
     });
 
+    // Create day summaries for both stores - required for shifts to be visible
+    const today = new Date();
+    const accessibleDaySummary = await createDaySummary(
+      prismaClient,
+      accessibleStoreId,
+      today,
+      "OPEN",
+    );
+    const inaccessibleDaySummary = await createDaySummary(
+      prismaClient,
+      otherStore.store_id,
+      today,
+      "OPEN",
+    );
+
     const cashier1 = await createTestCashier(
       prismaClient,
       accessibleStoreId,
       clientUser.user_id,
+      "RLS Test Accessible Cashier",
     );
 
     const cashier2 = await createTestCashier(
       prismaClient,
       otherStore.store_id,
       otherOwner.user_id,
+      "RLS Test Inaccessible Cashier",
     );
 
-    const shift1 = await createShiftHelper(
-      {
-        store_id: accessibleStoreId,
-        cashier_id: cashier1.cashier_id,
-        opened_by: cashierUser1.user_id,
-        status: "OPEN",
-        opening_cash: 100.0,
-      },
-      prismaClient,
-    );
+    // Create shift linked to accessible store's day summary
+    const shift1 = await createShiftWithDaySummary(prismaClient, {
+      store_id: accessibleStoreId,
+      cashier_id: cashier1.cashier_id,
+      opened_by: cashierUser1.user_id,
+      day_summary_id: accessibleDaySummary.day_summary_id,
+      status: "OPEN",
+      opening_cash: 100.0,
+    });
 
+    // Create shift linked to inaccessible store's day summary
     // This shift should NOT be visible to clientUser (different company)
-    const shift2 = await createShiftHelper(
-      {
-        store_id: otherStore.store_id,
-        cashier_id: cashier2.cashier_id,
-        opened_by: cashierUser2.user_id,
-        status: "OPEN",
-        opening_cash: 200.0,
-      },
-      prismaClient,
-    );
+    const shift2 = await createShiftWithDaySummary(prismaClient, {
+      store_id: otherStore.store_id,
+      cashier_id: cashier2.cashier_id,
+      opened_by: cashierUser2.user_id,
+      day_summary_id: inaccessibleDaySummary.day_summary_id,
+      status: "OPEN",
+      opening_cash: 200.0,
+    });
 
-    // clientUser (CLIENT_OWNER) should only see shifts from their own company's stores
+    // WHEN: clientUser (CLIENT_OWNER) navigates to shifts page
+    // They should only see shifts from their own company's stores
     await navigateToShiftsPage(clientOwnerPage);
 
     // THEN: Only shifts from accessible store should be displayed
-    // Wait for the shift list to load
+    // Wait for the shift list to load (table or empty state)
     await Promise.race([
       clientOwnerPage
         .locator('[data-testid="shift-list-table"]')
@@ -575,23 +719,25 @@ test.describe("4.7-E2E: Shift Management UI", () => {
         .catch(() => null),
     ]);
 
-    // Wait for table content to be visible instead of hard wait
+    // Wait for content to be visible
     await expect(
       clientOwnerPage
         .locator('[data-testid="shift-list-table"]')
         .or(clientOwnerPage.locator('[data-testid="shift-list-empty"]')),
     ).toBeVisible({ timeout: 10000 });
 
+    // In the DayShiftAccordion, shifts are rendered with data-testid="shift-row-{shiftId}"
     // Verify shift1 (from accessible store) is visible
     const shift1Row = clientOwnerPage.locator(
-      `[data-testid="shift-list-row-${shift1.shift_id}"]`,
+      `[data-testid="shift-row-${shift1.shift_id}"]`,
     );
     const shift1Count = await shift1Row.count();
     expect(shift1Count).toBeGreaterThan(0);
 
-    // Verify shift2 (from inaccessible store) is not visible
+    // Verify shift2 (from inaccessible store) is NOT visible
+    // This validates that RLS is enforced - the API should not return this shift
     const shift2Row = clientOwnerPage.locator(
-      `[data-testid="shift-list-row-${shift2.shift_id}"]`,
+      `[data-testid="shift-row-${shift2.shift_id}"]`,
     );
     const shift2Count = await shift2Row.count();
     expect(shift2Count).toBe(0);
@@ -685,14 +831,30 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     prismaClient,
   }) => {
     // GIVEN: Using clientUser's own store with shift containing potential XSS in cashier name
+    // The ShiftList UI uses DayShiftAccordion which groups shifts by day summary.
+    // Shifts MUST have a day_summary_id to be visible in the accordion.
+    //
+    // XSS PROTECTION: React automatically escapes all text content rendered in JSX.
+    // This test validates that malicious scripts in user data are rendered as
+    // escaped text, not executed as JavaScript.
     const store_id = clientUser.store_id;
 
     const cashierUser = await prismaClient.user.create({
       data: createClientUser(),
     });
 
-    // Create a cashier with XSS in the name - this is what's displayed in the shift list
-    const xssPayload = "<script>alert('xss')</script>Cashier";
+    // Create a day summary for today - required for shifts to appear in accordion
+    const today = new Date();
+    const daySummary = await createDaySummary(
+      prismaClient,
+      store_id,
+      today,
+      "OPEN",
+    );
+
+    // Create a cashier with XSS payload in the name
+    // This is what's displayed in the shift list cashier column
+    const xssPayload = "<script>alert('xss')</script>XSSTestCashier";
     const cashier = await createCashierHelper(
       {
         store_id: store_id,
@@ -702,16 +864,15 @@ test.describe("4.7-E2E: Shift Management UI", () => {
       prismaClient,
     );
 
-    await createShiftHelper(
-      {
-        store_id: store_id,
-        cashier_id: cashier.cashier_id,
-        opened_by: cashierUser.user_id,
-        status: "OPEN",
-        opening_cash: 100.0,
-      },
-      prismaClient,
-    );
+    // Create shift linked to the day summary
+    const shift = await createShiftWithDaySummary(prismaClient, {
+      store_id: store_id,
+      cashier_id: cashier.cashier_id,
+      opened_by: cashierUser.user_id,
+      day_summary_id: daySummary.day_summary_id,
+      status: "OPEN",
+      opening_cash: 100.0,
+    });
 
     // WHEN: Navigating to shifts page
     await navigateToShiftsPage(clientOwnerPage);
@@ -729,38 +890,43 @@ test.describe("4.7-E2E: Shift Management UI", () => {
         .catch(() => null),
     ]);
 
-    // Wait for table content to be visible instead of hard wait
+    // Wait for content to be visible
     await expect(
       clientOwnerPage
         .locator('[data-testid="shift-list-table"]')
         .or(clientOwnerPage.locator('[data-testid="shift-list-empty"]')),
     ).toBeVisible({ timeout: 10000 });
 
-    // Get the shift row and verify XSS is escaped
-    const shiftRows = clientOwnerPage.locator(
-      '[data-testid^="shift-list-row-"]',
+    // In the DayShiftAccordion, shifts are rendered with data-testid="shift-row-{shiftId}"
+    const shiftRow = clientOwnerPage.locator(
+      `[data-testid="shift-row-${shift.shift_id}"]`,
     );
-    const rowCount = await shiftRows.count();
+    const rowCount = await shiftRow.count();
     expect(rowCount).toBeGreaterThan(0);
 
     if (rowCount > 0) {
-      const firstRow = shiftRows.first();
-
       // Get the row's text content (React escapes HTML, so script tags become text)
-      const rowText = await firstRow.textContent();
+      const rowText = await shiftRow.textContent();
       expect(rowText).toBeTruthy();
 
       // Verify the cashier name appears (proving the data is displayed)
-      // The text should contain "Cashier" (the safe part of the name)
-      expect(rowText).toContain("Cashier");
+      // The text should contain "XSSTestCashier" (the safe part of the name)
+      expect(rowText).toContain("XSSTestCashier");
 
       // Get the row's inner HTML to check for escaped XSS
-      const rowHTML = await firstRow.innerHTML();
+      const rowHTML = await shiftRow.innerHTML();
 
       // React escapes HTML entities, so <script> becomes &lt;script&gt;
-      // Check that the XSS payload is NOT present as unescaped <script>alert('xss')</script>
+      // SECURITY CHECK: Verify the XSS payload is NOT present as unescaped HTML
       const hasUnescapedXSS = rowHTML.includes("<script>alert('xss')</script>");
       expect(hasUnescapedXSS).toBe(false);
+
+      // Additional check: If the script tag appears at all, it should be escaped
+      // (visible as text, not executable)
+      if (rowHTML.includes("script")) {
+        // The script tag should be HTML-escaped (&lt;script&gt;) not raw (<script>)
+        expect(rowHTML).toContain("&lt;script&gt;");
+      }
     }
   });
 
