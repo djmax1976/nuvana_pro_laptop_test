@@ -72,6 +72,10 @@ class XReportService {
     const { shift_id, generated_by } = input;
 
     // Get the shift with its transactions
+    // Phase 2.3: Optimized include queries for lookup tables
+    // DB-001: ORM_USAGE - Using Prisma ORM with parameterized queries
+    // SEC-006: SQL_INJECTION - All inputs bound via Prisma (no raw SQL)
+    // Performance: Selective includes reduce data transfer for lookup tables
     const shift = await prisma.shift.findUnique({
       where: { shift_id },
       include: {
@@ -80,12 +84,26 @@ class XReportService {
           include: {
             line_items: {
               include: {
-                department: true,
+                // Optimized: Only fetch required Department fields
+                department: {
+                  select: {
+                    department_id: true,
+                    code: true,
+                    display_name: true,
+                  },
+                },
               },
             },
             payments: {
               include: {
-                tender_type: true,
+                // Optimized: Only fetch required TenderType fields
+                tender_type: {
+                  select: {
+                    tender_type_id: true,
+                    code: true,
+                    display_name: true,
+                  },
+                },
               },
             },
           },
@@ -97,6 +115,7 @@ class XReportService {
       throw new ShiftNotFoundError(shift_id);
     }
 
+    // SEC-014: INPUT_VALIDATION - Validate shift status before processing
     if (shift.status !== "ACTIVE") {
       throw new ShiftNotActiveError(shift_id, shift.status);
     }
@@ -122,6 +141,8 @@ class XReportService {
     );
 
     // Create the X Report
+    // DB-001: ORM_USAGE - Using Prisma ORM with parameterized values
+    // SEC-006: SQL_INJECTION - All inputs bound via Prisma (no raw SQL)
     const xReport = await prisma.xReport.create({
       data: {
         shift_id,
@@ -364,8 +385,9 @@ class XReportService {
       }
 
       // Track cash payments for expected cash calculation
+      // Phase 2.3: Use correct Prisma field name 'code' (not 'tender_code')
       for (const payment of txn.payments || []) {
-        if (payment.tender_type?.tender_code === "CASH") {
+        if (payment.tender_type?.code === "CASH") {
           cash_payments += Number(payment.amount || 0);
         }
       }
@@ -427,7 +449,8 @@ class XReportService {
         } else {
           tenderMap.set(tenderId, {
             tender_type_id: tenderId,
-            tender_code: payment.tender_type?.tender_code || "UNKNOWN",
+            // Phase 2.3: Use correct Prisma field name 'code' (not 'tender_code')
+            tender_code: payment.tender_type?.code || "UNKNOWN",
             tender_name: payment.tender_type?.display_name || "Unknown",
             total_amount: isReturn ? 0 : amount,
             transaction_count: isReturn ? 0 : 1,
@@ -488,8 +511,9 @@ class XReportService {
         } else {
           deptMap.set(deptId, {
             department_id: deptId,
-            department_code: item.department?.department_code || "UNKNOWN",
-            department_name: item.department?.department_name || "Unknown",
+            // Phase 2.3: Use correct Prisma field names 'code' and 'display_name'
+            department_code: item.department?.code || "UNKNOWN",
+            department_name: item.department?.display_name || "Unknown",
             gross_sales: isReturn || qty < 0 ? 0 : amount,
             net_sales: isReturn || qty < 0 ? -Math.abs(amount) : amount,
             items_sold_count: isReturn || qty < 0 ? 0 : qty,

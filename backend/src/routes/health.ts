@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { z } from "zod";
 import { checkRedisHealth } from "../utils/redis";
 import { checkRabbitMQHealth } from "../utils/rabbitmq";
 import { tokenValidationService } from "../services/token-validation.service";
@@ -6,6 +7,7 @@ import { permissionCacheService } from "../services/permission-cache.service";
 import { userAccessCacheService } from "../services/user-access-cache.service";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { circuitBreakerRegistry, CircuitState } from "../utils/circuit-breaker";
+import { queryMetricsService } from "../services/query-metrics.service";
 
 /**
  * Health check endpoint that verifies all services
@@ -303,6 +305,329 @@ export async function healthRoutes(fastify: FastifyInstance) {
       return {
         success: true,
         message: "All circuit breakers have been reset to CLOSED state",
+      };
+    },
+  );
+
+  /**
+   * Query metrics endpoint (authenticated, admin only)
+   * GET /api/health/query-metrics
+   *
+   * Phase 6.1 & 6.2: Monitoring & Alerting
+   *
+   * Enterprise coding standards applied:
+   * - LM-002: MONITORING - Performance probes for database queries
+   * - LM-004: METRICS - SLO-aligned metrics with percentiles
+   * - DB-008: QUERY_LOGGING - Aggregated query statistics
+   * - CDP-005: DATA_MASKING - No sensitive data in response
+   * - SEC-010: AUTHZ - Admin-only access control
+   *
+   * Provides metrics for monitoring database query performance:
+   * - Total query count and average time
+   * - P95 and P99 latency percentiles
+   * - Slow query detection with rate
+   * - N+1 pattern detection alerts
+   * - Transaction timeout tracking
+   * - Per-model and per-action breakdown
+   * - Alert flags for automated monitoring
+   *
+   * Query parameters:
+   * - windowMinutes: Override default metrics window (1-60 minutes)
+   */
+  const QueryMetricsQuerySchema = z.object({
+    windowMinutes: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(60)
+      .optional()
+      .describe("Metrics window in minutes (1-60)"),
+  });
+
+  fastify.get(
+    "/api/health/query-metrics",
+    { preHandler: authMiddleware },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user;
+
+      // SEC-010: AUTHZ - Only allow system admins to view query metrics
+      if (!user?.is_system_admin) {
+        return reply.code(403).send({
+          success: false,
+          error: {
+            code: "FORBIDDEN",
+            message: "Admin access required",
+          },
+        });
+      }
+
+      // API-001: VALIDATION - Validate query parameters
+      const queryParams = QueryMetricsQuerySchema.safeParse(request.query);
+      if (!queryParams.success) {
+        return reply.code(400).send({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Invalid query parameters",
+            details: queryParams.error.issues,
+          },
+        });
+      }
+
+      // Optionally update window if provided
+      if (queryParams.data.windowMinutes) {
+        queryMetricsService.updateConfig({
+          metricsWindowMinutes: queryParams.data.windowMinutes,
+        });
+      }
+
+      // Get aggregated metrics
+      const metrics = queryMetricsService.getMetrics();
+      const config = queryMetricsService.getConfig();
+
+      // LM-001: LOGGING - Structured log for audit
+      console.log(
+        JSON.stringify({
+          level: "info",
+          service: "health",
+          event: "query_metrics_accessed",
+          userId: user.id,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+
+      return {
+        success: true,
+        data: {
+          metrics,
+          config: {
+            slowQueryThresholdMs: config.slowQueryThresholdMs,
+            n1DetectionWindowMs: config.n1DetectionWindowMs,
+            n1DetectionThreshold: config.n1DetectionThreshold,
+            metricsWindowMinutes: config.metricsWindowMinutes,
+          },
+          documentation: {
+            description:
+              "Database query performance metrics for monitoring dashboards",
+            alertThresholds: {
+              slowQueryRate: `>${config.slowQueryRateAlertThreshold}%`,
+              timeoutRate: `>${config.timeoutRateAlertThreshold}%`,
+              n1Detection: "Any detected N+1 pattern",
+              queryVolumeSpike: `>${config.queryVolumeBaseline * config.queryVolumeSpikeMultiplier} queries/window`,
+            },
+            envVars: {
+              SLOW_QUERY_THRESHOLD_MS:
+                "Threshold for slow query detection (default: 1000)",
+              N1_DETECTION_WINDOW_MS: "Window for N+1 detection (default: 100)",
+              N1_DETECTION_THRESHOLD:
+                "Min queries in window to trigger N+1 alert (default: 5)",
+              METRICS_WINDOW_MINUTES:
+                "Aggregation window in minutes (default: 5)",
+              ENABLE_DETAILED_QUERY_LOGGING:
+                "Enable detailed query logs (default: non-prod only)",
+            },
+          },
+        },
+      };
+    },
+  );
+
+  /**
+   * Update query metrics configuration (authenticated, admin only)
+   * PATCH /api/health/query-metrics/config
+   *
+   * Phase 6.1: Monitoring & Alerting - Runtime configuration
+   *
+   * Enterprise coding standards applied:
+   * - SEC-010: AUTHZ - Admin-only access control
+   * - API-001: VALIDATION - Zod schema validation
+   * - LM-001: LOGGING - Audit logging for configuration changes
+   *
+   * Allows runtime updates to query metrics configuration without restart.
+   * Useful for tuning alert thresholds in production.
+   */
+  const QueryMetricsConfigUpdateSchema = z.object({
+    slowQueryThresholdMs: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(60000)
+      .optional()
+      .describe("Slow query threshold (100-60000ms)"),
+    n1DetectionWindowMs: z.coerce
+      .number()
+      .int()
+      .min(10)
+      .max(1000)
+      .optional()
+      .describe("N+1 detection window (10-1000ms)"),
+    n1DetectionThreshold: z.coerce
+      .number()
+      .int()
+      .min(2)
+      .max(100)
+      .optional()
+      .describe("N+1 detection threshold (2-100 queries)"),
+    metricsWindowMinutes: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(60)
+      .optional()
+      .describe("Metrics aggregation window (1-60 minutes)"),
+    enableDetailedLogging: z
+      .boolean()
+      .optional()
+      .describe("Enable detailed query logging"),
+    slowQueryRateAlertThreshold: z.coerce
+      .number()
+      .min(1)
+      .max(100)
+      .optional()
+      .describe("Alert threshold for slow query rate (1-100%)"),
+    timeoutRateAlertThreshold: z.coerce
+      .number()
+      .min(1)
+      .max(100)
+      .optional()
+      .describe("Alert threshold for timeout rate (1-100%)"),
+  });
+
+  fastify.patch(
+    "/api/health/query-metrics/config",
+    { preHandler: authMiddleware },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user;
+
+      // SEC-010: AUTHZ - Only allow system admins to update configuration
+      if (!user?.is_system_admin) {
+        return reply.code(403).send({
+          success: false,
+          error: {
+            code: "FORBIDDEN",
+            message: "Admin access required",
+          },
+        });
+      }
+
+      // API-001: VALIDATION - Validate request body
+      const bodyParse = QueryMetricsConfigUpdateSchema.safeParse(request.body);
+      if (!bodyParse.success) {
+        return reply.code(400).send({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Invalid configuration values",
+            details: bodyParse.error.issues,
+          },
+        });
+      }
+
+      const updates = bodyParse.data;
+
+      // Check if any updates were provided
+      if (Object.keys(updates).length === 0) {
+        return reply.code(400).send({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "No configuration updates provided",
+          },
+        });
+      }
+
+      // Get previous config for audit logging
+      const previousConfig = queryMetricsService.getConfig();
+
+      // Apply updates
+      queryMetricsService.updateConfig(updates);
+
+      // Get updated config
+      const newConfig = queryMetricsService.getConfig();
+
+      // LM-001: LOGGING - Audit log for configuration change
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          service: "health",
+          event: "query_metrics_config_updated",
+          userId: user.id,
+          userEmail: user.email,
+          changes: updates,
+          previousConfig: {
+            slowQueryThresholdMs: previousConfig.slowQueryThresholdMs,
+            n1DetectionWindowMs: previousConfig.n1DetectionWindowMs,
+            n1DetectionThreshold: previousConfig.n1DetectionThreshold,
+            metricsWindowMinutes: previousConfig.metricsWindowMinutes,
+          },
+          timestamp: new Date().toISOString(),
+        }),
+      );
+
+      return {
+        success: true,
+        message: "Query metrics configuration updated",
+        data: {
+          config: {
+            slowQueryThresholdMs: newConfig.slowQueryThresholdMs,
+            n1DetectionWindowMs: newConfig.n1DetectionWindowMs,
+            n1DetectionThreshold: newConfig.n1DetectionThreshold,
+            metricsWindowMinutes: newConfig.metricsWindowMinutes,
+            enableDetailedLogging: newConfig.enableDetailedLogging,
+            slowQueryRateAlertThreshold: newConfig.slowQueryRateAlertThreshold,
+            timeoutRateAlertThreshold: newConfig.timeoutRateAlertThreshold,
+          },
+        },
+      };
+    },
+  );
+
+  /**
+   * Reset query metrics (authenticated, admin only)
+   * POST /api/health/query-metrics/reset
+   *
+   * Phase 6.1: Monitoring & Alerting - Metrics reset
+   *
+   * Clears all accumulated metrics. Useful for:
+   * - After deploying fixes for performance issues
+   * - Resetting baseline after configuration changes
+   * - Testing metric collection
+   */
+  fastify.post(
+    "/api/health/query-metrics/reset",
+    { preHandler: authMiddleware },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user;
+
+      // SEC-010: AUTHZ - Only allow system admins to reset metrics
+      if (!user?.is_system_admin) {
+        return reply.code(403).send({
+          success: false,
+          error: {
+            code: "FORBIDDEN",
+            message: "Admin access required",
+          },
+        });
+      }
+
+      // Reset all metrics
+      queryMetricsService.reset();
+
+      // LM-001: LOGGING - Audit log for reset
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          service: "health",
+          event: "query_metrics_reset",
+          userId: user.id,
+          userEmail: user.email,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+
+      return {
+        success: true,
+        message: "Query metrics have been reset",
       };
     },
   );

@@ -1,5 +1,6 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import { AsyncLocalStorage } from "async_hooks";
+import { queryMetricsService } from "../services/query-metrics.service";
 
 /**
  * AsyncLocalStorage for RLS context
@@ -99,7 +100,55 @@ function buildDatabaseUrl(): string {
 }
 
 /**
- * Standard Prisma client singleton
+ * AsyncLocalStorage for request correlation IDs
+ * Used by query metrics middleware to associate queries with requests
+ *
+ * Phase 6.1: Monitoring & Alerting - Query correlation tracking
+ * LM-001: LOGGING - Correlation IDs enable request tracing without PII
+ */
+const correlationIdContext = new AsyncLocalStorage<string | null>();
+
+/**
+ * Set the correlation ID for the current async context
+ * Call this at the start of each request handler
+ *
+ * @param correlationId - Request correlation ID (typically request.id from Fastify)
+ */
+export function setCorrelationId(correlationId: string | null): void {
+  // Store is set by runWithCorrelationId, this is a no-op placeholder
+  // The actual setting happens via runWithCorrelationId
+}
+
+/**
+ * Run a function with a correlation ID context
+ * Enables query metrics to associate queries with specific requests
+ *
+ * @param correlationId - Request correlation ID
+ * @param fn - Function to execute with correlation context
+ * @returns Result of the function
+ */
+export async function runWithCorrelationId<T>(
+  correlationId: string | null,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return correlationIdContext.run(correlationId, fn);
+}
+
+/**
+ * Get the current correlation ID
+ * @returns Correlation ID or null if not in a request context
+ */
+export function getCorrelationId(): string | null {
+  return correlationIdContext.getStore() ?? null;
+}
+
+/**
+ * Standard Prisma client singleton with query timing via event logging
+ *
+ * Phase 6.1: Monitoring & Alerting
+ * - LM-002: MONITORING - Performance probes via query timing
+ * - DB-008: QUERY_LOGGING - Log parameterized queries and anomalies
+ * - CDP-005: DATA_MASKING - Query parameters are NOT logged (privacy)
  *
  * In development, the PrismaClient instance is cached on the global object
  * to prevent connection exhaustion during hot reloads. In production, a new
@@ -126,17 +175,69 @@ function buildDatabaseUrl(): string {
  *
  * Or include directly in DATABASE_URL:
  *   ?connection_limit=20&pool_timeout=30&connect_timeout=10
+ *
+ * QUERY METRICS CONFIGURATION (Phase 6.1):
+ *   SLOW_QUERY_THRESHOLD_MS=1000    - Threshold for slow query alerts (default: 1s)
+ *   N1_DETECTION_WINDOW_MS=100      - Window for N+1 detection (default: 100ms)
+ *   N1_DETECTION_THRESHOLD=5        - Min queries to trigger N+1 alert (default: 5)
+ *   ENABLE_DETAILED_QUERY_LOGGING=true - Enable detailed query logs (default: non-prod only)
  */
 export const prisma =
   global.__prisma ??
   (global.__prisma = new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+    // Enable query event for metrics collection
+    log: [
+      { level: "query", emit: "event" },
+      { level: "error", emit: "stdout" },
+      ...(process.env.NODE_ENV === "development"
+        ? [{ level: "warn" as const, emit: "stdout" as const }]
+        : []),
+    ],
     datasources: {
       db: {
         url: buildDatabaseUrl(),
       },
     },
   }));
+
+/**
+ * Phase 6.1: Query Timing Event Handler
+ *
+ * Enterprise coding standards applied:
+ * - LM-002: MONITORING - Latency metrics via event handler
+ * - DB-008: QUERY_LOGGING - Log slow queries without parameters
+ * - CDP-005: DATA_MASKING - Never logs query parameters/values
+ *
+ * This event handler captures all Prisma queries and:
+ * 1. Records timing to QueryMetricsService
+ * 2. Enables N+1 pattern detection
+ * 3. Tracks slow queries
+ */
+prisma.$on("query" as never, (event: { query: string; duration: number }) => {
+  const correlationId = getCorrelationId();
+
+  // Parse model and action from query (best effort)
+  // Query format: SELECT ... FROM "ModelName" ... or INSERT INTO "ModelName" ...
+  const modelMatch = event.query.match(
+    /(?:FROM|INTO|UPDATE|DELETE FROM)\s+"?(\w+)"?/i,
+  );
+  const model = modelMatch ? modelMatch[1] : "$raw";
+
+  // Determine operation from query type
+  let operation = "query";
+  if (event.query.startsWith("SELECT")) operation = "findMany";
+  else if (event.query.startsWith("INSERT")) operation = "create";
+  else if (event.query.startsWith("UPDATE")) operation = "update";
+  else if (event.query.startsWith("DELETE")) operation = "delete";
+
+  // Record metrics (CDP-005: No parameters logged)
+  queryMetricsService.recordQuery(
+    model,
+    operation,
+    event.duration,
+    correlationId || undefined,
+  );
+});
 
 // In non-production, ensure the instance is cached on global
 if (process.env.NODE_ENV !== "production") {

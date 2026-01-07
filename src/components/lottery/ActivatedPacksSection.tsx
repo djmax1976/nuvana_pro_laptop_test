@@ -48,6 +48,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import type { ActivatedPackDay, OpenBusinessPeriod } from "@/lib/api/lottery";
+import { useDateFormat } from "@/hooks/useDateFormat";
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -186,71 +187,71 @@ function getStatusDisplay(
 }
 
 /**
- * Parse ISO datetime string into stacked display format
- * Format: Date = "Jan 25th, 2026", Time = "3:45 PM"
+ * Create a timezone-aware datetime parser
+ * Returns a function that parses ISO datetime strings using the store's timezone
  *
  * MCP Guidance Applied:
+ * - FE-001: STATE_MANAGEMENT - Uses centralized timezone from StoreContext
  * - SEC-014: INPUT_VALIDATION - Validates input before processing
  * - API-003: ERROR_HANDLING - Returns safe fallback structure on error
  * - SEC-004: XSS - Only uses safe formatting methods, no HTML injection possible
  *
- * @param isoString - ISO 8601 datetime string from API
- * @returns Parsed datetime with date and time strings
+ * @param formatCustom - Custom format function from useDateFormat hook
+ * @returns Parser function for ISO datetime strings
  */
-function parseDateTime(isoString: string): ParsedDateTime {
-  // Input validation - check for null/undefined/empty
-  if (!isoString || typeof isoString !== "string") {
-    return { date: "--", time: "--", isValid: false };
-  }
-
-  // Trim whitespace to prevent parsing issues
-  const trimmedInput = isoString.trim();
-  if (trimmedInput.length === 0) {
-    return { date: "--", time: "--", isValid: false };
-  }
-
-  try {
-    const dateObj = new Date(trimmedInput);
-
-    // Validate date is valid (not NaN)
-    // Using Number.isNaN for strict NaN check (SEC-014)
-    if (Number.isNaN(dateObj.getTime())) {
+function createDateTimeParser(
+  formatCustom: (date: Date | string, formatStr: string) => string,
+): (isoString: string) => ParsedDateTime {
+  return (isoString: string): ParsedDateTime => {
+    // Input validation - check for null/undefined/empty
+    if (!isoString || typeof isoString !== "string") {
       return { date: "--", time: "--", isValid: false };
     }
 
-    // Validate date is within reasonable range (not year 0 or far future)
-    const year = dateObj.getFullYear();
-    if (year < 2000 || year > 2100) {
+    // Trim whitespace to prevent parsing issues
+    const trimmedInput = isoString.trim();
+    if (trimmedInput.length === 0) {
       return { date: "--", time: "--", isValid: false };
     }
 
-    // Extract date components
-    const day = dateObj.getDate();
-    const ordinalSuffix = getOrdinalSuffix(day);
+    try {
+      const dateObj = new Date(trimmedInput);
 
-    // Format month as short name (Jan, Feb, etc.)
-    const monthName = dateObj.toLocaleString("en-US", { month: "short" });
+      // Validate date is valid (not NaN)
+      // Using Number.isNaN for strict NaN check (SEC-014)
+      if (Number.isNaN(dateObj.getTime())) {
+        return { date: "--", time: "--", isValid: false };
+      }
 
-    // Build date string: "Jan 25th, 2026"
-    const dateString = `${monthName} ${day}${ordinalSuffix}, ${year}`;
+      // Validate date is within reasonable range (not year 0 or far future)
+      const year = dateObj.getFullYear();
+      if (year < 2000 || year > 2100) {
+        return { date: "--", time: "--", isValid: false };
+      }
 
-    // Format time: "3:45 PM"
-    const timeString = dateObj.toLocaleString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
+      // Use store timezone for formatting via useDateFormat hook
+      // Format: "Jan 25th, 2026" for date
+      // Extract day for ordinal suffix (formatCustom returns string, need to extract day)
+      const day = parseInt(formatCustom(trimmedInput, "d"), 10);
+      const ordinalSuffix = getOrdinalSuffix(day);
+      const monthName = formatCustom(trimmedInput, "MMM");
+      const formattedYear = formatCustom(trimmedInput, "yyyy");
+      const dateString = `${monthName} ${day}${ordinalSuffix}, ${formattedYear}`;
 
-    return {
-      date: dateString,
-      time: timeString,
-      isValid: true,
-    };
-  } catch {
-    // Catch any parsing errors and return safe fallback
-    // MCP: API-003 ERROR_HANDLING - Graceful degradation
-    return { date: "--", time: "--", isValid: false };
-  }
+      // Format time: "3:45 PM" using store timezone
+      const timeString = formatCustom(trimmedInput, "h:mm a");
+
+      return {
+        date: dateString,
+        time: timeString,
+        isValid: true,
+      };
+    } catch {
+      // Catch any parsing errors and return safe fallback
+      // MCP: API-003 ERROR_HANDLING - Graceful degradation
+      return { date: "--", time: "--", isValid: false };
+    }
+  };
 }
 
 // ============================================================================
@@ -275,6 +276,19 @@ export function ActivatedPacksSection({
   openBusinessPeriod,
   defaultOpen = false,
 }: ActivatedPacksSectionProps) {
+  // ========================================================================
+  // TIMEZONE-AWARE DATE FORMATTING
+  // MCP: FE-001 STATE_MANAGEMENT - Centralized timezone from StoreContext
+  // ========================================================================
+  const { formatCustom } = useDateFormat();
+
+  // Create memoized datetime parser with store timezone
+  // MCP: FE-001 STATE_MANAGEMENT - Memoized parser for performance
+  const parseDateTime = useMemo(
+    () => createDateTimeParser(formatCustom),
+    [formatCustom],
+  );
+
   // ========================================================================
   // STATE MANAGEMENT
   // MCP: FE-001 STATE_MANAGEMENT - Local state for collapse toggle

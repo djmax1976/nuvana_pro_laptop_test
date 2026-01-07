@@ -14,7 +14,7 @@
  * @module services/lottery-import.service
  */
 
-import { prisma } from "../utils/db";
+import { prisma, withRLSTransaction, TRANSACTION_TIMEOUTS } from "../utils/db";
 import { Prisma, LotteryGameStatus } from "@prisma/client";
 import { parseCsvBuffer } from "./csv-parser.service";
 import {
@@ -363,241 +363,247 @@ export async function commitImport(
 ): Promise<CommitImportResult> {
   const { validationToken, userId, options } = params;
 
-  // Find and validate the import record
-  const importRecord = await prisma.lotteryGameImport.findUnique({
-    where: { validation_token: validationToken },
-    include: {
-      state: {
-        select: {
-          state_id: true,
-          code: true,
-          name: true,
-          lottery_enabled: true,
-        },
-      },
-    },
-  });
-
-  if (!importRecord) {
-    return {
-      success: false,
-      summary: emptySummary(),
-      createdGames: [],
-      errors: [{ row_number: 0, error: "Invalid validation token" }],
-    };
-  }
-
-  // Check if already committed
-  if (importRecord.committed_at) {
-    return {
-      success: false,
-      summary: emptySummary(),
-      createdGames: [],
-      errors: [
-        { row_number: 0, error: "This import has already been committed" },
-      ],
-    };
-  }
-
-  // Check if token has expired
-  if (new Date() > importRecord.expires_at) {
-    return {
-      success: false,
-      summary: emptySummary(),
-      createdGames: [],
-      errors: [
-        {
-          row_number: 0,
-          error: `Validation token expired at ${importRecord.expires_at.toISOString()}. Please re-upload and validate the file.`,
-        },
-      ],
-    };
-  }
-
-  // Verify the user has permission (must be the creator or have SYSTEM scope)
-  // Note: This is a soft check - route middleware should enforce permissions
-  if (importRecord.created_by_user_id !== userId) {
-    // For now, allow if they have the token (handled by route)
-    // In production, add additional authorization check here
-  }
-
-  // Extract validated rows
-  const validatedRows =
-    importRecord.validated_data as unknown as ValidatedRow[];
-
-  // Filter rows based on options
-  const rowsToProcess = validatedRows.filter((row) => {
-    // Skip error rows unless skip_errors is false (which would fail the whole import)
-    if (row.status === "error") {
-      return !options.skip_errors;
-    }
-
-    // Skip duplicates unless update_duplicates is true
-    if (row.status === "duplicate") {
-      return options.update_duplicates;
-    }
-
-    return true;
-  });
-
-  if (!options.skip_errors) {
-    const errorRows = validatedRows.filter((r) => r.status === "error");
-    if (errorRows.length > 0) {
-      return {
-        success: false,
-        summary: emptySummary(),
-        createdGames: [],
-        errors: errorRows.map((r) => ({
-          row_number: r.row_number,
-          error: r.errors?.join(", ") || "Validation error",
-        })),
-      };
-    }
-  }
-
-  // Perform atomic commit in transaction
-  const result = await prisma.$transaction(async (tx) => {
-    const createdGames: CommitImportResult["createdGames"] = [];
-    const errors: CommitImportResult["errors"] = [];
-    let created = 0;
-    let updated = 0;
-    let skipped = 0;
-    let failed = 0;
-
-    for (const row of rowsToProcess) {
-      try {
-        if (row.action === "create") {
-          // Create new game
-          const ticketsPerPack = row.data.tickets_per_pack
-            ? row.data.tickets_per_pack
-            : Math.floor(row.data.pack_value / row.data.price);
-
-          const game = await tx.lotteryGame.create({
-            data: {
-              game_code: row.data.game_code,
-              name: row.data.name,
-              description: row.data.description || null,
-              price: new Prisma.Decimal(row.data.price),
-              pack_value: new Prisma.Decimal(row.data.pack_value),
-              tickets_per_pack: ticketsPerPack,
-              status: (row.data.status as LotteryGameStatus) || "ACTIVE",
-              state_id: importRecord.state_id,
-              created_by_user_id: userId,
-            },
+  // Use RLS-aware transaction for all database operations
+  // This is required because lottery_game_imports has RLS policies
+  return await withRLSTransaction(
+    userId,
+    async (tx) => {
+      // Find and validate the import record
+      const importRecord = await tx.lotteryGameImport.findUnique({
+        where: { validation_token: validationToken },
+        include: {
+          state: {
             select: {
-              game_id: true,
-              game_code: true,
+              state_id: true,
+              code: true,
               name: true,
-              price: true,
+              lottery_enabled: true,
             },
-          });
+          },
+        },
+      });
 
-          createdGames.push({
-            game_id: game.game_id,
-            game_code: game.game_code,
-            name: game.name,
-            price: Number(game.price),
-            row_number: row.row_number,
-          });
-          created++;
-        } else if (row.action === "update" && row.existing_game) {
-          // Update existing game
-          const ticketsPerPack = row.data.tickets_per_pack
-            ? row.data.tickets_per_pack
-            : Math.floor(row.data.pack_value / row.data.price);
+      if (!importRecord) {
+        return {
+          success: false,
+          summary: emptySummary(),
+          createdGames: [],
+          errors: [{ row_number: 0, error: "Invalid validation token" }],
+        };
+      }
 
-          await tx.lotteryGame.update({
-            where: { game_id: row.existing_game.game_id },
-            data: {
-              name: row.data.name,
-              description: row.data.description || null,
-              price: new Prisma.Decimal(row.data.price),
-              pack_value: new Prisma.Decimal(row.data.pack_value),
-              tickets_per_pack: ticketsPerPack,
-              status:
-                (row.data.status as LotteryGameStatus) ||
-                row.existing_game.status,
+      // Check if already committed
+      if (importRecord.committed_at) {
+        return {
+          success: false,
+          summary: emptySummary(),
+          createdGames: [],
+          errors: [
+            { row_number: 0, error: "This import has already been committed" },
+          ],
+        };
+      }
+
+      // Check if token has expired
+      if (new Date() > importRecord.expires_at) {
+        return {
+          success: false,
+          summary: emptySummary(),
+          createdGames: [],
+          errors: [
+            {
+              row_number: 0,
+              error: `Validation token expired at ${importRecord.expires_at.toISOString()}. Please re-upload and validate the file.`,
             },
-          });
-          updated++;
-        } else if (row.action === "skip") {
-          skipped++;
+          ],
+        };
+      }
+
+      // Verify the user has permission (must be the creator or have SYSTEM scope)
+      // Note: This is a soft check - route middleware should enforce permissions
+      if (importRecord.created_by_user_id !== userId) {
+        // For now, allow if they have the token (handled by route)
+        // In production, add additional authorization check here
+      }
+
+      // Extract validated rows
+      const validatedRows =
+        importRecord.validated_data as unknown as ValidatedRow[];
+
+      // Filter rows based on options
+      const rowsToProcess = validatedRows.filter((row) => {
+        // Skip error rows unless skip_errors is false (which would fail the whole import)
+        if (row.status === "error") {
+          return !options.skip_errors;
         }
-      } catch (error: any) {
-        // Handle unique constraint violation (race condition on duplicate)
-        if (error.code === "P2002") {
-          errors.push({
-            row_number: row.row_number,
-            error: `Game code ${row.data.game_code} already exists (possible race condition)`,
-          });
-          failed++;
-        } else {
-          throw error; // Re-throw unexpected errors to rollback transaction
+
+        // Skip duplicates unless update_duplicates is true
+        if (row.status === "duplicate") {
+          return options.update_duplicates;
+        }
+
+        return true;
+      });
+
+      if (!options.skip_errors) {
+        const errorRows = validatedRows.filter((r) => r.status === "error");
+        if (errorRows.length > 0) {
+          return {
+            success: false,
+            summary: emptySummary(),
+            createdGames: [],
+            errors: errorRows.map((r) => ({
+              row_number: r.row_number,
+              error: r.errors?.join(", ") || "Validation error",
+            })),
+          };
         }
       }
-    }
 
-    // Count skipped rows from original validation
-    const originalSkipped = validatedRows.filter(
-      (r) => r.status === "duplicate" && !options.update_duplicates,
-    ).length;
+      // Perform atomic commit within the RLS transaction
+      const createdGames: CommitImportResult["createdGames"] = [];
+      const errors: CommitImportResult["errors"] = [];
+      let created = 0;
+      let updated = 0;
+      let skipped = 0;
+      let failed = 0;
 
-    const originalErrors = validatedRows.filter(
-      (r) => r.status === "error",
-    ).length;
+      for (const row of rowsToProcess) {
+        try {
+          if (row.action === "create") {
+            // Create new game
+            const ticketsPerPack = row.data.tickets_per_pack
+              ? row.data.tickets_per_pack
+              : Math.floor(row.data.pack_value / row.data.price);
 
-    // Update import record with commit result
-    await tx.lotteryGameImport.update({
-      where: { import_id: importRecord.import_id },
-      data: {
-        committed_at: new Date(),
-        commit_result: {
+            const game = await tx.lotteryGame.create({
+              data: {
+                game_code: row.data.game_code,
+                name: row.data.name,
+                description: row.data.description || null,
+                price: new Prisma.Decimal(row.data.price),
+                pack_value: new Prisma.Decimal(row.data.pack_value),
+                tickets_per_pack: ticketsPerPack,
+                status: (row.data.status as LotteryGameStatus) || "ACTIVE",
+                state_id: importRecord.state_id,
+                created_by_user_id: userId,
+              },
+              select: {
+                game_id: true,
+                game_code: true,
+                name: true,
+                price: true,
+              },
+            });
+
+            createdGames.push({
+              game_id: game.game_id,
+              game_code: game.game_code,
+              name: game.name,
+              price: Number(game.price),
+              row_number: row.row_number,
+            });
+            created++;
+          } else if (row.action === "update" && row.existing_game) {
+            // Update existing game
+            const ticketsPerPack = row.data.tickets_per_pack
+              ? row.data.tickets_per_pack
+              : Math.floor(row.data.pack_value / row.data.price);
+
+            await tx.lotteryGame.update({
+              where: { game_id: row.existing_game.game_id },
+              data: {
+                name: row.data.name,
+                description: row.data.description || null,
+                price: new Prisma.Decimal(row.data.price),
+                pack_value: new Prisma.Decimal(row.data.pack_value),
+                tickets_per_pack: ticketsPerPack,
+                status:
+                  (row.data.status as LotteryGameStatus) ||
+                  row.existing_game.status,
+              },
+            });
+            updated++;
+          } else if (row.action === "skip") {
+            skipped++;
+          }
+        } catch (error: any) {
+          // Handle unique constraint violation (race condition on duplicate)
+          if (error.code === "P2002") {
+            errors.push({
+              row_number: row.row_number,
+              error: `Game code ${row.data.game_code} already exists (possible race condition)`,
+            });
+            failed++;
+          } else {
+            throw error; // Re-throw unexpected errors to rollback transaction
+          }
+        }
+      }
+
+      // Count skipped rows from original validation
+      const originalSkipped = validatedRows.filter(
+        (r) => r.status === "duplicate" && !options.update_duplicates,
+      ).length;
+
+      const originalErrors = validatedRows.filter(
+        (r) => r.status === "error",
+      ).length;
+
+      // Update import record with commit result
+      await tx.lotteryGameImport.update({
+        where: { import_id: importRecord.import_id },
+        data: {
+          committed_at: new Date(),
+          commit_result: {
+            created,
+            updated,
+            skipped: skipped + originalSkipped,
+            failed: failed + (options.skip_errors ? originalErrors : 0),
+          },
+        },
+      });
+
+      const result = {
+        success: failed === 0,
+        summary: {
           created,
           updated,
           skipped: skipped + originalSkipped,
           failed: failed + (options.skip_errors ? originalErrors : 0),
         },
-      },
-    });
+        createdGames,
+        errors,
+      };
 
-    return {
-      success: failed === 0,
-      summary: {
-        created,
-        updated,
-        skipped: skipped + originalSkipped,
-        failed: failed + (options.skip_errors ? originalErrors : 0),
-      },
-      createdGames,
-      errors,
-    };
-  });
+      // Create audit log within transaction (so we have access to importRecord)
+      try {
+        await tx.auditLog.create({
+          data: {
+            user_id: userId,
+            action: "LOTTERY_GAMES_IMPORT",
+            table_name: "lottery_games",
+            record_id: importRecord.import_id,
+            new_values: {
+              state_id: importRecord.state_id,
+              state_code: importRecord.state.code,
+              total_rows: importRecord.total_rows,
+              created: result.summary.created,
+              updated: result.summary.updated,
+              skipped: result.summary.skipped,
+              failed: result.summary.failed,
+            },
+          },
+        });
+      } catch (auditError) {
+        console.error("Failed to create audit log for import:", auditError);
+        // Don't fail the import for audit log errors
+      }
 
-  // Create audit log (non-blocking)
-  try {
-    await prisma.auditLog.create({
-      data: {
-        user_id: userId,
-        action: "LOTTERY_GAMES_IMPORT",
-        table_name: "lottery_games",
-        record_id: importRecord.import_id,
-        new_values: {
-          state_id: importRecord.state_id,
-          state_code: importRecord.state.code,
-          total_rows: importRecord.total_rows,
-          created: result.summary.created,
-          updated: result.summary.updated,
-          skipped: result.summary.skipped,
-          failed: result.summary.failed,
-        },
-      },
-    });
-  } catch (auditError) {
-    console.error("Failed to create audit log for import:", auditError);
-    // Don't fail the import for audit log errors
-  }
-
-  return result;
+      return result;
+    },
+    { timeout: TRANSACTION_TIMEOUTS.BULK },
+  );
 }
 
 // ============================================================================
