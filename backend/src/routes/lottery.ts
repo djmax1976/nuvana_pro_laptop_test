@@ -7843,12 +7843,23 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           },
         } as const;
 
+        // Define common query args for type inference
+        const lotteryBusinessDayQueryArgs = {
+          where: {
+            store_id: params.storeId,
+          },
+          include: lotteryBusinessDayInclude,
+        } as const;
+
         // Declare variable for lottery business day lookup result
-        let lotteryBusinessDay:
-          | (Awaited<ReturnType<typeof prisma.lotteryBusinessDay.findFirst>> & {
-              day_packs: typeof lotteryBusinessDayInclude.day_packs;
-            })
-          | null;
+        // Type is inferred from the query args structure
+        let lotteryBusinessDay: Awaited<
+          ReturnType<
+            typeof prisma.lotteryBusinessDay.findFirst<
+              typeof lotteryBusinessDayQueryArgs
+            >
+          >
+        >;
 
         if (query.date) {
           // HISTORICAL VIEW: User explicitly requested a specific date
@@ -9194,15 +9205,13 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             },
           });
 
-          // Determine starting serial and whether this is first period for correct counting
-          // Fencepost prevention: new packs use inclusive counting (+1), continuing packs use exclusive
+          // Determine starting serial for correct ticket count calculation
+          // Uses today's opening if available, otherwise last closing or pack serial_start
           let startingSerial: string;
-          let isFirstPeriod: boolean;
 
           if (todayOpening) {
-            // Pack was opened today - first period (inclusive counting)
+            // Pack was opened today - use opening serial
             startingSerial = todayOpening.opening_serial;
-            isFirstPeriod = true;
           } else {
             // Check for historical closing
             const lastClosing = await prisma.lotteryShiftClosing.findFirst({
@@ -9216,13 +9225,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             });
 
             if (lastClosing) {
-              // Continuing pack - exclusive counting (last sold ticket)
+              // Continuing pack - use last closing serial
               startingSerial = lastClosing.closing_serial;
-              isFirstPeriod = false;
             } else {
-              // New pack using serial_start - first period (inclusive counting)
+              // New pack - use pack's serial_start
               startingSerial = pack.serial_start;
-              isFirstPeriod = true;
             }
           }
 
