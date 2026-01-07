@@ -541,3 +541,100 @@ export interface PeriodSummaryReportWithBreakdown {
   daily_breakdown: DayBreakdownItem[];
   weekly_breakdown?: WeekBreakdownItem[];
 }
+
+// ============================================================================
+// DAY CLOSE RECONCILIATION TYPES
+// ============================================================================
+
+/**
+ * Shift detail for reconciliation view
+ * SEC-014: Contains only necessary fields for UI display
+ */
+export interface ReconciliationShiftDetail {
+  shift_id: string;
+  terminal_name: string | null;
+  cashier_name: string;
+  opened_at: string;
+  closed_at: string | null;
+  status: string;
+  opening_cash: number;
+  closing_cash: number | null;
+  expected_cash: number | null;
+  variance: number | null;
+  net_sales: number;
+  transaction_count: number;
+  lottery_sales: number | null;
+  lottery_tickets_sold: number | null;
+}
+
+/**
+ * Lottery bin closed detail for reconciliation view
+ * Matches the structure returned by lottery-day-close service
+ */
+export interface ReconciliationLotteryBin {
+  bin_number: number;
+  pack_number: string;
+  game_name: string;
+  game_price: number;
+  starting_serial: string;
+  closing_serial: string;
+  tickets_sold: number;
+  sales_amount: number;
+}
+
+/**
+ * Complete Day Close reconciliation response
+ * Combines all shifts + lottery data for a business day
+ *
+ * Used by:
+ * - GET /api/stores/:storeId/day-summary/:date/reconciliation
+ */
+export interface DayCloseReconciliationResponse {
+  /** Store identifier */
+  store_id: string;
+  /** Business date (YYYY-MM-DD) */
+  business_date: string;
+  /** Day close status */
+  status: DaySummaryStatusType;
+  /** When day was closed (if closed) */
+  closed_at: string | null;
+  /** Who closed the day (user ID) */
+  closed_by: string | null;
+  /** Who closed the day (user name) */
+  closed_by_name: string | null;
+
+  /** All shifts for this business day */
+  shifts: ReconciliationShiftDetail[];
+
+  /** Lottery closing data - bins closed during day close */
+  lottery: {
+    /** Whether lottery was closed for this day */
+    is_closed: boolean;
+    /** When lottery was closed (if closed) */
+    closed_at: string | null;
+    /** Bins with closing data */
+    bins_closed: ReconciliationLotteryBin[];
+    /** Total lottery sales from bin closings */
+    total_sales: number;
+    /** Total tickets sold from bin closings */
+    total_tickets_sold: number;
+  };
+
+  /** Aggregated day totals */
+  day_totals: {
+    shift_count: number;
+    gross_sales: number;
+    net_sales: number;
+    tax_collected: number;
+    transaction_count: number;
+    total_opening_cash: number;
+    total_closing_cash: number;
+    total_expected_cash: number;
+    total_cash_variance: number;
+    lottery_sales: number | null;
+    lottery_net: number | null;
+  };
+
+  /** Manager notes */
+  notes: string | null;
+}

@@ -2399,8 +2399,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
    * - SEC-014: INPUT_VALIDATION - UUID format and enum validation
    *
    * Business Rules:
-   * - Only ACTIVE packs can be returned (pack must be in a bin)
-   * - RECEIVED packs cannot be returned (use delete or different workflow)
+   * - ACTIVE and RECEIVED packs can be returned
    * - DEPLETED and already RETURNED packs cannot be returned
    * - Last sold serial is required to calculate sales
    * - Tracks return in current shift and business day for reporting
@@ -2662,7 +2661,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Business Rule: Validate pack status - only ACTIVE packs can be returned
+        // Business Rule: Validate pack status - ACTIVE and RECEIVED packs can be returned
         if (pack.status === "RETURNED") {
           reply.code(400);
           return {
@@ -2686,17 +2685,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        if (pack.status === "RECEIVED") {
-          reply.code(400);
-          return {
-            success: false,
-            error: {
-              code: "CANNOT_RETURN_RECEIVED",
-              message:
-                "Cannot return a pack that has not been activated. Delete or adjust inventory instead.",
-            },
-          };
-        }
+        // Note: RECEIVED packs CAN be returned (e.g., damaged on arrival, supplier recall)
 
         // Business Rule: Validate last_sold_serial is within pack range
         const lastSoldSerial = parseInt(body.last_sold_serial, 10);
@@ -3752,6 +3741,13 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                       format: "date-time",
                       nullable: true,
                     },
+                    returned_at: {
+                      type: "string",
+                      format: "date-time",
+                      nullable: true,
+                      description:
+                        "Timestamp when pack was returned (only for RETURNED status)",
+                    },
                     game: {
                       type: "object",
                       properties: {
@@ -3759,6 +3755,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                         game_code: { type: "string" },
                         name: { type: "string" },
                         price: { type: "number", nullable: true },
+                        status: {
+                          type: "string",
+                          enum: ["ACTIVE", "INACTIVE", "DISCONTINUED"],
+                          description:
+                            "Game status (ACTIVE/INACTIVE/DISCONTINUED)",
+                        },
                       },
                     },
                     store: {
@@ -3776,6 +3778,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                         name: { type: "string" },
                         location: { type: "string", nullable: true },
                       },
+                    },
+                    can_return: {
+                      type: "boolean",
+                      description:
+                        "Server-computed return eligibility (true for ACTIVE/RECEIVED, false for DEPLETED/RETURNED)",
                     },
                   },
                 },
@@ -3933,6 +3940,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         }
 
         // Query packs with relationships using Prisma ORM
+        // SEC-010: AUTHZ - RLS enforced via whereClause store_id validation above
+        // API-008: OUTPUT_FILTERING - Explicit field whitelist prevents data leakage
         const packs = await prisma.lotteryPack.findMany({
           where: whereClause,
           include: {
@@ -3942,6 +3951,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 game_code: true,
                 name: true,
                 price: true,
+                status: true, // Game status for UI display (ACTIVE/INACTIVE/DISCONTINUED)
               },
             },
             store: {
@@ -3989,6 +3999,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           );
         }
 
+        // API-008: OUTPUT_FILTERING - Explicit DTO mapping with whitelisted fields
+        // SEC-010: AUTHZ - can_return computed server-side based on pack status rules
         return {
           success: true,
           data: packs.map((pack) => ({
@@ -4002,9 +4014,15 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             current_bin_id: pack.current_bin_id,
             received_at: pack.received_at?.toISOString() || null,
             activated_at: pack.activated_at?.toISOString() || null,
+            returned_at: pack.returned_at?.toISOString() || null,
             game: pack.game,
             store: pack.store,
             bin: pack.bin || null,
+            // SEC-010: AUTHZ - Server-side authorization for return eligibility
+            // Business Rule: ACTIVE and RECEIVED packs can be returned
+            // DEPLETED packs cannot be returned (already sold out)
+            // RETURNED packs cannot be returned again (already returned)
+            can_return: pack.status === "ACTIVE" || pack.status === "RECEIVED",
           })),
         };
       } catch (error: any) {
@@ -4229,6 +4247,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                     properties: {
                       game_id: { type: "string", format: "uuid" },
                       name: { type: "string" },
+                      status: {
+                        type: "string",
+                        enum: ["ACTIVE", "INACTIVE", "DISCONTINUED"],
+                        description:
+                          "Game status (ACTIVE/INACTIVE/DISCONTINUED)",
+                      },
                     },
                   },
                   store: {
@@ -4246,6 +4270,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                       name: { type: "string" },
                       location: { type: "string", nullable: true },
                     },
+                  },
+                  can_return: {
+                    type: "boolean",
+                    description:
+                      "Server-computed return eligibility (true for ACTIVE/RECEIVED, false for DEPLETED/RETURNED)",
                   },
                   shift_openings: {
                     type: "array",
@@ -4367,6 +4396,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               select: {
                 game_id: true,
                 name: true,
+                status: true, // Game status for UI display (ACTIVE/INACTIVE/DISCONTINUED)
               },
             },
             store: {
@@ -4567,6 +4597,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             game: pack.game,
             store: pack.store,
             bin: pack.bin || null,
+            // SEC-010: AUTHZ - Server-side authorization for return eligibility
+            // Business Rule: ACTIVE and RECEIVED packs can be returned
+            // DEPLETED packs cannot be returned (already sold out)
+            // RETURNED packs cannot be returned again (already returned)
+            can_return: pack.status === "ACTIVE" || pack.status === "RECEIVED",
             shift_openings: pack.shift_openings.map((opening) => ({
               opening_id: opening.opening_id,
               shift_id: opening.shift_id,
@@ -7782,53 +7817,136 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         const { startUTC: dayStartUtc, endUTC: dayEndUtc } =
           getCalendarDayBoundaries(targetDateStr, storeTimezone);
 
-        // Check for LotteryBusinessDay record for this date
-        const lotteryBusinessDay = await prisma.lotteryBusinessDay.findUnique({
-          where: {
-            store_id_business_date: {
-              store_id: params.storeId,
-              business_date: targetDate,
-            },
-          },
-          include: {
-            day_packs: {
-              // Select pre-calculated values from commitClose to avoid recalculation
-              select: {
-                pack_id: true,
-                starting_serial: true,
-                ending_serial: true,
-                // Use pre-calculated values (with correct fencepost handling)
-                tickets_sold: true,
-                sales_amount: true,
-                pack: {
-                  select: {
-                    pack_number: true,
-                    game: {
-                      select: {
-                        name: true,
-                        price: true,
-                      },
+        // ============================================================================
+        // PHASE 4: STATUS-BASED LOTTERY DAY LOOKUP
+        // ============================================================================
+        // This lookup has two modes:
+        //
+        // 1. CURRENT VIEW (no date param): Use status-based lookup
+        //    - Finds the OPEN or PENDING_CLOSE lottery day for this store
+        //    - Fixes the bug where lottery wizard shows "already scanned" after day close
+        //    - After day close, a new OPEN day exists (created by commitClose)
+        //
+        // 2. HISTORICAL VIEW (with date param): Use calendar date lookup
+        //    - For viewing past closed days and their data
+        //    - Required for reports and historical analysis
+        //
+        // MCP Guidance Applied:
+        // - DB-006: TENANT_ISOLATION - store_id filter enforces tenant scoping
+        // - DB-001: ORM_USAGE - Using Prisma ORM with query builder, no raw SQL
+        // - SEC-006: SQL_INJECTION - All parameters bound via Prisma ORM
+        // - SEC-014: INPUT_VALIDATION - Date param validated above with regex
+        // ============================================================================
+
+        // Define the include clause for LotteryBusinessDay (reused in both query modes)
+        const lotteryBusinessDayInclude = {
+          day_packs: {
+            // Select pre-calculated values from commitClose to avoid recalculation
+            select: {
+              pack_id: true,
+              starting_serial: true,
+              ending_serial: true,
+              // Use pre-calculated values (with correct fencepost handling)
+              tickets_sold: true,
+              sales_amount: true,
+              pack: {
+                select: {
+                  pack_number: true,
+                  game: {
+                    select: {
+                      name: true,
+                      price: true,
                     },
-                    // Include bin for day_close_summary display
-                    bin: {
-                      select: {
-                        bin_id: true,
-                        display_order: true,
-                      },
+                  },
+                  // Include bin for day_close_summary display
+                  bin: {
+                    select: {
+                      bin_id: true,
+                      display_order: true,
                     },
                   },
                 },
-                bin: {
-                  select: {
-                    bin_id: true,
-                    display_order: true,
-                    name: true,
-                  },
+              },
+              bin: {
+                select: {
+                  bin_id: true,
+                  display_order: true,
+                  name: true,
                 },
               },
             },
           },
-        });
+        } as const;
+
+        // Define common query args for type inference
+        const lotteryBusinessDayQueryArgs = {
+          where: {
+            store_id: params.storeId,
+          },
+          include: lotteryBusinessDayInclude,
+        } as const;
+
+        // Declare variable for lottery business day lookup result
+        // Type is inferred from the query args structure
+        let lotteryBusinessDay: Awaited<
+          ReturnType<
+            typeof prisma.lotteryBusinessDay.findFirst<
+              typeof lotteryBusinessDayQueryArgs
+            >
+          >
+        >;
+
+        if (query.date) {
+          // HISTORICAL VIEW: User explicitly requested a specific date
+          // Use calendar date lookup to find that day's data (may be CLOSED)
+          // DB-006: TENANT_ISOLATION - Scoped by store_id
+          lotteryBusinessDay = await prisma.lotteryBusinessDay.findFirst({
+            where: {
+              store_id: params.storeId,
+              business_date: targetDate,
+            },
+            include: lotteryBusinessDayInclude,
+            // If multiple records exist for same date (edge case), prefer CLOSED for historical view
+            orderBy: [
+              { status: "asc" }, // CLOSED < OPEN < PENDING_CLOSE alphabetically
+              { closed_at: "desc" }, // Most recently closed first
+            ],
+          });
+        } else {
+          // CURRENT VIEW: Find the active lottery day for this store
+          // Use status-based lookup to find OPEN or PENDING_CLOSE day
+          // This fixes the bug where new shifts couldn't find an open lottery day after day close
+          //
+          // DB-006: TENANT_ISOLATION - Scoped by store_id
+          // SEC-014: INPUT_VALIDATION - Status values are hardcoded enum, not user input
+          lotteryBusinessDay = await prisma.lotteryBusinessDay.findFirst({
+            where: {
+              store_id: params.storeId,
+              status: { in: ["OPEN", "PENDING_CLOSE"] },
+            },
+            include: lotteryBusinessDayInclude,
+            // Order by opened_at descending to get the most recent open day
+            orderBy: {
+              opened_at: "desc",
+            },
+          });
+
+          // If no OPEN/PENDING_CLOSE day exists, fall back to finding the most recent
+          // CLOSED day for display purposes (shows last known state)
+          // This handles the edge case where no new day was created after close
+          if (!lotteryBusinessDay) {
+            lotteryBusinessDay = await prisma.lotteryBusinessDay.findFirst({
+              where: {
+                store_id: params.storeId,
+                status: "CLOSED",
+              },
+              include: lotteryBusinessDayInclude,
+              orderBy: {
+                closed_at: "desc",
+              },
+            });
+          }
+        }
 
         // Find all shifts for the business day (shifts that OPENED on target date)
         // Still needed for backward compatibility and business_day metadata
@@ -8080,13 +8198,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           //             -> use that as the current/starting position (NOT first period)
           // Priority 2: Use LotteryDayPack data if available for today and day is OPEN (day-based tracking)
           // Priority 3: Use shift-based data (backward compatibility)
-          //   a. If opened today -> use today's opening serial (FIRST period - inclusive counting)
-          //   b. If no opening today but has history -> use most recent closing serial (NOT first period)
-          //   c. If no history -> use pack's serial_start (FIRST period - inclusive counting)
+          //   a. If opened today -> use today's opening serial
+          //   b. If no opening today but has history -> use most recent closing serial
+          //   c. If no history -> use pack's serial_start
           //
-          // is_first_period determines ticket counting formula (fencepost error prevention):
-          //   - true: tickets = closing - starting + 1 (new pack, starting serial is first ticket)
-          //   - false: tickets = closing - starting (continuing, starting serial was last sold)
+          // Ticket counting formula: tickets_sold = ending - starting
+          // is_first_period is retained for backward compatibility but not used in calculations
           let startingSerial: string;
           let endingSerial: string | null;
           let isFirstPeriod: boolean;
@@ -8145,15 +8262,20 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         //
         // The query uses openBusinessPeriodStart (from lastClosedBusinessDay.closed_at)
         // as the lower bound, ensuring all activity in the current open period is visible.
+        //
+        // CRITICAL: Must use `gt` (greater than), NOT `gte` (greater than or equal)
+        // Reason: Packs depleted during day close have depleted_at === closed_at.
+        // Using `gte` would include them in the NEXT day's list instead of the closing day.
+        // Using `gt` ensures they appear in the correct day (the day they were closed).
         // ============================================================================
         const depletedPacks = await prisma.lotteryPack.findMany({
           where: {
             store_id: params.storeId,
             status: "DEPLETED",
             depleted_at: {
-              // Use the open business period start (last day close) as lower bound
-              // This ensures depleted packs are visible even if day close was missed
-              gte: openBusinessPeriodStart,
+              // Use `gt` to exclude packs depleted AT the exact close time
+              // Those packs belong to the PREVIOUS business day that was being closed
+              gt: openBusinessPeriodStart,
             },
           },
           include: {
@@ -8194,6 +8316,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         // - Includes reason codes for return categorization (recall, damage, etc.)
         // - return_sales_amount contributes to shift/day lottery totals
         //
+        // CRITICAL: Must use `gt` (greater than), NOT `gte` (greater than or equal)
+        // Reason: Packs returned during day close have returned_at === closed_at.
+        // Using `gte` would include them in the NEXT day's list instead of the closing day.
+        // Using `gt` ensures they appear in the correct day (the day they were closed).
+        //
         // MCP Guidance Applied:
         // - DB-006: TENANT_ISOLATION - store_id filter enforces tenant scoping
         // - DB-001: ORM_USAGE - Using Prisma ORM with query builder, no raw SQL
@@ -8206,9 +8333,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             store_id: params.storeId,
             status: "RETURNED",
             returned_at: {
-              // Use the open business period start (last day close) as lower bound
-              // This ensures returned packs are visible even if day close was missed
-              gte: openBusinessPeriodStart,
+              // Use `gt` to exclude packs returned AT the exact close time
+              // Those packs belong to the PREVIOUS business day that was being closed
+              gt: openBusinessPeriodStart,
             },
           },
           include: {
@@ -9059,19 +9186,30 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           });
         }
 
+        // ============================================================================
+        // PHASE 4: STATUS-BASED LOTTERY DAY LOOKUP
+        // ============================================================================
         // Update LotteryBusinessDay and LotteryDayPack records
-        // Find or create the LotteryBusinessDay record for today
-        let lotteryBusinessDay = await prisma.lotteryBusinessDay.findUnique({
+        // Find the OPEN/PENDING_CLOSE LotteryBusinessDay for this store, or create if none exists
+        //
+        // MCP Guidance Applied:
+        // - DB-006: TENANT_ISOLATION - store_id filter enforces tenant scoping
+        // - DB-001: ORM_USAGE - Using Prisma ORM with query builder, no raw SQL
+        // - SEC-006: SQL_INJECTION - All parameters bound via Prisma ORM
+        // ============================================================================
+        let lotteryBusinessDay = await prisma.lotteryBusinessDay.findFirst({
           where: {
-            store_id_business_date: {
-              store_id: params.storeId,
-              business_date: targetDate,
-            },
+            store_id: params.storeId,
+            status: { in: ["OPEN", "PENDING_CLOSE"] },
+          },
+          orderBy: {
+            opened_at: "desc",
           },
         });
 
         if (!lotteryBusinessDay) {
           // Create the LotteryBusinessDay record if it doesn't exist
+          // Use targetDate for the business_date (current store date)
           lotteryBusinessDay = await prisma.lotteryBusinessDay.create({
             data: {
               store_id: params.storeId,
@@ -9102,15 +9240,13 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             },
           });
 
-          // Determine starting serial and whether this is first period for correct counting
-          // Fencepost prevention: new packs use inclusive counting (+1), continuing packs use exclusive
+          // Determine starting serial for correct ticket count calculation
+          // Uses today's opening if available, otherwise last closing or pack serial_start
           let startingSerial: string;
-          let isFirstPeriod: boolean;
 
           if (todayOpening) {
-            // Pack was opened today - first period (inclusive counting)
+            // Pack was opened today - use opening serial
             startingSerial = todayOpening.opening_serial;
-            isFirstPeriod = true;
           } else {
             // Check for historical closing
             const lastClosing = await prisma.lotteryShiftClosing.findFirst({
@@ -9124,27 +9260,21 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             });
 
             if (lastClosing) {
-              // Continuing pack - exclusive counting (last sold ticket)
+              // Continuing pack - use last closing serial
               startingSerial = lastClosing.closing_serial;
-              isFirstPeriod = false;
             } else {
-              // New pack using serial_start - first period (inclusive counting)
+              // New pack - use pack's serial_start
               startingSerial = pack.serial_start;
-              isFirstPeriod = true;
             }
           }
 
-          // Calculate tickets sold with correct fencepost handling
+          // Calculate tickets sold: ending - starting
+          // SEC-014: Strict numeric validation before calculation
           const closingNum = parseInt(closing.closing_serial, 10);
           const startingNum = parseInt(startingSerial, 10);
           const ticketsSold =
             !Number.isNaN(closingNum) && !Number.isNaN(startingNum)
-              ? Math.max(
-                  0,
-                  isFirstPeriod
-                    ? closingNum - startingNum + 1 // NEW: inclusive (000-029 = 30 tickets)
-                    : closingNum - startingNum, // CONTINUING: exclusive
-                )
+              ? Math.max(0, closingNum - startingNum)
               : 0;
           const gamePrice = Number(pack.game.price);
           const salesAmount = ticketsSold * gamePrice;
@@ -9338,6 +9468,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                     pattern: "^[0-9]{3}$",
                     description: "3-digit ending serial number (e.g., '045')",
                   },
+                  is_sold_out: {
+                    type: "boolean",
+                    default: false,
+                    description:
+                      "Whether this pack was marked as sold out (depleted). When true, uses depletion formula for ticket count.",
+                  },
                 },
               },
             },
@@ -9418,7 +9554,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       const user = (request as any).user as UserIdentity;
       const params = request.params as { storeId: string };
       const body = request.body as {
-        closings: Array<{ pack_id: string; closing_serial: string }>;
+        closings: Array<{
+          pack_id: string;
+          closing_serial: string;
+          is_sold_out?: boolean;
+        }>;
         entry_method?: "SCAN" | "MANUAL";
         current_shift_id?: string;
         authorized_by_user_id?: string;
@@ -9544,6 +9684,20 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                       },
                     },
                   },
+                  packs_depleted: {
+                    type: "array",
+                    description:
+                      "Packs that were depleted (marked sold out) during this day close",
+                    items: {
+                      type: "object",
+                      properties: {
+                        pack_id: { type: "string", format: "uuid" },
+                        store_id: { type: "string", format: "uuid" },
+                        pack_number: { type: "string" },
+                        game_name: { type: "string" },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -9581,6 +9735,54 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         };
 
         const result = await commitClose(rlsContext, params.storeId);
+
+        // =====================================================================
+        // POST-COMMIT UPC CLEANUP FOR DEPLETED PACKS
+        // =====================================================================
+        // SEC-017: AUDIT_TRAILS - Clean up UPCs from Redis/POS for depleted packs
+        // API-003: ERROR_HANDLING - Non-blocking cleanup with error logging
+        //
+        // UPC cleanup is performed AFTER the atomic transaction to avoid:
+        // 1. Transaction timeout from slow POS/Redis operations
+        // 2. Transaction rollback leaving stale UPCs in external systems
+        // 3. Blocking the core day close operation on non-critical cleanup
+        // =====================================================================
+        if (result.packs_depleted && result.packs_depleted.length > 0) {
+          for (const depletedPack of result.packs_depleted) {
+            try {
+              const cleanupResult = await syncPackDeactivation(
+                depletedPack.pack_id,
+                depletedPack.store_id,
+              );
+
+              if (cleanupResult.redisDeleted || cleanupResult.posRemoved) {
+                fastify.log.info(
+                  {
+                    packId: depletedPack.pack_id,
+                    packNumber: depletedPack.pack_number,
+                    gameName: depletedPack.game_name,
+                    redisDeleted: cleanupResult.redisDeleted,
+                    posRemoved: cleanupResult.posRemoved,
+                    context: "day_close_depletion",
+                  },
+                  "Pack UPCs cleaned up after day close depletion",
+                );
+              }
+            } catch (cleanupError) {
+              // API-003: ERROR_HANDLING - Log but don't fail day close
+              // UPC cleanup is non-critical; pack is already depleted in DB
+              fastify.log.error(
+                {
+                  error: cleanupError,
+                  packId: depletedPack.pack_id,
+                  packNumber: depletedPack.pack_number,
+                  context: "day_close_depletion",
+                },
+                "Failed to clean up UPCs for depleted pack during day close",
+              );
+            }
+          }
+        }
 
         return {
           success: true,

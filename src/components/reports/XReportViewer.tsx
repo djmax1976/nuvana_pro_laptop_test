@@ -10,6 +10,11 @@
 
 import { XReport } from "@/lib/api/reports";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  formatBusinessDateShort,
+  formatDateTime,
+} from "@/utils/date-format.utils";
+import { useStoreTimezone } from "@/contexts/StoreContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -43,24 +48,7 @@ export function XReportViewer({
   onPrint,
   onExport,
 }: XReportViewerProps) {
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString("en-US", {
-      weekday: "short",
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  const formatShortDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  };
+  const storeTimezone = useStoreTimezone();
 
   const handlePrint = () => {
     onPrint?.();
@@ -76,7 +64,7 @@ export function XReportViewer({
             X Report #{report.x_number}
           </h2>
           <p className="text-muted-foreground">
-            {formatShortDate(report.business_date)}
+            {formatBusinessDateShort(report.business_date)}
           </p>
         </div>
         <div className="flex gap-2 print:hidden">
@@ -120,13 +108,13 @@ export function XReportViewer({
                 Shift Opened:
               </span>
               <span className="ml-2 font-medium">
-                {formatDate(report.shift_opened_at)}
+                {formatDateTime(report.shift_opened_at, storeTimezone)}
               </span>
             </div>
             <div>
               <span className="text-sm text-muted-foreground">Generated:</span>
               <span className="ml-2 font-medium">
-                {formatDate(report.generated_at)}
+                {formatDateTime(report.generated_at, storeTimezone)}
               </span>
             </div>
             <div>

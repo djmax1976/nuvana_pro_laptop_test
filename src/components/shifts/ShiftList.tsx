@@ -3,8 +3,9 @@
 /**
  * Shift & Day Report List Component
  *
- * Unified list view for shifts and day summaries with comprehensive filtering.
- * Supports filtering by store, report type (shift/day), cashier, and date range presets.
+ * Unified accordion view for shifts and day summaries with comprehensive filtering.
+ * Day Summaries are displayed as parent accordion rows with their associated
+ * Shifts as collapsible children (always expanded by default).
  *
  * Store Selection Logic:
  * - Single store: Auto-selected, no dropdown shown (badge displayed instead)
@@ -15,6 +16,8 @@
  * - FE-002: FORM_VALIDATION - Client-side validation with clear error states
  * - API-001: VALIDATION - Query parameters validated before API calls
  * - SEC-004: XSS - All displayed values escaped through React's default behavior
+ * - FE-005: UI_SECURITY - No sensitive data exposed in DOM
+ * - FE-020: REACT_OPTIMIZATION - Memoized callbacks and derived data
  *
  * Story: Unified Shift & Day Report View
  */
@@ -29,27 +32,18 @@ import {
 import { useDaySummaries, type DaySummary } from "@/lib/api/day-summaries";
 import { useCashiers } from "@/lib/api/cashiers";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  AlertCircle,
-  RefreshCw,
-  Clock,
-  AlertTriangle,
-  Calendar,
-} from "lucide-react";
+import { AlertCircle, RefreshCw, Clock, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { formatCurrency } from "@/lib/utils";
-import { format } from "date-fns";
-import { ShiftStatusBadge } from "./ShiftStatusBadge";
 import { ShiftDayReportFilters } from "./ShiftDayReportFilters";
+import { DayShiftAccordion } from "./DayShiftAccordion";
+import {
+  transformToAccordionItems,
+  type DayAccordionItem,
+  type DayShiftItem,
+  type TransformAccordionOptions,
+} from "./types/day-shift-accordion.types";
+import { useStoreTimezone } from "@/contexts/StoreContext";
 import {
   type FilterFormState,
   DEFAULT_FILTER_STATE,
@@ -87,34 +81,8 @@ interface ShiftListProps {
 }
 
 /**
- * Format timestamp for display
- * SEC-004: Output encoding handled by React
- */
-function formatTimestamp(timestamp: string | null): string {
-  if (!timestamp) return "—";
-  try {
-    const date = new Date(timestamp);
-    return format(date, "MMM dd, yyyy HH:mm");
-  } catch {
-    return timestamp;
-  }
-}
-
-/**
- * Format date for display (date only, no time)
- */
-function formatDateOnly(dateStr: string | null): string {
-  if (!dateStr) return "—";
-  try {
-    const date = new Date(dateStr);
-    return format(date, "MMM dd, yyyy");
-  } catch {
-    return dateStr;
-  }
-}
-
-/**
  * Convert date to ISO string (YYYY-MM-DD) for date input
+ * SEC-014: Validates date format before conversion
  */
 function toDateInputValue(date?: string): string {
   if (!date) return "";
@@ -193,6 +161,10 @@ export function ShiftList({
   onFiltersChange,
   onMetaChange,
 }: ShiftListProps) {
+  // Get store timezone from context for correct "today" detection
+  // SEC-014: Required for timezone-aware date calculations
+  const storeTimezone = useStoreTimezone();
+
   // Fetch client dashboard data to get available stores
   const { data: dashboardData, isLoading: dashboardLoading } =
     useClientDashboard();
@@ -269,9 +241,19 @@ export function ShiftList({
     return queryFilters;
   }, [effectiveStoreId, appliedFilters.fromDate, appliedFilters.toDate]);
 
-  // Determine which data source to use based on report type
-  const isShiftView = appliedFilters.reportType !== "day";
-  const isDayView = appliedFilters.reportType === "day";
+  /**
+   * Determine which data sources to use based on report type
+   * SEC-014: Report type validated via Zod schema
+   *
+   * Report type logic:
+   * - "all" (default): Show both shifts AND day summaries in a unified view
+   * - "shift": Show only shift records
+   * - "day": Show only day summaries
+   */
+  const isAllView =
+    appliedFilters.reportType === "all" || appliedFilters.reportType === "";
+  const isShiftView = appliedFilters.reportType === "shift" || isAllView;
+  const isDayView = appliedFilters.reportType === "day" || isAllView;
 
   // Fetch shifts data (when report type is "shift" or not selected)
   const {
@@ -385,25 +367,62 @@ export function ShiftList({
 
   /**
    * Check if any filters are active (different from default state)
-   * "current" is the default range preset, so it's not considered an active filter
+   * "all" is the default report type, "current" is the default range preset
+   * SEC-014: Filter state validation against default values
    */
   const hasActiveFilters =
-    appliedFilters.reportType !== "" ||
+    (appliedFilters.reportType !== "all" && appliedFilters.reportType !== "") ||
     appliedFilters.cashierId !== "" ||
     appliedFilters.rangePreset !== "current" ||
     appliedFilters.fromDate !== "" ||
     appliedFilters.toDate !== "";
 
-  // Determine loading and error states based on current view
-  const isLoading = isShiftView ? shiftsLoading : daySummariesLoading;
-  const isError = isShiftView ? shiftsError : daySummariesError;
-  const error = isShiftView ? shiftsErrorObj : daySummariesErrorObj;
-  const refetch = isShiftView ? refetchShifts : refetchDaySummaries;
+  /**
+   * Determine loading and error states based on current view
+   * For "all" view, we need both data sources to be ready
+   */
+  const isLoading = isAllView
+    ? shiftsLoading || daySummariesLoading
+    : isShiftView && !isDayView
+      ? shiftsLoading
+      : daySummariesLoading;
 
-  // Get data for current view
-  const daySummaries = daySummariesData || [];
+  const isError = isAllView
+    ? shiftsError || daySummariesError
+    : isShiftView && !isDayView
+      ? shiftsError
+      : daySummariesError;
+
+  const error = isAllView
+    ? shiftsErrorObj || daySummariesErrorObj
+    : isShiftView && !isDayView
+      ? shiftsErrorObj
+      : daySummariesErrorObj;
+
+  /**
+   * Refetch function for error recovery
+   * For "all" view, refetch both data sources
+   */
+  const refetch = React.useCallback(() => {
+    if (isAllView) {
+      void refetchShifts();
+      void refetchDaySummaries();
+    } else if (isShiftView && !isDayView) {
+      void refetchShifts();
+    } else {
+      void refetchDaySummaries();
+    }
+  }, [isAllView, isShiftView, isDayView, refetchShifts, refetchDaySummaries]);
+
+  // Get data for current view - memoized to prevent reference changes
+  // FE-020: Memoized for stable dependency in accordion items calculation
+  const daySummaries = React.useMemo(
+    () => daySummariesData || [],
+    [daySummariesData],
+  );
 
   // Filter shifts by cashier if selected
+  // FE-020: Memoized for performance
   const filteredShifts = React.useMemo(() => {
     const shifts = shiftsData?.shifts || [];
     if (!appliedFilters.cashierId) {
@@ -413,6 +432,48 @@ export function ShiftList({
       (shift) => shift.cashier_id === appliedFilters.cashierId,
     );
   }, [shiftsData?.shifts, appliedFilters.cashierId]);
+
+  /**
+   * Transform data into accordion items
+   * FE-020: Memoized to prevent unnecessary recalculations
+   *
+   * Date Handling:
+   * - Uses store timezone for "today" detection (not browser timezone)
+   * - Correctly handles overnight operations where business days span midnight
+   */
+  const accordionItems = React.useMemo(() => {
+    // SEC-014: Pass store timezone for correct date calculations
+    const options: TransformAccordionOptions = {
+      storeTimezone,
+    };
+    return transformToAccordionItems(daySummaries, filteredShifts, options);
+  }, [daySummaries, filteredShifts, storeTimezone]);
+
+  /**
+   * Handle day accordion click - navigate to day summary detail
+   * FE-002: Validates data before navigation
+   */
+  const handleDayAccordionClick = React.useCallback(
+    (item: DayAccordionItem) => {
+      if (onDaySummaryClick && item._originalDaySummary) {
+        onDaySummaryClick(item._originalDaySummary);
+      }
+    },
+    [onDaySummaryClick],
+  );
+
+  /**
+   * Handle shift row click - navigate to shift detail
+   * FE-002: Validates data before navigation
+   */
+  const handleShiftAccordionClick = React.useCallback(
+    (shift: DayShiftItem) => {
+      if (onShiftClick && shift._originalShift) {
+        onShiftClick(shift._originalShift);
+      }
+    },
+    [onShiftClick],
+  );
 
   // Loading state (show when data is loading AND we have store selected)
   // Also show loading if dashboard is still loading
@@ -434,61 +495,29 @@ export function ShiftList({
           validationError={filterValidationError}
         />
 
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>
-                  <Skeleton className="h-4 w-24" />
-                </TableHead>
-                <TableHead>
-                  <Skeleton className="h-4 w-32" />
-                </TableHead>
-                <TableHead>
-                  <Skeleton className="h-4 w-24" />
-                </TableHead>
-                <TableHead>
-                  <Skeleton className="h-4 w-32" />
-                </TableHead>
-                <TableHead>
-                  <Skeleton className="h-4 w-32" />
-                </TableHead>
-                <TableHead>
-                  <Skeleton className="h-4 w-24" />
-                </TableHead>
-                <TableHead>
-                  <Skeleton className="h-4 w-24" />
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {[1, 2, 3, 4, 5].map((i) => (
-                <TableRow key={i}>
-                  <TableCell>
-                    <Skeleton className="h-5 w-28" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-5 w-32" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-5 w-24" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-5 w-32" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-5 w-32" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-5 w-24" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-5 w-24" />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        {/* Accordion skeleton loading state */}
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="space-y-2">
+              {/* Shift table skeleton */}
+              <div className="ml-8 rounded-md border">
+                <div className="p-3 space-y-2">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                </div>
+              </div>
+              {/* Day header skeleton */}
+              <div className="flex items-center gap-4 p-4 rounded-lg border">
+                <Skeleton className="h-5 w-5" />
+                <Skeleton className="h-5 w-32" />
+                <Skeleton className="h-5 w-20" />
+                <Skeleton className="h-5 w-16" />
+                <Skeleton className="h-5 w-24" />
+                <Skeleton className="h-5 w-20" />
+                <Skeleton className="h-5 w-16" />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -519,15 +548,20 @@ export function ShiftList({
           <div className="flex items-center gap-2 text-destructive mb-4">
             <AlertCircle className="h-5 w-5" />
             <h3 className="font-semibold">
-              Error Loading {isDayView ? "Day Summaries" : "Shifts"}
+              Error Loading{" "}
+              {isAllView
+                ? "Reports"
+                : isDayView && !isShiftView
+                  ? "Day Summaries"
+                  : "Shifts"}
             </h3>
           </div>
           <p className="text-muted-foreground mb-4">
             {error instanceof Error
               ? error.message
-              : `Failed to load ${isDayView ? "day summaries" : "shifts"}. Please try again.`}
+              : `Failed to load ${isAllView ? "reports" : isDayView && !isShiftView ? "day summaries" : "shifts"}. Please try again.`}
           </p>
-          <Button variant="outline" onClick={() => refetch()}>
+          <Button variant="outline" onClick={refetch}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Retry
           </Button>
@@ -536,10 +570,11 @@ export function ShiftList({
     );
   }
 
-  // Empty state
-  const isEmpty = isDayView
-    ? daySummaries.length === 0
-    : filteredShifts.length === 0;
+  /**
+   * Determine if the view is empty
+   * For unified accordion view, check if accordion items are empty
+   */
+  const isEmpty = accordionItems.length === 0;
 
   if (isEmpty) {
     return (
@@ -562,25 +597,22 @@ export function ShiftList({
           className="text-center py-12 border rounded-lg"
           data-testid="shift-list-empty"
         >
-          {isDayView ? (
-            <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-          ) : (
-            <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-          )}
-          <h3 className="text-lg font-medium mb-2">
-            No {isDayView ? "Day Summaries" : "Shifts"} Found
-          </h3>
+          <div className="flex justify-center gap-2 mb-4">
+            <Clock className="h-10 w-10 text-muted-foreground" />
+            <Calendar className="h-10 w-10 text-muted-foreground" />
+          </div>
+          <h3 className="text-lg font-medium mb-2">No Reports Found</h3>
           <p className="text-muted-foreground">
             {hasActiveFilters
-              ? `No ${isDayView ? "day summaries" : "shifts"} match your current filters.`
-              : `No ${isDayView ? "day summaries" : "shifts"} available.`}
+              ? "No shift or day reports match your current filters."
+              : "No shift or day reports available."}
           </p>
         </div>
       </div>
     );
   }
 
-  // Render table based on view type
+  // Render unified accordion view
   return (
     <div className="space-y-4" data-testid="shift-list-table">
       {/* Filters */}
@@ -597,160 +629,13 @@ export function ShiftList({
         validationError={filterValidationError}
       />
 
-      <div className="rounded-md border">
-        {isDayView ? (
-          // Day Summary Table
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Business Date</TableHead>
-                <TableHead>Shift Count</TableHead>
-                <TableHead>Transactions</TableHead>
-                <TableHead className="text-right">Gross Sales</TableHead>
-                <TableHead className="text-right">Net Sales</TableHead>
-                <TableHead className="text-right">Cash Variance</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {daySummaries.map((daySummary) => (
-                <TableRow
-                  key={daySummary.day_summary_id}
-                  data-testid={`day-summary-row-${daySummary.day_summary_id}`}
-                  className={
-                    onDaySummaryClick ? "cursor-pointer hover:bg-muted/50" : ""
-                  }
-                  onClick={() => onDaySummaryClick?.(daySummary)}
-                >
-                  <TableCell className="font-medium">
-                    {formatDateOnly(daySummary.business_date)}
-                  </TableCell>
-                  <TableCell>{daySummary.shift_count}</TableCell>
-                  <TableCell>{daySummary.transaction_count}</TableCell>
-                  <TableCell className="text-right">
-                    {formatCurrency(daySummary.gross_sales, "USD", "en-US")}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatCurrency(daySummary.net_sales, "USD", "en-US")}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <span
-                        className={
-                          daySummary.total_cash_variance !== 0
-                            ? daySummary.total_cash_variance > 0
-                              ? "text-green-600"
-                              : "text-destructive"
-                            : ""
-                        }
-                      >
-                        {formatCurrency(
-                          Math.abs(daySummary.total_cash_variance),
-                          "USD",
-                          "en-US",
-                        )}
-                      </span>
-                      {Math.abs(daySummary.total_cash_variance) > 0 && (
-                        <AlertTriangle
-                          className="h-3 w-3 text-amber-500"
-                          aria-label="Variance present"
-                        />
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        daySummary.status === "CLOSED"
-                          ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
-                          : "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300"
-                      }`}
-                    >
-                      {daySummary.status}
-                    </span>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : (
-          // Shift Table
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Shift ID</TableHead>
-                <TableHead>Store</TableHead>
-                <TableHead>Cashier</TableHead>
-                <TableHead>Opened At</TableHead>
-                <TableHead>Closed At</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Variance</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredShifts.map((shift) => (
-                <TableRow
-                  key={shift.shift_id}
-                  data-testid={`shift-list-row-${shift.shift_id}`}
-                  data-cashier-id={shift.cashier_id}
-                  className={
-                    onShiftClick ? "cursor-pointer hover:bg-muted/50" : ""
-                  }
-                  onClick={() => onShiftClick?.(shift)}
-                >
-                  <TableCell className="font-medium">
-                    {shift.shift_id.substring(0, 8)}...
-                  </TableCell>
-                  <TableCell>{shift.store_name || "Unknown"}</TableCell>
-                  <TableCell>{shift.cashier_name || "Unknown"}</TableCell>
-                  <TableCell>{formatTimestamp(shift.opened_at)}</TableCell>
-                  <TableCell>{formatTimestamp(shift.closed_at)}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <ShiftStatusBadge
-                        status={shift.status}
-                        shiftId={shift.shift_id}
-                      />
-                      {shift.status === "VARIANCE_REVIEW" && (
-                        <span title="Variance requires review">
-                          <AlertTriangle
-                            className="h-4 w-4 text-destructive"
-                            data-testid={`variance-alert-badge-${shift.shift_id}`}
-                            aria-label="Variance requires review"
-                          />
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {shift.variance_amount !== null ? (
-                      <div className="flex items-center gap-2">
-                        <span>
-                          {formatCurrency(
-                            Math.abs(shift.variance_amount),
-                            "USD",
-                            "en-US",
-                          )}
-                        </span>
-                        {shift.status === "VARIANCE_REVIEW" && (
-                          <span title="Variance requires review">
-                            <AlertTriangle
-                              className="h-3 w-3 text-destructive"
-                              aria-label="Variance requires review"
-                            />
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </div>
+      {/* Unified Day-Shift Accordion View */}
+      <DayShiftAccordion
+        items={accordionItems}
+        onDayClick={handleDayAccordionClick}
+        onShiftClick={handleShiftAccordionClick}
+        isLoading={false}
+      />
     </div>
   );
 }

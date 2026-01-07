@@ -202,4 +202,6 @@ export {
   createLotteryVariances,
   createLotteryShiftOpening,
   createLotteryShiftClosing,
+  createLotteryBusinessDay,
+  createLotteryDayPack,
 } from "./lottery.factory";

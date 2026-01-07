@@ -3,17 +3,21 @@
 /**
  * Closed Shift Summary Component for Client Owner Dashboard
  *
- * Displays completed shift information with full breakdown:
- * - Shift information header
- * - Payment methods breakdown (left column)
- * - Sales breakdown (right column)
- * - Variance details and approval information
+ * Displays completed shift information:
+ * - Shift header with terminal, cashier, timing info
+ * - Money Received breakdown (dual columns, read-only)
+ * - Sales Breakdown by department (dual columns, read-only)
+ * - Cash reconciliation and variance details
  *
- * Layout mirrors the shift-end page but in read-only mode.
+ * NOTE: Lottery details (bins, packs, etc.) are NOT shown here.
+ * Lottery information is displayed on the Day Close page, not individual shift views.
  *
- * This component is independent and can be customized for client owner
- * specific features (reports, analytics, audit trails) without affecting
- * the cashier terminal pages.
+ * MCP Guidance Applied:
+ * - FE-001: STATE_MANAGEMENT - Secure state management for auth data
+ * - FE-005: UI_SECURITY - Read-only display, no sensitive data exposed
+ * - SEC-004: XSS - All data properly escaped through React rendering
+ * - API-008: OUTPUT_FILTERING - Uses whitelisted API response fields only
+ * - SEC-014: INPUT_VALIDATION - Type-safe props with defensive null checks
  *
  * @security
  * - FE-005: UI_SECURITY - Read-only display, no sensitive data exposed
@@ -21,7 +25,6 @@
  * - API-008: OUTPUT_FILTERING - Uses whitelisted API response fields only
  */
 
-import { format } from "date-fns";
 import {
   Card,
   CardContent,
@@ -29,48 +32,108 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { formatDateTime } from "@/utils/date-format.utils";
+import { useStoreTimezone } from "@/contexts/StoreContext";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Clock,
   User,
-  Store,
   CheckCircle2,
   AlertTriangle,
   Loader2,
   FileText,
+  DollarSign,
 } from "lucide-react";
 import { ShiftStatusBadge } from "@/components/shifts/ShiftStatusBadge";
-import { MoneyReceivedSummary } from "./MoneyReceivedSummary";
-import { SalesBreakdownSummary } from "./SalesBreakdownSummary";
-import type { ShiftDetailResponse } from "@/lib/api/shifts";
+import { MoneyReceivedCard } from "@/components/shift-closing/MoneyReceivedCard";
+import { SalesBreakdownCard } from "@/components/shift-closing/SalesBreakdownCard";
+import type {
+  ShiftDetailResponse,
+  ShiftLotterySummaryResponse,
+} from "@/lib/api/shifts";
 import type { ShiftSummaryResponse } from "@/lib/api/shift-summary";
 import { formatCurrency } from "@/lib/utils";
+
+// ============================================================================
+// TYPE DEFINITIONS
+// MCP: SEC-014 INPUT_VALIDATION - Strict type definitions for component props
+// ============================================================================
 
 interface ClosedShiftSummaryProps {
   shift: ShiftDetailResponse;
   summary: ShiftSummaryResponse | undefined;
   isLoadingSummary: boolean;
   summaryError: Error | null;
+  /** Comprehensive lottery summary data for money received/sales breakdown */
+  lotterySummary?: ShiftLotterySummaryResponse;
+  isLoadingLotterySummary?: boolean;
+  lotterySummaryError?: Error | null;
 }
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// MCP: SEC-014 INPUT_VALIDATION - Type-safe utility functions
+// ============================================================================
+
+/**
+ * Calculate duration between two dates
+ *
+ * @param start - Start date
+ * @param end - End date
+ * @returns Human-readable duration string
+ */
+function calculateDuration(start: Date, end: Date): string {
+  const diffMs = end.getTime() - start.getTime();
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+  if (diffHours === 0) {
+    return `${diffMinutes}m`;
+  }
+  return `${diffHours}h ${diffMinutes}m`;
+}
+
+// ============================================================================
+// COMPONENT
+// MCP: FE-001 STATE_MANAGEMENT - Component with secure state handling
+// ============================================================================
 
 /**
  * ClosedShiftSummary component
- * Displays complete shift summary for closed shifts in client owner dashboard
+ * Displays shift summary for closed shifts in client owner dashboard
+ *
+ * Shows:
+ * - Shift header info (terminal, cashier, timing)
+ * - Sales Breakdown by department
+ * - Money Received breakdown
+ * - Cash Reconciliation
+ *
+ * NOTE: Lottery details are shown on the Day Close page, not here.
  */
 export function ClosedShiftSummary({
   shift,
   summary,
   isLoadingSummary,
   summaryError,
+  lotterySummary,
+  isLoadingLotterySummary = false,
+  lotterySummaryError,
 }: ClosedShiftSummaryProps) {
-  // Format timestamps
-  const openedAtFormatted = format(
-    new Date(shift.opened_at),
-    "MMM d, yyyy h:mm a",
-  );
+  // ========================================================================
+  // HOOKS
+  // MCP: FE-001 STATE_MANAGEMENT - Access store timezone for date formatting
+  // ========================================================================
+  const storeTimezone = useStoreTimezone();
+
+  // ========================================================================
+  // COMPUTED VALUES
+  // MCP: FE-001 STATE_MANAGEMENT - Derived state from props
+  // ========================================================================
+
+  // Format timestamps using centralized timezone-aware utilities
+  const openedAtFormatted = formatDateTime(shift.opened_at, storeTimezone);
   const closedAtFormatted = shift.closed_at
-    ? format(new Date(shift.closed_at), "MMM d, yyyy h:mm a")
+    ? formatDateTime(shift.closed_at, storeTimezone)
     : "N/A";
 
   // Calculate duration if both times are available
@@ -78,19 +141,22 @@ export function ClosedShiftSummary({
     ? calculateDuration(new Date(shift.opened_at), new Date(shift.closed_at))
     : "N/A";
 
-  // Format shift ID for display
-  const shortShiftId = shift.shift_id.slice(0, 8);
-
   // Determine variance status
   const hasVariance =
     shift.variance_amount !== null && shift.variance_amount !== 0;
   const isVarianceNegative =
     shift.variance_amount !== null && shift.variance_amount < 0;
 
+  // ========================================================================
+  // RENDER
+  // ========================================================================
+
   return (
     <div className="space-y-6" data-testid="closed-shift-summary">
-      {/* Header */}
-      <div className="space-y-2">
+      {/* ================================================================
+       * HEADER SECTION
+       * ================================================================ */}
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2">
@@ -98,101 +164,110 @@ export function ClosedShiftSummary({
               Shift Summary
             </h1>
             <p className="text-muted-foreground">
-              {shift.store_name || "Store"} - Shift {shortShiftId}
+              {shift.store_name || "Store"}
             </p>
           </div>
           <ShiftStatusBadge status={shift.status} shiftId={shift.shift_id} />
         </div>
+
+        {/* Shift Info Bar */}
+        <Card className="bg-muted/30">
+          <CardContent className="py-4">
+            <div className="flex flex-wrap items-center gap-6 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Terminal:</span>
+                <span className="font-medium">
+                  {lotterySummary?.shift_info?.terminal_name || "N/A"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Shift #:</span>
+                <span className="font-medium">
+                  {shift.shift_number || "N/A"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <User className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium">
+                  {shift.cashier_name || "Unknown"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium">{openedAtFormatted}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-green-600" />
+                <span className="font-medium text-green-600">
+                  Opening: {formatCurrency(shift.opening_cash)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Duration:</span>
+                <span className="font-medium">{durationText}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Shift Information Card */}
-      <Card data-testid="shift-info-card">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5" aria-hidden="true" />
-            Shift Information
-          </CardTitle>
-          <CardDescription>Completed shift details</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Cashier */}
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Cashier
-              </p>
-              <p className="text-lg font-semibold flex items-center gap-2">
-                <User className="h-4 w-4 text-muted-foreground" />
-                {shift.cashier_name || "Unknown"}
-              </p>
-            </div>
+      {/* ================================================================
+       * LOADING STATE
+       * ================================================================ */}
+      {isLoadingLotterySummary && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-muted-foreground">
+            Loading shift details...
+          </span>
+        </div>
+      )}
 
-            {/* Store */}
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Store</p>
-              <p className="text-lg font-semibold flex items-center gap-2">
-                <Store className="h-4 w-4 text-muted-foreground" />
-                {shift.store_name || "Unknown"}
-              </p>
-            </div>
+      {/* ================================================================
+       * ERROR STATE
+       * ================================================================ */}
+      {lotterySummaryError && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            Failed to load shift details:{" "}
+            {lotterySummaryError.message || "Unknown error"}
+          </AlertDescription>
+        </Alert>
+      )}
 
-            {/* Opened At */}
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Opened At
-              </p>
-              <p className="text-lg">{openedAtFormatted}</p>
-            </div>
+      {/* ================================================================
+       * SALES BREAKDOWN & MONEY RECEIVED - Two Column Layout
+       * Shows department sales and payment methods (read-only)
+       * ================================================================ */}
+      {lotterySummary?.money_received?.pos &&
+        lotterySummary?.money_received?.reports &&
+        lotterySummary?.sales_breakdown?.pos &&
+        lotterySummary?.sales_breakdown?.reports && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left Column - Money Received (Read-Only) */}
+            <MoneyReceivedCard
+              state={lotterySummary.money_received}
+              readOnly={true}
+            />
 
-            {/* Closed At */}
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Closed At
-              </p>
-              <p className="text-lg">{closedAtFormatted}</p>
-            </div>
-
-            {/* Duration */}
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Duration
-              </p>
-              <p className="text-lg">{durationText}</p>
-            </div>
-
-            {/* Opened By */}
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Opened By
-              </p>
-              <p className="text-lg">{shift.opener_name || "Unknown"}</p>
-            </div>
-
-            {/* Transaction Count */}
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Transactions
-              </p>
-              <p className="text-lg font-semibold">{shift.transaction_count}</p>
-            </div>
-
-            {/* Shift ID */}
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Shift ID
-              </p>
-              <Badge variant="outline" className="font-mono text-xs">
-                {shortShiftId}...
-              </Badge>
-            </div>
+            {/* Right Column - Sales Breakdown (Read-Only) */}
+            <SalesBreakdownCard
+              state={lotterySummary.sales_breakdown}
+              readOnly={true}
+            />
           </div>
-        </CardContent>
-      </Card>
+        )}
 
-      {/* Cash Reconciliation Card */}
+      {/* ================================================================
+       * CASH RECONCILIATION CARD
+       * ================================================================ */}
       <Card data-testid="cash-reconciliation-card">
         <CardHeader>
-          <CardTitle>Cash Reconciliation</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5" />
+            Cash Reconciliation
+          </CardTitle>
           <CardDescription>
             Opening, closing, and variance details
           </CardDescription>
@@ -255,7 +330,9 @@ export function ClosedShiftSummary({
         </CardContent>
       </Card>
 
-      {/* Variance Details Card (if applicable) */}
+      {/* ================================================================
+       * VARIANCE DETAILS CARD (if applicable)
+       * ================================================================ */}
       {hasVariance && (
         <Card
           data-testid="variance-details-card"
@@ -303,12 +380,7 @@ export function ClosedShiftSummary({
                     <p className="text-sm font-medium text-muted-foreground">
                       Approved At
                     </p>
-                    <p>
-                      {format(
-                        new Date(shift.approved_at),
-                        "MMM d, yyyy h:mm a",
-                      )}
-                    </p>
+                    <p>{formatDateTime(shift.approved_at, storeTimezone)}</p>
                   </div>
                 )}
               </div>
@@ -317,40 +389,9 @@ export function ClosedShiftSummary({
         </Card>
       )}
 
-      {/* Payment Methods and Sales Breakdown - Two Column Layout */}
-      {isLoadingSummary && (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          <span className="ml-2 text-muted-foreground">
-            Loading shift breakdown...
-          </span>
-        </div>
-      )}
-
-      {summaryError && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            Failed to load shift breakdown:{" "}
-            {summaryError.message || "Unknown error"}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {summary && !isLoadingSummary && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Column - Payment Methods */}
-          <MoneyReceivedSummary paymentMethods={summary.payment_methods} />
-
-          {/* Right Column - Sales Breakdown */}
-          <SalesBreakdownSummary
-            totalSales={summary.total_sales}
-            transactionCount={summary.transaction_count}
-          />
-        </div>
-      )}
-
-      {/* No Variance Success Message */}
+      {/* ================================================================
+       * NO VARIANCE SUCCESS MESSAGE
+       * ================================================================ */}
       {!hasVariance && shift.status === "CLOSED" && (
         <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
           <CheckCircle2 className="h-4 w-4 text-green-600" />
@@ -360,20 +401,39 @@ export function ClosedShiftSummary({
           </AlertDescription>
         </Alert>
       )}
+
+      {/* ================================================================
+       * LEGACY SUMMARY FALLBACK
+       * Only shown if no lottery summary available for this shift
+       * ================================================================ */}
+      {!lotterySummary && !isLoadingLotterySummary && summary && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Sales Summary</CardTitle>
+            <CardDescription>
+              Basic summary (detailed lottery data not available for this shift)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Total Sales
+                </p>
+                <p className="text-xl font-bold">
+                  {formatCurrency(summary.total_sales)}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Transactions
+                </p>
+                <p className="text-xl font-bold">{summary.transaction_count}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
-}
-
-/**
- * Calculate duration between two dates
- */
-function calculateDuration(start: Date, end: Date): string {
-  const diffMs = end.getTime() - start.getTime();
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-
-  if (diffHours === 0) {
-    return `${diffMinutes}m`;
-  }
-  return `${diffHours}h ${diffMinutes}m`;
 }

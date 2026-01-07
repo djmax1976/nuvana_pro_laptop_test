@@ -10,8 +10,7 @@
  * Calculates tickets sold and sales amount from serial information.
  *
  * Business Rules:
- * - Only ACTIVE packs can be returned
- * - RECEIVED packs should be deleted (not returned)
+ * - ACTIVE and RECEIVED packs can be returned
  * - DEPLETED and already RETURNED packs cannot be returned
  * - Last sold serial is required for sales calculation
  * - Notes are required when return_reason is OTHER
@@ -445,28 +444,30 @@ export function ReturnPackDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          {/* Warning for non-ACTIVE packs */}
-          {packData && packData.status !== "ACTIVE" && (
-            <div
-              className="flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4"
-              role="alert"
-              aria-live="polite"
-            >
-              <AlertTriangle
-                className="h-5 w-5 text-destructive mt-0.5"
-                aria-hidden="true"
-              />
-              <div className="flex-1 space-y-1">
-                <p className="text-sm font-medium text-destructive">
-                  Cannot Return Pack
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Only ACTIVE packs can be returned. This pack is currently{" "}
-                  <strong>{currentStatus}</strong>.
-                </p>
+          {/* Warning for non-returnable packs (only ACTIVE and RECEIVED can be returned) */}
+          {packData &&
+            packData.status !== "ACTIVE" &&
+            packData.status !== "RECEIVED" && (
+              <div
+                className="flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4"
+                role="alert"
+                aria-live="polite"
+              >
+                <AlertTriangle
+                  className="h-5 w-5 text-destructive mt-0.5"
+                  aria-hidden="true"
+                />
+                <div className="flex-1 space-y-1">
+                  <p className="text-sm font-medium text-destructive">
+                    Cannot Return Pack
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Only ACTIVE or RECEIVED packs can be returned. This pack is
+                    currently <strong>{currentStatus}</strong>.
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Pack Details */}
           <div className="space-y-2">
@@ -637,7 +638,10 @@ export function ReturnPackDialog({
             type="button"
             variant="default"
             onClick={handleReturn}
-            disabled={!canSubmit || packData?.status !== "ACTIVE"}
+            disabled={
+              !canSubmit ||
+              (packData?.status !== "ACTIVE" && packData?.status !== "RECEIVED")
+            }
             data-testid="confirm-return-button"
             aria-label={
               returnPackMutation.isPending

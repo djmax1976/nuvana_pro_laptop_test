@@ -18,6 +18,7 @@ import { Prisma, ShiftStatus } from "@prisma/client";
 import { prisma } from "../utils/db";
 import { startOfHour, differenceInMinutes } from "date-fns";
 import { cacheService } from "./cache.service";
+import { daySummaryService } from "./day-summary.service";
 import {
   ShiftSummaryWithDetails,
   ShiftSummaryResponse,
@@ -322,6 +323,39 @@ class ShiftSummaryService {
         hourly_summaries: hourlySummaries,
       } as ShiftSummaryWithDetails;
     });
+
+    // =========================================================================
+    // UPDATE DAY SUMMARY AGGREGATES
+    // =========================================================================
+    // DB-006: TENANT_ISOLATION - Day summary is scoped to same store_id
+    // API-003: ERROR_HANDLING - Non-blocking update with error logging
+    // LM-001: LOGGING - Structured logging for observability
+    //
+    // After shift summary is created, update the day summary aggregates.
+    // This is done outside the transaction to avoid blocking the shift close.
+    // The day summary aggregates all shifts for a business day.
+    // =========================================================================
+    try {
+      await daySummaryService.updateDaySummary(
+        result.store_id,
+        result.business_date,
+      );
+    } catch (daySummaryError) {
+      // Non-blocking: Log error but don't fail the shift close
+      // SEC-017: AUDIT_TRAILS - Log for investigation, no sensitive data
+      console.error(
+        "[ShiftSummaryService] Failed to update day summary aggregates:",
+        {
+          shift_id: shiftId,
+          store_id: result.store_id,
+          business_date: result.business_date,
+          error:
+            daySummaryError instanceof Error
+              ? daySummaryError.message
+              : "Unknown error",
+        },
+      );
+    }
 
     return result;
   }
@@ -969,12 +1003,119 @@ class ShiftSummaryService {
   /**
    * Get lottery data for a shift
    *
-   * Calculates lottery sales from ticket serials and their game prices.
+   * Calculates lottery sales from LotteryDayPack (primary) or LotteryTicketSerial (fallback).
+   * The LotteryDayPack table contains aggregated sales data from day close.
    * Note: Lottery cashes (payouts) are tracked separately through transactions.
    */
-  private async getLotteryData(shiftId: string, _storeId: string) {
+  private async getLotteryData(shiftId: string, storeId: string) {
     try {
-      // Count tickets sold during this shift and get their prices
+      // First, get the shift to determine the business date
+      const shift = await prisma.shift.findUnique({
+        where: { shift_id: shiftId },
+        select: { closed_at: true, opened_at: true },
+      });
+
+      if (!shift) {
+        return null;
+      }
+
+      // Use closed_at for business date (when lottery was reconciled)
+      const businessDate = shift.closed_at || shift.opened_at;
+      const businessDateStr = businessDate.toISOString().split("T")[0];
+
+      // =========================================================================
+      // PHASE 4: STATUS-BASED LOTTERY DAY LOOKUP
+      // =========================================================================
+      // Try to get lottery data from LotteryBusinessDay/LotteryDayPack first
+      // This is the primary source when lottery day close has been completed.
+      //
+      // Use findFirst with date filter (unique constraint removed in Phase 1).
+      // For shift summaries, we look up by calendar date to get historical data.
+      // If multiple days exist for same date (edge case), prefer CLOSED.
+      //
+      // MCP Guidance Applied:
+      // - DB-006: TENANT_ISOLATION - store_id filter enforces tenant scoping
+      // - DB-001: ORM_USAGE - Using Prisma ORM with query builder, no raw SQL
+      // - SEC-006: SQL_INJECTION - All parameters bound via Prisma ORM
+      // =========================================================================
+      const lotteryDay = await prisma.lotteryBusinessDay.findFirst({
+        where: {
+          store_id: storeId,
+          business_date: new Date(businessDateStr),
+        },
+        include: {
+          day_packs: {
+            select: {
+              tickets_sold: true,
+              sales_amount: true,
+            },
+          },
+        },
+        // If multiple records exist for same date, prefer CLOSED for shift summaries
+        orderBy: [
+          { status: "asc" }, // CLOSED < OPEN < PENDING_CLOSE alphabetically
+          { closed_at: "desc" }, // Most recently closed first
+        ],
+      });
+
+      if (
+        lotteryDay &&
+        lotteryDay.status === "CLOSED" &&
+        lotteryDay.day_packs.length > 0
+      ) {
+        // Calculate totals from day packs
+        const sales = lotteryDay.day_packs.reduce(
+          (sum, pack) => sum + Number(pack.sales_amount || 0),
+          0,
+        );
+        const ticketsSold = lotteryDay.day_packs.reduce(
+          (sum, pack) => sum + (pack.tickets_sold || 0),
+          0,
+        );
+
+        // Get returned packs that were part of this shift to add their sales
+        const returnedPacks = await prisma.lotteryPack.findMany({
+          where: {
+            store_id: storeId,
+            status: "RETURNED",
+            returned_at: {
+              gte: shift.opened_at,
+              lte: shift.closed_at || new Date(),
+            },
+          },
+          select: {
+            return_sales_amount: true,
+            tickets_sold_on_return: true,
+          },
+        });
+
+        const returnedSales = returnedPacks.reduce(
+          (sum, pack) => sum + Number(pack.return_sales_amount || 0),
+          0,
+        );
+        const returnedTickets = returnedPacks.reduce(
+          (sum, pack) => sum + (pack.tickets_sold_on_return || 0),
+          0,
+        );
+
+        const totalSales = sales + returnedSales;
+        const totalTickets = ticketsSold + returnedTickets;
+
+        // Lottery cashes (payouts) would need to come from lottery payout transactions
+        // For now, we'll set cashes to 0 - this can be enhanced when lottery payout
+        // tracking is implemented in transactions
+        const cashes = 0;
+
+        return {
+          sales: totalSales,
+          cashes,
+          net: totalSales - cashes,
+          packs_sold: lotteryDay.day_packs.length,
+          tickets_sold: totalTickets,
+        };
+      }
+
+      // Fallback: Try ticket serials (older method)
       const ticketSerials = await prisma.lotteryTicketSerial.findMany({
         where: { shift_id: shiftId },
         include: {
@@ -1003,9 +1144,6 @@ class ShiftSummaryService {
         where: { shift_id: shiftId },
       });
 
-      // Lottery cashes (payouts) would need to come from lottery payout transactions
-      // For now, we'll set cashes to 0 - this can be enhanced when lottery payout
-      // tracking is implemented in transactions
       const cashes = 0;
 
       return {
@@ -1015,7 +1153,8 @@ class ShiftSummaryService {
         packs_sold: packsClosedCount,
         tickets_sold: ticketSerials.length,
       };
-    } catch {
+    } catch (error) {
+      console.error("Error fetching lottery data:", error);
       // If lottery tables don't exist or there's an error, return null
       return null;
     }

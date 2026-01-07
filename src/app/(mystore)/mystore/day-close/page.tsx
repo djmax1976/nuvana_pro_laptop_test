@@ -22,8 +22,9 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
+import { formatDateTime } from "@/utils/date-format.utils";
+import { useStoreTimezone } from "@/contexts/StoreContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -170,6 +171,12 @@ export default function DayCloseWizardPage() {
   const router = useRouter();
   const { toast } = useToast();
   const shiftId = searchParams.get("shiftId");
+
+  // ========================================================================
+  // HOOKS
+  // MCP: FE-001 STATE_MANAGEMENT - Access store timezone for date formatting
+  // ========================================================================
+  const storeTimezone = useStoreTimezone();
 
   // ============ AUTH & DATA HOOKS ============
   const { isLoading: authLoading } = useClientAuth();
@@ -749,8 +756,9 @@ export default function DayCloseWizardPage() {
   const terminalName = terminal?.name || "Terminal";
   const shiftNumber = shiftData?.shift_number;
   const shiftNumberDisplay = shiftNumber ? `#${shiftNumber}` : null;
+  // Use centralized timezone-aware date formatting utility
   const shiftStartDateTime = shiftData?.opened_at
-    ? format(new Date(shiftData.opened_at), "MMM d, yyyy 'at' h:mm a")
+    ? formatDateTime(shiftData.opened_at, storeTimezone)
     : "";
   const openingCash = shiftData?.opening_cash ?? 0;
 

@@ -37,10 +37,20 @@ import {
 import { ManualEntryAuthModal } from "@/components/lottery/ManualEntryAuthModal";
 import { MarkSoldOutDialog } from "@/components/lottery/MarkSoldOutDialog";
 import { ManualEntryIndicator } from "@/components/lottery/ManualEntryIndicator";
-import { receivePack, closeLotteryDay } from "@/lib/api/lottery";
+import { ReturnPackDialog } from "@/components/lottery/ReturnPackDialog";
+import {
+  receivePack,
+  closeLotteryDay,
+  type LotteryPackResponse,
+} from "@/lib/api/lottery";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle2 } from "lucide-react";
+import {
+  formatBusinessDateFull,
+  formatDateTimeShort,
+} from "@/utils/date-format.utils";
+import { useStoreTimezone } from "@/contexts/StoreContext";
 
 /**
  * Manual entry state interface
@@ -94,6 +104,12 @@ export default function LotteryManagementPage() {
   } = useClientDashboard();
   const { toast } = useToast();
 
+  // ========================================================================
+  // HOOKS
+  // MCP: FE-001 STATE_MANAGEMENT - Access store timezone for date formatting
+  // ========================================================================
+  const storeTimezone = useStoreTimezone();
+
   // Dialog state management
   const [receptionDialogOpen, setReceptionDialogOpen] = useState(false);
   const [activationDialogOpen, setActivationDialogOpen] = useState(false);
@@ -105,6 +121,16 @@ export default function LotteryManagementPage() {
   const [packIdToMarkSoldOut, setPackIdToMarkSoldOut] = useState<string | null>(
     null,
   );
+
+  /**
+   * Return Pack dialog state
+   * MCP: FE-001 STATE_MANAGEMENT - Controlled dialog state with pack ID and data tracking
+   * MCP: SEC-010 AUTHZ - ACTIVE and RECEIVED packs can be returned (enforced in dialog)
+   */
+  const [returnPackDialogOpen, setReturnPackDialogOpen] = useState(false);
+  const [packIdToReturn, setPackIdToReturn] = useState<string | null>(null);
+  const [packDataToReturn, setPackDataToReturn] =
+    useState<LotteryPackResponse | null>(null);
 
   // Manual entry state management
   const [manualEntryAuthModalOpen, setManualEntryAuthModalOpen] =
@@ -181,6 +207,66 @@ export default function LotteryManagementPage() {
   const handleMarkSoldOutSuccess = useCallback(() => {
     invalidateAll(); // Refresh all lottery data including day bins
     setSuccessMessage("Pack marked as sold out successfully");
+    setTimeout(() => setSuccessMessage(null), 5000);
+  }, [invalidateAll]);
+
+  /**
+   * Handle Return Pack button click
+   * Opens the ReturnPackDialog for the selected pack
+   * Finds pack data from day bins to provide immediate display without extra API call
+   *
+   * MCP Guidance Applied:
+   * - FE-001: STATE_MANAGEMENT - Controlled dialog state with pack data
+   * - SEC-014: INPUT_VALIDATION - Pack ID validated by dialog before API call
+   * - SEC-010: AUTHZ - ACTIVE and RECEIVED packs can be returned (enforced server-side)
+   */
+  const handleReturnPackClick = useCallback(
+    (packId: string) => {
+      // Find the pack data from day bins to avoid extra API call
+      const bin = dayBinsData?.bins.find((b) => b.pack?.pack_id === packId);
+      if (bin?.pack) {
+        // Transform DayBinPack to LotteryPackResponse format for the dialog
+        const packData: LotteryPackResponse = {
+          pack_id: bin.pack.pack_id,
+          game_id: "", // Not needed for display, dialog uses game.name and game.price
+          pack_number: bin.pack.pack_number,
+          serial_start: bin.pack.starting_serial,
+          serial_end: bin.pack.serial_end,
+          status: "ACTIVE", // Pack in bins is always ACTIVE
+          store_id: storeId || "",
+          current_bin_id: bin.bin_id,
+          received_at: "", // Not needed for display
+          activated_at: null,
+          game: {
+            game_id: "",
+            game_code: "",
+            name: bin.pack.game_name,
+            price: bin.pack.game_price,
+          },
+        };
+        setPackDataToReturn(packData);
+      } else {
+        // Fallback: let dialog fetch from API
+        setPackDataToReturn(null);
+      }
+      setPackIdToReturn(packId);
+      setReturnPackDialogOpen(true);
+    },
+    [dayBinsData?.bins, storeId],
+  );
+
+  /**
+   * Handle successful pack return
+   * Refreshes data and shows success message
+   *
+   * MCP Guidance Applied:
+   * - FE-001: STATE_MANAGEMENT - Clear dialog state after success
+   * - API-003: ERROR_HANDLING - Success feedback to user
+   */
+  const handleReturnPackSuccess = useCallback(() => {
+    invalidateAll(); // Refresh all lottery data including day bins
+    setPackDataToReturn(null); // Clear pack data state
+    setSuccessMessage("Pack returned successfully");
     setTimeout(() => setSuccessMessage(null), 5000);
   }, [invalidateAll]);
 
@@ -473,38 +559,19 @@ export default function LotteryManagementPage() {
   }
 
   // Get store name and current date for subtitle
+  // Use centralized timezone-aware utilities to avoid timezone drift issues
   const storeName =
     dashboardData?.stores.find((s) => s.store_id === storeId)?.name ||
     "your store";
   const currentDate = dayBinsData?.business_day?.date
-    ? new Date(dayBinsData.business_day.date + "T12:00:00").toLocaleDateString(
-        undefined,
-        {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-        },
-      )
-    : new Date().toLocaleDateString(undefined, {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      });
+    ? formatBusinessDateFull(dayBinsData.business_day.date)
+    : formatBusinessDateFull(new Date().toISOString().split("T")[0]);
 
-  // Format day start time if available
+  // Format day start time if available using centralized utility
   const dayStartTime = dayBinsData?.business_day?.first_shift_opened_at
-    ? new Date(dayBinsData.business_day.first_shift_opened_at).toLocaleString(
-        undefined,
-        {
-          weekday: "short",
-          month: "short",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-        },
+    ? formatDateTimeShort(
+        dayBinsData.business_day.first_shift_opened_at,
+        storeTimezone,
       )
     : null;
 
@@ -691,6 +758,7 @@ export default function LotteryManagementPage() {
             validationErrors={validationErrors}
             onValidateEnding={handleValidateEnding}
             onMarkSoldOut={handleMarkSoldOutClick}
+            onReturnPack={handleReturnPackClick}
           />
 
           {/* Returned Packs Section (Collapsible) - Enterprise Close-to-Close Model */}
@@ -769,6 +837,22 @@ export default function LotteryManagementPage() {
         onOpenChange={setMarkSoldOutDialogOpen}
         packId={packIdToMarkSoldOut}
         onSuccess={handleMarkSoldOutSuccess}
+      />
+
+      {/* Return Pack Dialog
+          MCP Guidance Applied:
+          - FE-001: STATE_MANAGEMENT - Controlled dialog with pack ID and data
+          - FE-002: FORM_VALIDATION - Dialog validates all inputs before API call
+          - SEC-014: INPUT_VALIDATION - Serial format and range validated
+          - SEC-010: AUTHZ - ACTIVE and RECEIVED packs can be returned (enforced in dialog + server)
+          - API-003: ERROR_HANDLING - Dialog shows user-friendly error messages
+      */}
+      <ReturnPackDialog
+        open={returnPackDialogOpen}
+        onOpenChange={setReturnPackDialogOpen}
+        packId={packIdToReturn}
+        packData={packDataToReturn}
+        onSuccess={handleReturnPackSuccess}
       />
     </div>
   );

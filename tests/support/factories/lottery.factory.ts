@@ -12,6 +12,7 @@ import {
   PrismaClient,
   LotteryGameStatus,
   LotteryPackStatus,
+  LotteryPackReturnReason,
 } from "@prisma/client";
 
 /**
@@ -137,6 +138,12 @@ export const createLotteryPack = async (
     depleted_by?: string;
     depleted_shift_id?: string;
     returned_at?: Date;
+    // Returned pack tracking fields
+    last_sold_serial?: string;
+    tickets_sold_on_return?: number;
+    return_sales_amount?: import("@prisma/client/runtime/library").Decimal;
+    return_reason?: LotteryPackReturnReason;
+    return_notes?: string;
   },
 ) => {
   const packNumber = overrides.pack_number || faker.string.numeric(6);
@@ -150,13 +157,15 @@ export const createLotteryPack = async (
   // Database constraints require specific timestamps based on status
   // Chronological order: received_at <= activated_at <= depleted_at <= returned_at
   const now = new Date();
-  const oneHourAgo = new Date(now.getTime() - 3600000);
-  const twoHoursAgo = new Date(now.getTime() - 7200000);
-  const threeHoursAgo = new Date(now.getTime() - 10800000);
 
-  // received_at is required for all statuses
-  const received_at =
-    overrides.received_at !== undefined ? overrides.received_at : threeHoursAgo;
+  // When activated_at is explicitly provided, use it as the reference point
+  // Otherwise use current time as reference
+  const referenceTime = overrides.activated_at
+    ? new Date(overrides.activated_at).getTime()
+    : now.getTime();
+
+  const oneHourBefore = new Date(referenceTime - 3600000);
+  const oneHourAfter = new Date(referenceTime + 3600000);
 
   // activated_at is required for ACTIVE, DEPLETED, or RETURNED
   const activated_at =
@@ -165,24 +174,36 @@ export const createLotteryPack = async (
       : status === LotteryPackStatus.ACTIVE ||
           status === LotteryPackStatus.DEPLETED ||
           status === LotteryPackStatus.RETURNED
-        ? twoHoursAgo
+        ? new Date(now.getTime() - 7200000) // 2 hours ago
         : null;
 
-  // depleted_at is required for DEPLETED or RETURNED
+  // received_at must be <= activated_at (use 1 hour before activated_at if not provided)
+  const received_at =
+    overrides.received_at !== undefined
+      ? overrides.received_at
+      : activated_at
+        ? new Date(new Date(activated_at).getTime() - 3600000)
+        : oneHourBefore;
+
+  // depleted_at is required for DEPLETED or RETURNED (must be >= activated_at)
   const depleted_at =
     overrides.depleted_at !== undefined
       ? overrides.depleted_at
       : status === LotteryPackStatus.DEPLETED ||
           status === LotteryPackStatus.RETURNED
-        ? oneHourAgo
+        ? activated_at
+          ? new Date(new Date(activated_at).getTime() + 3600000)
+          : oneHourAfter
         : null;
 
-  // returned_at is required for RETURNED
+  // returned_at is required for RETURNED (must be >= depleted_at)
   const returned_at =
     overrides.returned_at !== undefined
       ? overrides.returned_at
       : status === LotteryPackStatus.RETURNED
-        ? now
+        ? depleted_at
+          ? new Date(new Date(depleted_at).getTime() + 3600000)
+          : now
         : null;
 
   return await prisma.lotteryPack.create({
@@ -202,6 +223,12 @@ export const createLotteryPack = async (
       depleted_by: overrides.depleted_by || null,
       depleted_shift_id: overrides.depleted_shift_id || null,
       returned_at,
+      // Returned pack tracking fields
+      last_sold_serial: overrides.last_sold_serial || null,
+      tickets_sold_on_return: overrides.tickets_sold_on_return ?? null,
+      return_sales_amount: overrides.return_sales_amount || null,
+      return_reason: overrides.return_reason || null,
+      return_notes: overrides.return_notes || null,
     },
   });
 };
@@ -425,6 +452,68 @@ export const createLotteryShiftClosing = async (
       entry_method: overrides.entry_method || null,
       manual_entry_authorized_by: overrides.manual_entry_authorized_by || null,
       manual_entry_authorized_at: overrides.manual_entry_authorized_at || null,
+    },
+  });
+};
+
+/**
+ * Create a single LotteryBusinessDay with required store_id and business_date
+ *
+ * @param prisma - PrismaClient instance to use for database operations
+ * @param overrides - Required store_id and business_date, plus optional fields
+ * @returns LotteryBusinessDay object for test use
+ */
+export const createLotteryBusinessDay = async (
+  prisma: PrismaClient,
+  overrides: {
+    store_id: string;
+    business_date: Date;
+    status?: "OPEN" | "PENDING" | "CLOSED";
+    opened_at?: Date;
+    closed_at?: Date;
+    pending_close_at?: Date;
+    pending_close_by?: string;
+  },
+) => {
+  return await prisma.lotteryBusinessDay.create({
+    data: {
+      store_id: overrides.store_id,
+      business_date: overrides.business_date,
+      status: overrides.status || "OPEN",
+      opened_at: overrides.opened_at,
+      closed_at: overrides.closed_at,
+      pending_close_at: overrides.pending_close_at,
+      pending_close_by: overrides.pending_close_by,
+    },
+  });
+};
+
+/**
+ * Create a single LotteryDayPack with required day_id and pack_id
+ *
+ * @param prisma - PrismaClient instance to use for database operations
+ * @param overrides - Required day_id and pack_id, plus optional serial and sales data
+ * @returns LotteryDayPack object for test use
+ */
+export const createLotteryDayPack = async (
+  prisma: PrismaClient,
+  overrides: {
+    day_id: string;
+    pack_id: string;
+    starting_serial?: string;
+    ending_serial?: string;
+    tickets_sold?: number;
+    sales_amount?: import("@prisma/client/runtime/library").Decimal;
+  },
+) => {
+  return await prisma.lotteryDayPack.create({
+    data: {
+      day_id: overrides.day_id,
+      pack_id: overrides.pack_id,
+      starting_serial: overrides.starting_serial || "000", // Default to "000" for new packs
+      ending_serial: overrides.ending_serial,
+      tickets_sold: overrides.tickets_sold,
+      sales_amount: overrides.sales_amount,
     },
   });
 };

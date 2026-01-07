@@ -10,6 +10,7 @@
 
 import { DaySummary } from "@/lib/api/day-summaries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatBusinessDateFull } from "@/utils/date-format.utils";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -35,15 +36,9 @@ interface DaySummaryDetailProps {
 }
 
 export function DaySummaryDetail({ summary }: DaySummaryDetailProps) {
-  const displayDate = new Date(summary.business_date).toLocaleDateString(
-    "en-US",
-    {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    },
-  );
+  // Format date for display - use centralized utility with T12:00:00 anchor
+  // to avoid timezone issues with business dates
+  const displayDate = formatBusinessDateFull(summary.business_date);
 
   const avgTransaction =
     summary.transaction_count > 0

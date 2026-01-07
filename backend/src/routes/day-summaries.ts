@@ -5,14 +5,16 @@
  * Phase 3.1: Shift & Day Summary Implementation Plan
  *
  * Endpoints:
- * - GET  /api/stores/:storeId/day-summaries              - List day summaries for a store
- * - GET  /api/stores/:storeId/day-summary/:date          - Get summary for a specific date
- * - POST /api/stores/:storeId/day-summary/:date/close    - Close the business day
- * - PATCH /api/stores/:storeId/day-summary/:date/notes   - Update day notes
- * - GET  /api/stores/:storeId/reports/weekly             - Weekly summary report
- * - GET  /api/stores/:storeId/reports/monthly            - Monthly summary report
- * - GET  /api/stores/:storeId/reports/date-range         - Custom date range report
- * - GET  /api/day-summaries/:daySummaryId                - Get summary by ID
+ * - GET  /api/stores/:storeId/day-summaries                    - List day summaries for a store
+ * - GET  /api/stores/:storeId/day-summary/:date                - Get summary for a specific date
+ * - POST /api/stores/:storeId/day-summary/:date/close          - Close the business day
+ * - PATCH /api/stores/:storeId/day-summary/:date/notes         - Update day notes
+ * - POST /api/stores/:storeId/day-summary/:date/refresh        - Refresh/recalculate day summary
+ * - GET  /api/stores/:storeId/day-summary/:date/reconciliation - Day Close reconciliation view
+ * - GET  /api/stores/:storeId/reports/weekly                   - Weekly summary report
+ * - GET  /api/stores/:storeId/reports/monthly                  - Monthly summary report
+ * - GET  /api/stores/:storeId/reports/date-range               - Custom date range report
+ * - GET  /api/day-summaries/:daySummaryId                      - Get summary by ID
  *
  * Enterprise coding standards applied:
  * - API-001: Schema validation using Zod
@@ -515,6 +517,45 @@ export async function daySummaryRoutes(
           success: true,
           data: daySummaryService.toResponse(summary),
           message: `Day summary for ${params.date} has been refreshed`,
+        });
+      } catch (error) {
+        return handleError(error, reply);
+      }
+    },
+  );
+
+  /**
+   * GET /api/stores/:storeId/day-summary/:date/reconciliation
+   * Get Day Close reconciliation data combining all shifts + lottery for a date.
+   *
+   * This endpoint is used when clicking on a "Day Close" row in Lottery Management.
+   * It returns:
+   * - All shifts for that business day with their details
+   * - Lottery bins closed data
+   * - Combined day totals
+   *
+   * @security DB-006: TENANT_ISOLATION - Store scoped via storeId parameter
+   * @security API-001: VALIDATION - Schema validation on params
+   * @security API-004: AUTHENTICATION - JWT required
+   * @security SEC-010: AUTHORIZATION - SHIFT_REPORT_VIEW permission required
+   */
+  fastify.get(
+    "/api/stores/:storeId/day-summary/:date/reconciliation",
+    { preHandler: [authMiddleware, requirePermission("SHIFT_REPORT_VIEW")] },
+    async (request, reply) => {
+      try {
+        const params = DaySummaryDateParamsSchema.parse(request.params);
+
+        const businessDate = new Date(params.date);
+
+        const reconciliation = await daySummaryService.getReconciliation(
+          params.storeId,
+          businessDate,
+        );
+
+        return reply.send({
+          success: true,
+          data: reconciliation,
         });
       } catch (error) {
         return handleError(error, reply);

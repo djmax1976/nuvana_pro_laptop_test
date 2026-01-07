@@ -621,10 +621,17 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
   });
 
   // ============================================================================
-  // 📊 BUSINESS LOGIC TESTS (Pack Depletion Detection)
+  // 📊 BUSINESS LOGIC TESTS (Pack Status During Shift Closing)
+  // ============================================================================
+  // DESIGN NOTE: Pack depletion is NOT automatically triggered during shift close.
+  // Packs are only marked as DEPLETED through explicit user actions:
+  // 1. Manual "Mark Sold Out" button
+  // 2. "Bins Need Attention" modal → Sold Out checkbox
+  // 3. Auto-replace when new pack is activated in the same bin
+  // This prevents accidental depletion when ending serial happens to match serial_end.
   // ============================================================================
 
-  test("10-4-API-BIZ-001: should mark pack as DEPLETED when ending_serial equals serial_end", async ({
+  test("10-4-API-BIZ-001: should NOT auto-deplete pack when ending_serial equals serial_end (by design)", async ({
     clientUserApiRequest,
     clientUser,
     prismaClient,
@@ -637,6 +644,8 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
     );
 
     // WHEN: Closing shift with ending_serial = "150" (matches serial_end)
+    // NOTE: Per implementation design, this should NOT auto-deplete the pack.
+    // Depletion requires explicit user action (Mark Sold Out, Bins Attention modal, etc.)
     const response = await clientUserApiRequest.post(
       `/api/shifts/${testData.shift.shift_id}/lottery/close`,
       {
@@ -644,7 +653,7 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
           {
             bin_id: testData.bin.bin_id,
             pack_id: testData.pack.pack_id,
-            ending_serial: "150", // Equals serial_end - should trigger depletion
+            ending_serial: "150", // Equals serial_end - but should NOT trigger auto-depletion
             entry_method: "SCAN",
           },
         ],
@@ -652,22 +661,34 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
       },
     );
 
-    // THEN: Response indicates pack was depleted
+    // THEN: Response indicates successful close but NO auto-depletion
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.summary.packs_depleted).toBe(1);
+    // packs_depleted only counts packs that were ALREADY depleted via explicit action
+    expect(body.summary.packs_depleted).toBe(0);
+    expect(body.summary.packs_closed).toBe(1);
 
-    // AND: Pack status is updated to DEPLETED in database
+    // AND: Pack status remains ACTIVE (depletion requires explicit user action)
     const updatedPack = await prismaClient.lotteryPack.findUnique({
       where: { pack_id: testData.pack.pack_id },
     });
-    expect(updatedPack?.status).toBe("DEPLETED");
-    expect(updatedPack?.depleted_at).not.toBeNull();
-    expect(updatedPack?.depleted_by).toBe(clientUser.user_id);
+    expect(updatedPack?.status).toBe("ACTIVE");
+    expect(updatedPack?.depleted_at).toBeNull();
+
+    // AND: Closing record is created correctly
+    const closingRecord = await prismaClient.lotteryShiftClosing.findFirst({
+      where: {
+        shift_id: testData.shift.shift_id,
+        pack_id: testData.pack.pack_id,
+      },
+    });
+    expect(closingRecord).not.toBeNull();
+    expect(closingRecord?.closing_serial).toBe("150");
+    expect(closingRecord?.entry_method).toBe("SCAN");
   });
 
-  test("10-4-API-BIZ-002: should NOT mark pack as DEPLETED when ending_serial is less than serial_end", async ({
+  test("10-4-API-BIZ-002: should keep pack ACTIVE when ending_serial is less than serial_end", async ({
     clientUserApiRequest,
     clientUser,
     prismaClient,
@@ -687,7 +708,7 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
           {
             bin_id: testData.bin.bin_id,
             pack_id: testData.pack.pack_id,
-            ending_serial: "100", // Less than serial_end - should NOT deplete
+            ending_serial: "100", // Less than serial_end - pack remains ACTIVE
             entry_method: "SCAN",
           },
         ],
@@ -695,11 +716,12 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
       },
     );
 
-    // THEN: Response indicates no packs were depleted
+    // THEN: Response indicates successful close with no depletions
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(body.summary.packs_depleted).toBe(0);
+    expect(body.summary.packs_closed).toBe(1);
 
     // AND: Pack status remains ACTIVE in database
     const updatedPack = await prismaClient.lotteryPack.findUnique({
@@ -707,5 +729,148 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
     });
     expect(updatedPack?.status).toBe("ACTIVE");
     expect(updatedPack?.depleted_at).toBeNull();
+
+    // AND: Closing record is created with correct ending serial
+    const closingRecord = await prismaClient.lotteryShiftClosing.findFirst({
+      where: {
+        shift_id: testData.shift.shift_id,
+        pack_id: testData.pack.pack_id,
+      },
+    });
+    expect(closingRecord).not.toBeNull();
+    expect(closingRecord?.closing_serial).toBe("100");
+  });
+
+  test("10-4-API-BIZ-003: should count pre-depleted sold packs in packs_depleted summary along with active pack closings", async ({
+    clientUserApiRequest,
+    clientUser,
+    prismaClient,
+  }) => {
+    // GIVEN: A shift with TWO packs:
+    // - Pack A: ALREADY DEPLETED during this shift (sold out via "Mark Sold Out")
+    // - Pack B: Still ACTIVE and needs manual closing
+    const shift = await createShift(
+      {
+        store_id: clientUser.store_id,
+        opened_by: clientUser.user_id,
+        status: ShiftStatus.OPEN,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const game = await createLotteryGame(prismaClient, {
+      name: "$5 Powerball",
+      price: 5.0,
+    });
+
+    const bin1 = await createLotteryBin(prismaClient, {
+      store_id: clientUser.store_id,
+      display_order: 0,
+      name: "Bin 1",
+    });
+
+    const bin2 = await createLotteryBin(prismaClient, {
+      store_id: clientUser.store_id,
+      display_order: 1,
+      name: "Bin 2",
+    });
+
+    // Get the shift's opened_at time for proper timestamp ordering
+    const shiftRecord = await prismaClient.shift.findUnique({
+      where: { shift_id: shift.shift_id },
+      select: { opened_at: true },
+    });
+    const shiftOpenedAt = shiftRecord!.opened_at;
+
+    // Create Pack A: ALREADY DEPLETED (simulating explicit Mark Sold Out during shift)
+    // Must have: activated_at >= shift.opened_at AND depleted_at >= shift.opened_at
+    const activatedAt = new Date(shiftOpenedAt.getTime() + 1000); // 1 second after shift opened
+    const depletedAt = new Date(activatedAt.getTime() + 60000); // 1 minute after activation
+
+    const depletedPack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: clientUser.store_id,
+      current_bin_id: bin1.bin_id,
+      status: LotteryPackStatus.DEPLETED,
+      pack_number: generateUniquePackNumber(),
+      serial_start: "001",
+      serial_end: "150",
+      activated_at: activatedAt,
+      activated_shift_id: shift.shift_id,
+      depleted_at: depletedAt,
+      depleted_shift_id: shift.shift_id,
+      depleted_by: clientUser.user_id,
+    });
+
+    await createLotteryShiftOpening(prismaClient, {
+      shift_id: shift.shift_id,
+      pack_id: depletedPack.pack_id,
+      opening_serial: "001", // Started at 001
+    });
+
+    // Create Pack B: ACTIVE pack that needs manual closing
+    const activePack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: clientUser.store_id,
+      current_bin_id: bin2.bin_id,
+      status: LotteryPackStatus.ACTIVE,
+      pack_number: generateUniquePackNumber(),
+      serial_start: "001",
+      serial_end: "150",
+      activated_at: activatedAt,
+      activated_shift_id: shift.shift_id,
+    });
+
+    await createLotteryShiftOpening(prismaClient, {
+      shift_id: shift.shift_id,
+      pack_id: activePack.pack_id,
+      opening_serial: "045",
+    });
+
+    // WHEN: Closing shift with Pack B closure (Pack A is auto-closed)
+    const response = await clientUserApiRequest.post(
+      `/api/shifts/${shift.shift_id}/lottery/close`,
+      {
+        closings: [
+          {
+            bin_id: bin2.bin_id,
+            pack_id: activePack.pack_id,
+            ending_serial: "100", // Partial - not depleted
+            entry_method: "SCAN",
+          },
+        ],
+        closed_by: clientUser.user_id,
+      },
+    );
+
+    // THEN: Response counts both packs
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    // Pack A (auto-closed sold pack) counts as depleted
+    // Pack B (manual close) does NOT count as depleted (ending < serial_end)
+    expect(body.summary.packs_depleted).toBe(1);
+    // Both packs are closed: auto-close + manual close
+    expect(body.summary.packs_closed).toBe(2);
+
+    // Verify Pack A status remains DEPLETED
+    const packA = await prismaClient.lotteryPack.findUnique({
+      where: { pack_id: depletedPack.pack_id },
+    });
+    expect(packA?.status).toBe("DEPLETED");
+
+    // Verify Pack B status remains ACTIVE (not auto-depleted)
+    const packB = await prismaClient.lotteryPack.findUnique({
+      where: { pack_id: activePack.pack_id },
+    });
+    expect(packB?.status).toBe("ACTIVE");
+
+    // Verify closing records were created for both packs
+    const closings = await prismaClient.lotteryShiftClosing.findMany({
+      where: { shift_id: shift.shift_id },
+    });
+    expect(closings.length).toBe(2);
   });
 });

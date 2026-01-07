@@ -79,6 +79,12 @@ export interface DayBinsTableProps {
    * Opens confirmation dialog to mark the pack as sold out (depleted)
    */
   onMarkSoldOut?: (packId: string) => void;
+  /**
+   * Callback when Return Pack button is clicked for a pack
+   * Opens dialog to return pack to supplier with sales tracking
+   * MCP: SEC-010 AUTHZ - ACTIVE and RECEIVED packs can be returned
+   */
+  onReturnPack?: (packId: string) => void;
 }
 
 /**
@@ -96,6 +102,7 @@ export function DayBinsTable({
   validationErrors = {},
   onValidateEnding,
   onMarkSoldOut,
+  onReturnPack,
 }: DayBinsTableProps) {
   // Refs for input focus management (auto-advance to next input)
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
@@ -267,8 +274,9 @@ export function DayBinsTable({
                   <span className="ml-1 text-xs text-primary">(Edit)</span>
                 )}
               </TableHead>
-              {onMarkSoldOut && manualEntryMode && (
-                <TableHead scope="col" className="w-24 md:w-28 text-center">
+              {/* Actions column visible when return is available OR in manual entry mode with mark sold */}
+              {(onReturnPack || (onMarkSoldOut && manualEntryMode)) && (
+                <TableHead scope="col" className="w-32 md:w-36 text-center">
                   Actions
                 </TableHead>
               )}
@@ -400,25 +408,47 @@ export function DayBinsTable({
                     )}
                   </TableCell>
 
-                  {/* Actions Column - Mark Sold button (only visible in manual entry mode) */}
-                  {onMarkSoldOut && manualEntryMode && (
+                  {/* Actions Column - Return Pack and/or Mark Sold buttons */}
+                  {(onReturnPack || (onMarkSoldOut && manualEntryMode)) && (
                     <TableCell className="text-center">
                       {isEmpty ? (
                         "--"
                       ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation(); // Prevent row click
-                            onMarkSoldOut(bin.pack!.pack_id);
-                          }}
-                          className="h-7 text-xs px-2"
-                          data-testid={`mark-sold-btn-${bin.bin_id}`}
-                          aria-label={`Mark pack ${bin.pack!.pack_number} as sold out`}
-                        >
-                          Mark Sold
-                        </Button>
+                        <div className="flex items-center justify-center gap-1">
+                          {/* Return Pack button - available for packs outside manual entry mode
+                              MCP: SEC-010 AUTHZ - ACTIVE and RECEIVED packs can be returned */}
+                          {onReturnPack && !manualEntryMode && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation(); // Prevent row click
+                                onReturnPack(bin.pack!.pack_id);
+                              }}
+                              className="h-7 text-xs px-2"
+                              data-testid={`return-pack-btn-${bin.bin_id}`}
+                              aria-label={`Return pack ${bin.pack!.pack_number} to supplier`}
+                            >
+                              Return
+                            </Button>
+                          )}
+                          {/* Mark Sold button - only visible in manual entry mode */}
+                          {onMarkSoldOut && manualEntryMode && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation(); // Prevent row click
+                                onMarkSoldOut(bin.pack!.pack_id);
+                              }}
+                              className="h-7 text-xs px-2"
+                              data-testid={`mark-sold-btn-${bin.bin_id}`}
+                              aria-label={`Mark pack ${bin.pack!.pack_number} as sold out`}
+                            >
+                              Mark Sold
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </TableCell>
                   )}

@@ -14,9 +14,14 @@ import { z } from "zod";
 /**
  * Report type enum - validates report type filter
  * SEC-014: Allowlist for report type enumeration
+ *
+ * Options:
+ * - "all": Show both shift and day reports (default)
+ * - "shift": Show only individual shift records
+ * - "day": Show only aggregated day summaries
  */
-export const ReportTypeSchema = z.enum(["shift", "day"], {
-  message: "Report type must be 'shift' or 'day'",
+export const ReportTypeSchema = z.enum(["all", "shift", "day"], {
+  message: "Report type must be 'all', 'shift', or 'day'",
 });
 
 export type ReportType = z.infer<typeof ReportTypeSchema>;
@@ -136,8 +141,8 @@ export const FilterFormStateSchema = z.object({
   /** Store selection (empty string = no store selected, required for data fetch) */
   storeId: z.string().default(""),
 
-  /** Report type selection (empty string = "Select" placeholder) */
-  reportType: z.union([ReportTypeSchema, z.literal("")]).default(""),
+  /** Report type selection (defaults to "all" to show both shift and day reports) */
+  reportType: z.union([ReportTypeSchema, z.literal("")]).default("all"),
 
   /** Cashier selection (empty string = "All Cashiers") */
   cashierId: z.string().default(""),
@@ -187,11 +192,13 @@ export function parseFilterFormState(
 
 /**
  * Default filter form state
- * Defaults to "current" range to show active/current data
+ * Defaults to:
+ * - "all" report type to show both shift and day reports
+ * - "current" range to show active/current data
  */
 export const DEFAULT_FILTER_STATE: FilterFormState = {
   storeId: "",
-  reportType: "",
+  reportType: "all",
   cashierId: "",
   rangePreset: "current",
   fromDate: "",

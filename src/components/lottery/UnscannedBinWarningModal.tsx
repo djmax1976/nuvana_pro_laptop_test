@@ -68,6 +68,8 @@ export interface BinDecision {
 
 /**
  * Unscanned bin data passed to the modal
+ *
+ * SEC-014: INPUT_VALIDATION - All serial values are validated before use
  */
 export interface UnscannedBinInfo {
   bin_id: string;
@@ -76,16 +78,10 @@ export interface UnscannedBinInfo {
   pack_number: string;
   game_name: string;
   game_price: number;
+  /** Starting serial position (3 digits, e.g., "000" or "045") */
   starting_serial: string;
+  /** Pack's last serial number (e.g., "299") */
   serial_end: string;
-  /**
-   * Whether this is the pack's first period (affects ticket counting).
-   *
-   * Ticket counting formula (fencepost error prevention):
-   * - true: tickets = closing - starting + 1 (new pack, starting serial is first ticket)
-   * - false: tickets = closing - starting (continuing, starting serial was last sold ticket)
-   */
-  is_first_period: boolean;
 }
 
 /**
@@ -195,33 +191,108 @@ export function UnscannedBinWarningModal({
   }, []);
 
   /**
+   * Calculate tickets sold for DEPLETED packs (manual or auto sold-out)
+   *
+   * Formula: tickets_sold = (serial_end + 1) - starting_serial
+   *
+   * IMPORTANT: This function is specifically for DEPLETION scenarios where:
+   * 1. Manual depletion - user marks pack as "sold out"
+   * 2. Auto depletion - new pack activated in same bin, old pack auto-closes
+   *
+   * In depletion cases, serial_end represents the LAST ticket INDEX (e.g., 014 for
+   * a 15-ticket pack), NOT the next position. Therefore we add 1 to convert from
+   * last-index to count.
+   *
+   * This differs from normal scanning where the closing serial IS the next position.
+   *
+   * Serial Position Semantics for Depletion:
+   * - Starting serial: Position of the first ticket available for sale today
+   * - Serial end: LAST ticket index in the pack (needs +1 for count)
+   *
+   * Examples (15-ticket pack with serial_end=014):
+   * - Starting: 0, serial_end: 14 → (14 + 1) - 0 = 15 tickets sold (full pack)
+   * - Starting: 5, serial_end: 14 → (14 + 1) - 5 = 10 tickets sold (partial)
+   * - Starting: 10, serial_end: 14 → (14 + 1) - 10 = 5 tickets sold (end of pack)
+   *
+   * @param serialEnd - The pack's last ticket INDEX (3 digits, e.g., "014" for 15-ticket pack)
+   * @param startingSerial - The starting serial position for today (3 digits, e.g., "000")
+   * @returns Number of tickets sold (never negative, 0 for invalid input)
+   *
+   * MCP Guidance Applied:
+   * - SEC-014: INPUT_VALIDATION - Strict numeric validation with NaN guard and bounds check
+   * - FE-001: STATE_MANAGEMENT - Pure function with no side effects, memoized with useCallback
+   * - API-003: ERROR_HANDLING - Returns 0 for invalid input (fail-safe for UI calculations)
+   * - FE-020: REACT_OPTIMIZATION - useCallback prevents unnecessary re-renders
+   */
+  const calculateTicketsSoldForDepletion = useCallback(
+    (serialEnd: string, startingSerial: string): number => {
+      // SEC-014: Validate input types before processing
+      if (typeof serialEnd !== "string" || typeof startingSerial !== "string") {
+        return 0;
+      }
+
+      // SEC-014: Parse with explicit radix to prevent octal interpretation
+      const serialEndNum = parseInt(serialEnd, 10);
+      const startingNum = parseInt(startingSerial, 10);
+
+      // SEC-014: Strict NaN validation using Number.isNaN (not global isNaN)
+      // This handles empty strings, non-numeric input, null coercion, etc.
+      if (Number.isNaN(serialEndNum) || Number.isNaN(startingNum)) {
+        return 0;
+      }
+
+      // SEC-014: Validate serial range (reasonable bounds check)
+      const MAX_SERIAL = 999;
+      if (
+        serialEndNum < 0 ||
+        serialEndNum > MAX_SERIAL ||
+        startingNum < 0 ||
+        startingNum > MAX_SERIAL
+      ) {
+        return 0;
+      }
+
+      // Depletion formula: (serial_end + 1) - starting = tickets sold
+      // serial_end is the LAST ticket index, so +1 converts to count
+      // Example: serial_end=14, starting=0 → (14+1)-0 = 15 tickets (full 15-ticket pack)
+      const ticketsSold = serialEndNum + 1 - startingNum;
+
+      // Ensure non-negative result (serial_end+1 should never be less than starting)
+      // Math.max provides defense-in-depth against data integrity issues
+      return Math.max(0, ticketsSold);
+    },
+    [],
+  );
+
+  /**
    * Handle Return to Scan button click
    * Returns user to scanning screen to scan remaining tickets
    * Calculates tickets sold and sales amount for sold out bins
+   *
+   * MCP Guidance Applied:
+   * - FE-002: FORM_VALIDATION - Validate selections before processing
+   * - SEC-014: INPUT_VALIDATION - All numeric inputs validated before calculation
+   * - FE-001: STATE_MANAGEMENT - Clean state transitions with useCallback
    */
   const handleReturnToScan = useCallback(() => {
     // Build decisions for bins marked as sold out
     const decisions: BinDecision[] = unscannedBins
       .filter((bin) => soldOutBins[bin.bin_id])
       .map((bin) => {
-        // Calculate tickets sold with correct fencepost handling
-        // For sold out pack, ending = serial_end (last ticket in pack)
-        const startingNum = parseInt(bin.starting_serial, 10);
-        const endingNum = parseInt(bin.serial_end, 10);
+        // For sold out pack, use depletion formula: (serial_end + 1) - starting
+        // serial_end is the LAST ticket index, so +1 converts to count
+        // SEC-014: INPUT_VALIDATION - Calculation uses validated helper function
+        const ticketsSold = calculateTicketsSoldForDepletion(
+          bin.serial_end,
+          bin.starting_serial,
+        );
 
-        // Fencepost error prevention:
-        // - New pack (first period): tickets = ending - starting + 1 (inclusive)
-        // - Continuing pack: tickets = ending - starting (exclusive of starting)
-        const ticketsSold =
-          !Number.isNaN(startingNum) && !Number.isNaN(endingNum)
-            ? Math.max(
-                0,
-                bin.is_first_period
-                  ? endingNum - startingNum + 1
-                  : endingNum - startingNum,
-              )
+        // FE-005: UI_SECURITY - Ensure price is valid before multiplication
+        const validPrice =
+          typeof bin.game_price === "number" && !Number.isNaN(bin.game_price)
+            ? bin.game_price
             : 0;
-        const salesAmount = ticketsSold * bin.game_price;
+        const salesAmount = ticketsSold * validPrice;
 
         return {
           bin_id: bin.bin_id,
@@ -244,7 +315,13 @@ export function UnscannedBinWarningModal({
       decisions: decisions.length > 0 ? decisions : undefined,
     });
     onOpenChange(false);
-  }, [unscannedBins, soldOutBins, onConfirm, onOpenChange]);
+  }, [
+    unscannedBins,
+    soldOutBins,
+    onConfirm,
+    onOpenChange,
+    calculateTicketsSoldForDepletion,
+  ]);
 
   /**
    * Handle cancel - reset state and close

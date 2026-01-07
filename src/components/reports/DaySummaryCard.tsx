@@ -10,6 +10,7 @@
 
 import { DaySummary } from "@/lib/api/day-summaries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatBusinessDate } from "@/utils/date-format.utils";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -30,15 +31,9 @@ export function DaySummaryCard({ summary, onClick }: DaySummaryCardProps) {
   const hasVariance = Math.abs(summary.total_cash_variance) > 0.01;
   const isNegativeVariance = summary.total_cash_variance < -0.01;
 
-  // Format date for display
-  const displayDate = new Date(summary.business_date).toLocaleDateString(
-    "en-US",
-    {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-    },
-  );
+  // Format date for display - use centralized utility with T12:00:00 anchor
+  // to avoid timezone issues with business dates
+  const displayDate = formatBusinessDate(summary.business_date, "EEE, MMM d");
 
   return (
     <Card

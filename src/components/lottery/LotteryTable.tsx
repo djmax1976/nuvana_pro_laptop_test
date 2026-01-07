@@ -14,7 +14,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -26,7 +25,45 @@ import { useLotteryPacks } from "@/hooks/useLottery";
 import { GameManagementModal } from "./GameManagementModal";
 import { BinCountModal } from "./BinCountModal";
 import { ReturnPackDialog } from "./ReturnPackDialog";
-import type { LotteryPackResponse } from "@/lib/api/lottery";
+import { formatDateShort } from "@/utils/date-format.utils";
+import { useStoreTimezone } from "@/contexts/StoreContext";
+import type { LotteryPackResponse, LotteryGameStatus } from "@/lib/api/lottery";
+
+/**
+ * Centralized style constants for expandable accordion rows
+ *
+ * ACCESSIBILITY: Dark mode support with proper color contrast
+ * These constants ensure consistent styling across all accordion rows
+ * and maintain WCAG 2.1 AA contrast requirements in both light and dark modes.
+ *
+ * @remarks
+ * - FE-005: UI_SECURITY - No sensitive data in styling, pure visual enhancement
+ * - SEC-004: XSS - Static class strings, no user input interpolation
+ */
+const ACCORDION_STYLES = {
+  /**
+   * Background gradient for expanded rows
+   * Light: blue-50 → slate-50 (subtle blue tint)
+   * Dark: blue-950 → slate-900 (dark blue tint for visibility)
+   */
+  ROW_BASE:
+    "bg-gradient-to-r from-blue-50 to-slate-50 dark:from-blue-950 dark:to-slate-900 border-l-[3px] border-l-blue-500 dark:border-l-blue-400",
+
+  /**
+   * Hover state for interactive data rows
+   * Light: blue-100 → blue-50 (slightly darker on hover)
+   * Dark: blue-900 → blue-950 (slightly lighter on hover)
+   */
+  ROW_HOVER:
+    "hover:from-blue-100 hover:to-blue-50 dark:hover:from-blue-900 dark:hover:to-blue-950",
+
+  /**
+   * Header text styling for column labels
+   * Light: blue-700 (dark blue for readability)
+   * Dark: blue-300 (light blue for contrast against dark background)
+   */
+  HEADER_TEXT: "text-xs font-medium text-blue-700 dark:text-blue-300 py-1",
+} as const;
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
@@ -90,9 +127,11 @@ interface LotteryTableProps {
 /**
  * Game summary row for inventory display
  * Story: Lottery Pack Return Feature - Added returnedPacks count
+ * Story: Game Status Display - Added game_status for lifecycle badge
  *
  * MCP Guidance Applied:
- * - SEC-014: INPUT_VALIDATION - Strict type definitions
+ * - SEC-014: INPUT_VALIDATION - Strict type definitions with enum constraints
+ * - API-008: OUTPUT_FILTERING - Type-safe mapping from API response
  */
 interface GameSummary {
   game_id: string;
@@ -100,7 +139,8 @@ interface GameSummary {
   game_code: string;
   price: number | null;
   pack_value: number | null;
-  status: string;
+  /** Game lifecycle status (ACTIVE/INACTIVE/DISCONTINUED) - displayed in parent row */
+  game_status: LotteryGameStatus;
   totalPacks: number;
   activePacks: number;
   receivedPacks: number;
@@ -150,6 +190,12 @@ export function LotteryTable({
   onTotalCountChange,
   onReceivePacksClick,
 }: LotteryTableProps) {
+  // ========================================================================
+  // HOOKS
+  // MCP: FE-001 STATE_MANAGEMENT - Access store timezone for date formatting
+  // ========================================================================
+  const storeTimezone = useStoreTimezone();
+
   // Derive whether to show store dropdown - only for multi-store companies
   // FE-005: UI_SECURITY - No sensitive data exposed in dropdown
   const showStoreDropdown = stores.length > 1;
@@ -245,6 +291,11 @@ export function LotteryTable({
   /**
    * Group packs by game and calculate totals
    * Story: Lottery Pack Return Feature - Added returnedPacks counter
+   * Story: Game Status Display - Extract game_status from first pack
+   *
+   * MCP Guidance Applied:
+   * - SEC-014: INPUT_VALIDATION - Safe fallback to ACTIVE for missing status
+   * - API-008: OUTPUT_FILTERING - Type-safe mapping from API response
    */
   const gameSummaries = useMemo(() => {
     if (!filteredPacks.length) return [];
@@ -256,13 +307,17 @@ export function LotteryTable({
       const gameId = pack.game?.game_id || "unknown";
 
       if (!gameMap.has(gameId)) {
+        // SEC-014: INPUT_VALIDATION - Extract game_status with safe fallback
+        // Game status comes from backend, defaults to ACTIVE if not provided
+        const gameStatus: LotteryGameStatus = pack.game?.status ?? "ACTIVE";
+
         gameMap.set(gameId, {
           game_id: gameId,
           game_name: pack.game?.name || "Unknown Game",
           game_code: pack.game?.game_code || "N/A",
           price: pack.game?.price ?? null,
           pack_value: null,
-          status: "ACTIVE",
+          game_status: gameStatus,
           totalPacks: 0,
           activePacks: 0,
           receivedPacks: 0,
@@ -350,11 +405,15 @@ export function LotteryTable({
     refetch();
   }, [refetch]);
 
-  // Format date for display
-  const formatDate = useCallback((dateString: string | null | undefined) => {
-    if (!dateString) return "--";
-    return new Date(dateString).toLocaleDateString();
-  }, []);
+  // Format date for display - use centralized utility with timezone support
+  // SEC-014: INPUT_VALIDATION - Validate null/undefined before formatting
+  const formatDate = useCallback(
+    (dateString: string | null | undefined) => {
+      if (!dateString) return "--";
+      return formatDateShort(dateString, storeTimezone);
+    },
+    [storeTimezone],
+  );
 
   /**
    * Get status badge variant
@@ -594,37 +653,38 @@ export function LotteryTable({
                       );
 
                 /**
-                 * Get status badges for game summary row
-                 * Story: Lottery Pack Return Feature - Added Returned badge
+                 * Get game status badge for parent row
+                 * Story: Game Status Display - Show game lifecycle status (not pack counts)
+                 *
+                 * MCP Guidance Applied:
+                 * - FE-005: UI_SECURITY - Display values derived from backend enum
+                 * - SEC-004: XSS - React auto-escapes text content
+                 *
+                 * Color: Uses "default" variant (primary/blue) to differentiate from
+                 * pack status badges (green/gray/yellow) in accordion rows
+                 *
+                 * @returns Single Badge element with game status
                  */
-                const getStatusBadges = () => {
-                  const badges = [];
-                  if (game.activePacks > 0) {
-                    badges.push(
-                      <Badge key="active" variant="success" className="mr-1">
-                        {game.activePacks} Active
-                      </Badge>,
-                    );
-                  }
-                  if (game.receivedPacks > 0) {
-                    badges.push(
-                      <Badge
-                        key="received"
-                        variant="secondary"
-                        className="mr-1"
-                      >
-                        {game.receivedPacks} Received
-                      </Badge>,
-                    );
-                  }
-                  if (game.returnedPacks > 0) {
-                    badges.push(
-                      <Badge key="returned" variant="warning">
-                        {game.returnedPacks} Returned
-                      </Badge>,
-                    );
-                  }
-                  return badges;
+                const getGameStatusBadge = (): React.ReactNode => {
+                  // SEC-014: INPUT_VALIDATION - Map enum to display labels
+                  const statusLabels: Record<LotteryGameStatus, string> = {
+                    ACTIVE: "Active",
+                    INACTIVE: "Inactive",
+                    DISCONTINUED: "Discontinued",
+                  };
+
+                  const label =
+                    statusLabels[game.game_status] || game.game_status;
+
+                  return (
+                    <Badge
+                      variant="default"
+                      className="text-xs font-medium"
+                      data-testid={`game-status-badge-${game.game_id}`}
+                    >
+                      {label}
+                    </Badge>
+                  );
                 };
 
                 // Handle row click to toggle expansion
@@ -666,9 +726,8 @@ export function LotteryTable({
                         {game.totalPacks}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1 flex-wrap">
-                          {getStatusBadges()}
-                        </div>
+                        {/* Game status badge (blue) - distinct from pack status badges */}
+                        {getGameStatusBadge()}
                       </TableCell>
                       <TableCell className="w-[100px] pl-0">
                         <Button
@@ -689,41 +748,48 @@ export function LotteryTable({
                     {/* Story: Column alignment matches parent table structure */}
                     {/* Style: Option 5 - Light blue gradient with left border indicator */}
                     {/* Header row for sub-list so users know what each column means */}
+                    {/* Expandable sub-table header row with dark mode support */}
+                    {/* ACCESSIBILITY: Uses ACCORDION_STYLES constants for consistent theming */}
                     {isExpanded && (
                       <TableRow
-                        className="bg-gradient-to-r from-blue-50 to-slate-50 border-l-[3px] border-l-blue-500"
+                        className={ACCORDION_STYLES.ROW_BASE}
                         data-testid={`pack-details-${game.game_id}`}
                       >
                         {/* Column 1: Empty (align with expand button) */}
                         <TableCell className="w-[40px] px-2"></TableCell>
                         {/* Column 2: Pack # header (align with Game Name) */}
-                        <TableCell className="text-xs font-medium text-blue-700 py-1">
+                        <TableCell className={ACCORDION_STYLES.HEADER_TEXT}>
                           Pack #
                         </TableCell>
                         {/* Column 3: Received At header (align with Game Number) */}
-                        <TableCell className="text-xs font-medium text-blue-700 py-1">
+                        <TableCell className={ACCORDION_STYLES.HEADER_TEXT}>
                           Received At
                         </TableCell>
                         {/* Column 4: Activated At header (align with Dollar Value) */}
-                        <TableCell className="text-xs font-medium text-blue-700 py-1">
+                        <TableCell className={ACCORDION_STYLES.HEADER_TEXT}>
                           Activated At
                         </TableCell>
                         {/* Column 5: Returned At header (align with Pack Count) */}
-                        <TableCell className="text-xs font-medium text-blue-700 py-1 text-center">
+                        <TableCell
+                          className={`${ACCORDION_STYLES.HEADER_TEXT} text-center`}
+                        >
                           Returned At
                         </TableCell>
                         {/* Column 6: Status header (align with Status) */}
-                        <TableCell className="text-xs font-medium text-blue-700 py-1">
+                        <TableCell className={ACCORDION_STYLES.HEADER_TEXT}>
                           Status
                         </TableCell>
-                        {/* Column 7: Returned checkbox header (align with Actions) */}
-                        <TableCell className="text-xs font-medium text-blue-700 py-1 w-[100px] pl-0">
-                          <span className="ml-2">Returned</span>
+                        {/* Column 7: Actions header (align with parent Actions) */}
+                        <TableCell
+                          className={`${ACCORDION_STYLES.HEADER_TEXT} w-[100px] pl-0`}
+                        >
+                          <span className="ml-2">Actions</span>
                         </TableCell>
                       </TableRow>
                     )}
+                    {/* Empty state row with dark mode support */}
                     {isExpanded && visiblePacks.length === 0 && (
-                      <TableRow className="bg-gradient-to-r from-blue-50 to-slate-50 border-l-[3px] border-l-blue-500">
+                      <TableRow className={ACCORDION_STYLES.ROW_BASE}>
                         <TableCell colSpan={7} className="py-4">
                           <p className="text-sm text-muted-foreground text-center">
                             {statusFilter === "RETURNED"
@@ -735,15 +801,24 @@ export function LotteryTable({
                     )}
                     {isExpanded &&
                       visiblePacks.map((pack) => {
-                        const isReturned = pack.status === "RETURNED";
-                        const canReturn =
-                          pack.status === "RECEIVED" ||
-                          pack.status === "ACTIVE";
+                        /**
+                         * SEC-010: AUTHZ - Use backend-provided can_return flag
+                         * Enterprise pattern: Authorization determined server-side, not client-side
+                         * Business Rule: ACTIVE and RECEIVED packs can be returned
+                         * Fallback: If can_return not provided by backend, derive from status
+                         */
+                        const canReturnPack =
+                          pack.can_return !== undefined
+                            ? pack.can_return === true
+                            : pack.status === "ACTIVE" ||
+                              pack.status === "RECEIVED";
+                        const isAlreadyReturned = pack.status === "RETURNED";
 
                         return (
+                          /* Pack data row with dark mode support and hover states */
                           <TableRow
                             key={pack.pack_id}
-                            className="bg-gradient-to-r from-blue-50 to-slate-50 border-l-[3px] border-l-blue-500 hover:from-blue-100 hover:to-blue-50"
+                            className={`${ACCORDION_STYLES.ROW_BASE} ${ACCORDION_STYLES.ROW_HOVER}`}
                             data-testid={`pack-row-${pack.pack_id}`}
                           >
                             {/* Column 1: Empty (align with expand button) */}
@@ -762,8 +837,8 @@ export function LotteryTable({
                             </TableCell>
                             {/* Column 5: Returned At (align with Pack Count) */}
                             <TableCell className="text-sm text-center">
-                              {(pack as any).returned_at
-                                ? formatDate((pack as any).returned_at)
+                              {pack.returned_at
+                                ? formatDate(pack.returned_at)
                                 : "--"}
                             </TableCell>
                             {/* Column 6: Status (align with Status) */}
@@ -775,34 +850,40 @@ export function LotteryTable({
                                 {pack.status}
                               </Badge>
                             </TableCell>
-                            {/* Column 7: Returned Checkbox (align with Actions) */}
+                            {/* Column 7: Return Button (align with Actions)
+                                SEC-010: AUTHZ - Button disabled state from backend can_return
+                                FE-005: UI_SECURITY - Clear visual feedback for authorization state
+                                Matches DayBinsTable Return button styling for consistency */}
                             <TableCell className="w-[100px] pl-0">
-                              <Checkbox
-                                className="ml-2"
-                                checked={isReturned}
-                                disabled={isReturned || !canReturn}
-                                onCheckedChange={() => {}}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs px-2 ml-2"
+                                disabled={!canReturnPack}
                                 onClick={(e) => {
-                                  if (canReturn) {
+                                  e.stopPropagation();
+                                  if (canReturnPack) {
                                     handleReturnClick(pack, e);
                                   }
                                 }}
-                                data-testid={`return-checkbox-${pack.pack_id}`}
+                                data-testid={`return-pack-btn-${pack.pack_id}`}
                                 aria-label={
-                                  isReturned
-                                    ? "Pack already returned"
-                                    : canReturn
-                                      ? `Mark pack ${pack.pack_number} as returned`
-                                      : "Cannot return this pack"
+                                  isAlreadyReturned
+                                    ? `Pack ${pack.pack_number} already returned`
+                                    : canReturnPack
+                                      ? `Return pack ${pack.pack_number} to supplier`
+                                      : `Cannot return pack ${pack.pack_number}`
                                 }
                                 title={
-                                  isReturned
+                                  isAlreadyReturned
                                     ? "Pack already returned"
-                                    : canReturn
-                                      ? "Click to mark as returned"
-                                      : "Cannot return depleted packs"
+                                    : canReturnPack
+                                      ? "Click to return pack to supplier"
+                                      : "Only ACTIVE or RECEIVED packs can be returned"
                                 }
-                              />
+                              >
+                                Return
+                              </Button>
                             </TableCell>
                           </TableRow>
                         );

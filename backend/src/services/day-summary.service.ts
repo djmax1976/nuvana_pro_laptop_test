@@ -44,6 +44,9 @@ import {
   DayDepartmentAggregates,
   DayTaxAggregates,
   DayHourlyAggregates,
+  DayCloseReconciliationResponse,
+  ReconciliationShiftDetail,
+  ReconciliationLotteryBin,
 } from "../types/day-summary.types";
 
 /**
@@ -536,21 +539,34 @@ class DaySummaryService {
       );
     }
 
+    // =========================================================================
     // VALIDATION 2: Check if lottery day is closed (if lottery exists)
-    // DB-006: Tenant-scoped query with store_id
-    const lotteryDay = await prisma.lotteryBusinessDay.findUnique({
+    // =========================================================================
+    // PHASE 4: Status-based lottery day lookup
+    // Find the OPEN or PENDING_CLOSE lottery day for this store.
+    // If none exists, lottery check passes (no lottery to close).
+    // If one exists but isn't CLOSED, block the day close.
+    //
+    // MCP Guidance Applied:
+    // - DB-006: TENANT_ISOLATION - store_id filter enforces tenant scoping
+    // - DB-001: ORM_USAGE - Using Prisma ORM with query builder, no raw SQL
+    // - SEC-006: SQL_INJECTION - All parameters bound via Prisma ORM
+    // =========================================================================
+    const lotteryDay = await prisma.lotteryBusinessDay.findFirst({
       where: {
-        store_id_business_date: {
-          store_id: storeId,
-          business_date: normalizedDate,
-        },
+        store_id: storeId,
+        status: { in: ["OPEN", "PENDING_CLOSE"] },
       },
       select: { status: true },
+      orderBy: {
+        opened_at: "desc",
+      },
     });
 
-    // If lottery day exists and is not closed, block the day close
+    // If an OPEN or PENDING_CLOSE lottery day exists, block the day close
     // This enforces the business rule: lottery must be closed before day close
-    if (lotteryDay && lotteryDay.status !== "CLOSED") {
+    // Note: lotteryDay will only exist if status is OPEN or PENDING_CLOSE (from findFirst above)
+    if (lotteryDay) {
       throw new LotteryNotClosedError(storeId, dateStr);
     }
 
@@ -1431,6 +1447,231 @@ class DaySummaryService {
     return Array.from(hourMap.values()).sort(
       (a, b) => a.hour_number - b.hour_number,
     );
+  }
+
+  // =========================================================================
+  // DAY CLOSE RECONCILIATION
+  // =========================================================================
+
+  /**
+   * Get Day Close reconciliation data combining all shifts + lottery for a date.
+   *
+   * This is the main endpoint data for viewing a "Day Close" row in Lottery Management.
+   * It aggregates:
+   * - All shifts that have ShiftSummary.business_date matching this date
+   * - Lottery bins closed from LotteryBusinessDay + LotteryDayPack
+   * - Combined day totals from DaySummary
+   *
+   * @security DB-006: TENANT_ISOLATION - All queries scoped by store_id
+   * @security SEC-014: INPUT_VALIDATION - Date format validated
+   * @security API-003: ERROR_HANDLING - Proper error responses
+   *
+   * @param storeId - Store UUID
+   * @param businessDate - Business date
+   * @returns Complete reconciliation data for the day
+   */
+  async getReconciliation(
+    storeId: string,
+    businessDate: Date,
+  ): Promise<DayCloseReconciliationResponse> {
+    // Normalize date to start of day
+    const normalizedDate = new Date(businessDate);
+    normalizedDate.setHours(0, 0, 0, 0);
+    const businessDateStr = format(normalizedDate, "yyyy-MM-dd");
+
+    // =========================================================================
+    // 1. Get DaySummary for day totals and status
+    // =========================================================================
+    const daySummary = await prisma.daySummary.findUnique({
+      where: {
+        store_id_business_date: {
+          store_id: storeId,
+          business_date: normalizedDate,
+        },
+      },
+      include: {
+        closed_by_user: {
+          select: { name: true },
+        },
+      },
+    });
+
+    // =========================================================================
+    // 2. Get all shifts for this business date
+    // DB-006: TENANT_ISOLATION - Filter by store_id AND business_date
+    // =========================================================================
+    const shiftSummaries = await prisma.shiftSummary.findMany({
+      where: {
+        store_id: storeId,
+        business_date: normalizedDate,
+      },
+      include: {
+        shift: {
+          select: {
+            shift_id: true,
+            status: true,
+            opened_at: true,
+            closed_at: true,
+            opening_cash: true,
+            closing_cash: true,
+            expected_cash: true,
+            variance: true,
+            cashier: {
+              select: { name: true },
+            },
+            pos_terminal: {
+              select: { name: true },
+            },
+          },
+        },
+      },
+      orderBy: {
+        created_at: "asc",
+      },
+    });
+
+    // Transform shifts to response format
+    const shifts: ReconciliationShiftDetail[] = shiftSummaries.map((ss) => ({
+      shift_id: ss.shift_id,
+      terminal_name: ss.shift?.pos_terminal?.name || null,
+      cashier_name: ss.shift?.cashier?.name || "Unknown",
+      opened_at: ss.shift?.opened_at?.toISOString() || "",
+      closed_at: ss.shift?.closed_at?.toISOString() || null,
+      status: ss.shift?.status || "UNKNOWN",
+      opening_cash: ss.shift?.opening_cash ? Number(ss.shift.opening_cash) : 0,
+      closing_cash: ss.shift?.closing_cash
+        ? Number(ss.shift.closing_cash)
+        : null,
+      expected_cash: ss.expected_cash ? Number(ss.expected_cash) : null,
+      variance: ss.cash_variance ? Number(ss.cash_variance) : null,
+      net_sales: Number(ss.net_sales),
+      transaction_count: ss.transaction_count,
+      lottery_sales: ss.lottery_sales ? Number(ss.lottery_sales) : null,
+      lottery_tickets_sold: ss.lottery_tickets_sold,
+    }));
+
+    // =========================================================================
+    // 3. Get LotteryBusinessDay and bins closed
+    // =========================================================================
+    // PHASE 4: Use findFirst with date filter (unique constraint removed)
+    // For reconciliation reports, we look up by calendar date to get historical data.
+    // If multiple days exist for same date (edge case), prefer CLOSED for reports.
+    //
+    // MCP Guidance Applied:
+    // - DB-006: TENANT_ISOLATION - store_id filter enforces tenant scoping
+    // - DB-001: ORM_USAGE - Using Prisma ORM with query builder, no raw SQL
+    // - SEC-006: SQL_INJECTION - All parameters bound via Prisma ORM
+    // =========================================================================
+    const lotteryDay = await prisma.lotteryBusinessDay.findFirst({
+      where: {
+        store_id: storeId,
+        business_date: normalizedDate,
+      },
+      include: {
+        day_packs: {
+          include: {
+            pack: {
+              include: {
+                game: {
+                  select: {
+                    name: true,
+                    price: true,
+                  },
+                },
+                bin: {
+                  select: {
+                    display_order: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      // If multiple records exist for same date, prefer CLOSED for historical reports
+      orderBy: [
+        { status: "asc" }, // CLOSED < OPEN < PENDING_CLOSE alphabetically
+        { closed_at: "desc" }, // Most recently closed first
+      ],
+    });
+
+    // Transform lottery bins to response format
+    const binsClosed: ReconciliationLotteryBin[] =
+      lotteryDay?.day_packs?.map((dp) => ({
+        bin_number: dp.pack.bin ? dp.pack.bin.display_order + 1 : 0,
+        pack_number: dp.pack.pack_number,
+        game_name: dp.pack.game.name,
+        game_price: Number(dp.pack.game.price),
+        starting_serial: dp.starting_serial || "",
+        closing_serial: dp.ending_serial || "",
+        tickets_sold: dp.tickets_sold || 0,
+        sales_amount: Number(dp.sales_amount || 0),
+      })) || [];
+
+    // Sort bins by bin_number for consistent display
+    binsClosed.sort((a, b) => a.bin_number - b.bin_number);
+
+    // Calculate lottery totals from bins
+    let lotteryTotalSales = 0;
+    let lotteryTotalTickets = 0;
+    for (const bin of binsClosed) {
+      lotteryTotalSales += bin.sales_amount;
+      lotteryTotalTickets += bin.tickets_sold;
+    }
+
+    // =========================================================================
+    // 4. Build response
+    // =========================================================================
+    const response: DayCloseReconciliationResponse = {
+      store_id: storeId,
+      business_date: businessDateStr,
+      status: daySummary?.status || "OPEN",
+      closed_at: daySummary?.closed_at?.toISOString() || null,
+      closed_by: daySummary?.closed_by || null,
+      closed_by_name: daySummary?.closed_by_user?.name || null,
+
+      shifts,
+
+      lottery: {
+        is_closed: lotteryDay?.status === "CLOSED",
+        closed_at: lotteryDay?.closed_at?.toISOString() || null,
+        bins_closed: binsClosed,
+        total_sales: lotteryTotalSales,
+        total_tickets_sold: lotteryTotalTickets,
+      },
+
+      day_totals: {
+        shift_count: daySummary?.shift_count || shifts.length,
+        gross_sales: daySummary ? Number(daySummary.gross_sales) : 0,
+        net_sales: daySummary ? Number(daySummary.net_sales) : 0,
+        tax_collected: daySummary ? Number(daySummary.tax_collected) : 0,
+        transaction_count: daySummary?.transaction_count || 0,
+        total_opening_cash: daySummary
+          ? Number(daySummary.total_opening_cash)
+          : 0,
+        total_closing_cash: daySummary
+          ? Number(daySummary.total_closing_cash)
+          : 0,
+        total_expected_cash: daySummary
+          ? Number(daySummary.total_expected_cash)
+          : 0,
+        total_cash_variance: daySummary
+          ? Number(daySummary.total_cash_variance)
+          : 0,
+        lottery_sales: daySummary?.lottery_sales
+          ? Number(daySummary.lottery_sales)
+          : lotteryTotalSales > 0
+            ? lotteryTotalSales
+            : null,
+        lottery_net: daySummary?.lottery_net
+          ? Number(daySummary.lottery_net)
+          : null,
+      },
+
+      notes: daySummary?.notes || null,
+    };
+
+    return response;
   }
 }
 

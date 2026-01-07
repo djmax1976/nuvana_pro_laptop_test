@@ -137,9 +137,10 @@ interface DualColumnLineItemProps {
   label: string;
   reportsValue: number;
   posValue: number;
-  onReportsChange: (value: number) => void;
+  onReportsChange?: (value: number) => void;
   isNegative?: boolean;
   disabled?: boolean;
+  readOnly?: boolean;
 }
 
 function DualColumnLineItem({
@@ -150,6 +151,7 @@ function DualColumnLineItem({
   onReportsChange,
   isNegative = false,
   disabled = false,
+  readOnly = false,
 }: DualColumnLineItemProps) {
   // Use local state for the input value to allow free-form editing
   const [inputValue, setInputValue] = useState(reportsValue.toFixed(2));
@@ -166,10 +168,12 @@ function DualColumnLineItem({
   }, []);
 
   const handleBlur = useCallback(() => {
-    const sanitized = sanitizeNumericInput(inputValue);
-    onReportsChange(sanitized);
-    // Format the display value on blur
-    setInputValue(sanitized.toFixed(2));
+    if (onReportsChange) {
+      const sanitized = sanitizeNumericInput(inputValue);
+      onReportsChange(sanitized);
+      // Format the display value on blur
+      setInputValue(sanitized.toFixed(2));
+    }
   }, [inputValue, onReportsChange]);
 
   return (
@@ -178,25 +182,43 @@ function DualColumnLineItem({
       data-testid={`money-row-${id}`}
     >
       <div className="text-sm font-medium">{label}</div>
-      <div className="flex items-center justify-end gap-1">
-        {isNegative && <span className="text-muted-foreground text-xs">(</span>}
-        <span className="text-muted-foreground text-xs">$</span>
-        <Input
-          id={`reports-${id}`}
-          type="text"
-          inputMode="decimal"
-          value={inputValue}
-          onChange={handleChange}
-          onBlur={handleBlur}
-          disabled={disabled}
-          className={`w-20 h-8 text-right font-mono text-sm ${
+      {readOnly ? (
+        // Read-only mode: plain text display
+        <div
+          className={`text-right font-mono text-sm ${
             isNegative ? "text-red-600 dark:text-red-400" : ""
           }`}
-          data-testid={`money-reports-${id}`}
-          aria-label={`${label} reports total`}
-        />
-        {isNegative && <span className="text-muted-foreground text-xs">)</span>}
-      </div>
+        >
+          {isNegative
+            ? `(${formatCurrency(reportsValue)})`
+            : formatCurrency(reportsValue)}
+        </div>
+      ) : (
+        // Edit mode: input field
+        <div className="flex items-center justify-end gap-1">
+          {isNegative && (
+            <span className="text-muted-foreground text-xs">(</span>
+          )}
+          <span className="text-muted-foreground text-xs">$</span>
+          <Input
+            id={`reports-${id}`}
+            type="text"
+            inputMode="decimal"
+            value={inputValue}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            disabled={disabled}
+            className={`w-20 h-8 text-right font-mono text-sm ${
+              isNegative ? "text-red-600 dark:text-red-400" : ""
+            }`}
+            data-testid={`money-reports-${id}`}
+            aria-label={`${label} reports total`}
+          />
+          {isNegative && (
+            <span className="text-muted-foreground text-xs">)</span>
+          )}
+        </div>
+      )}
       <div
         className={`text-right font-mono text-sm ${
           isNegative ? "text-red-600 dark:text-red-400" : ""
@@ -252,6 +274,11 @@ function TotalsRow({ label, reportsValue, posValue }: TotalsRowProps) {
  * - Payment types (Cash, Credit, Debit, EBT) - POS only
  * - Payouts (Cash, Lottery, Gaming) - Both Reports input and POS values
  * - Net Cash totals for both columns
+ *
+ * Supports read-only mode for historical shift views where all values
+ * are displayed as plain text instead of editable inputs.
+ *
+ * @security SEC-014: INPUT_VALIDATION - Defensive null checks for API data
  */
 export function MoneyReceivedCard({
   state,
@@ -259,11 +286,15 @@ export function MoneyReceivedCard({
   onPOSChange,
   disabled = false,
   editablePOS = false,
+  readOnly = false,
 }: MoneyReceivedCardProps) {
   // Create individual field change handlers for reports
+  // SEC-014: INPUT_VALIDATION - Handler validates state before applying updates
   const createReportsChangeHandler = useCallback(
     (field: keyof MoneyReceivedReportsState) => (value: number) => {
-      onReportsChange({ [field]: value });
+      if (onReportsChange) {
+        onReportsChange({ [field]: value });
+      }
     },
     [onReportsChange],
   );
@@ -278,9 +309,15 @@ export function MoneyReceivedCard({
     [onPOSChange],
   );
 
-  // Memoize net cash calculations
+  // Memoize net cash calculations - uses defensive null checks inside calculateNetCashReports/POS
   const netCashReports = useMemo(() => calculateNetCashReports(state), [state]);
   const netCashPOS = useMemo(() => calculateNetCashPOS(state), [state]);
+
+  // SEC-014: Defensive null checks - return null if state structure is invalid
+  // This MUST come AFTER all hooks to satisfy Rules of Hooks
+  if (!state?.pos || !state?.reports) {
+    return null;
+  }
 
   return (
     <Card data-testid="money-received-card">
@@ -344,6 +381,7 @@ export function MoneyReceivedCard({
           onReportsChange={createReportsChangeHandler("cashPayouts")}
           isNegative
           disabled={disabled}
+          readOnly={readOnly}
         />
         <DualColumnLineItem
           id="lottery-payouts"
@@ -353,6 +391,7 @@ export function MoneyReceivedCard({
           onReportsChange={createReportsChangeHandler("lotteryPayouts")}
           isNegative
           disabled={disabled}
+          readOnly={readOnly}
         />
         <DualColumnLineItem
           id="gaming-payouts"
@@ -362,6 +401,7 @@ export function MoneyReceivedCard({
           onReportsChange={createReportsChangeHandler("gamingPayouts")}
           isNegative
           disabled={disabled}
+          readOnly={readOnly}
         />
 
         <Separator className="my-4" />

@@ -31,6 +31,7 @@ import {
   getCurrentStoreDate,
   DEFAULT_STORE_TIMEZONE,
 } from "../utils/timezone.utils";
+import { daySummaryService } from "./day-summary.service";
 
 // ============================================================================
 // TYPES
@@ -45,6 +46,16 @@ export interface LotteryClosingInput {
   pack_id: string;
   /** 3-digit closing serial number (e.g., "045") */
   closing_serial: string;
+  /**
+   * Whether this pack was marked as sold out (depleted)
+   * When true: Use depletion formula (serial_end + 1) - starting
+   * When false/undefined: Use normal formula ending - starting
+   *
+   * This flag is critical for correct sales calculation:
+   * - Normal scan: closing_serial is the NEXT position after last sold ticket
+   * - Sold out: closing_serial equals serial_end (last ticket INDEX)
+   */
+  is_sold_out?: boolean;
 }
 
 /**
@@ -85,6 +96,21 @@ export interface PrepareCloseResult {
 }
 
 /**
+ * Information about a pack that was depleted during day close
+ * SEC-017: AUDIT_TRAILS - Captures depletion context for audit
+ */
+export interface DepletedPackInfo {
+  /** Pack UUID */
+  pack_id: string;
+  /** Store UUID (for UPC cleanup) */
+  store_id: string;
+  /** Pack number for logging */
+  pack_number: string;
+  /** Game name for logging */
+  game_name: string;
+}
+
+/**
  * Result of commit-close operation
  */
 export interface CommitCloseResult {
@@ -103,6 +129,12 @@ export interface CommitCloseResult {
     tickets_sold: number;
     sales_amount: number;
   }>;
+  /**
+   * Packs that were marked as sold out and depleted during this day close.
+   * SEC-017: AUDIT_TRAILS - Enables caller to perform post-commit actions
+   * (e.g., UPC cleanup from Redis/POS) without blocking the atomic transaction.
+   */
+  packs_depleted: DepletedPackInfo[];
 }
 
 /**
@@ -145,6 +177,19 @@ export class DayCloseError extends Error {
 
 /** Default expiration time for pending close (1 hour) */
 const PENDING_CLOSE_EXPIRY_MS = 60 * 60 * 1000;
+
+/**
+ * Result of creating the next business day after day close
+ * SEC-017: AUDIT_TRAILS - Track new day creation for audit
+ */
+export interface NextDayCreationResult {
+  /** New lottery business day ID */
+  lottery_day_id: string;
+  /** New day summary ID */
+  day_summary_id: string;
+  /** Business date of the new day (YYYY-MM-DD) */
+  business_date: string;
+}
 
 // ============================================================================
 // VALIDATION HELPERS
@@ -309,12 +354,15 @@ export async function prepareClose(
       const targetDate = new Date(targetDateStr + "T00:00:00");
 
       // Find or create business day record with row-level locking
-      let businessDay = await tx.lotteryBusinessDay.findUnique({
+      // PHASE 3: Status-based lookup - find OPEN or PENDING_CLOSE lottery day
+      // DB-006: TENANT_ISOLATION - Scoped by store_id
+      let businessDay = await tx.lotteryBusinessDay.findFirst({
         where: {
-          store_id_business_date: {
-            store_id: storeId,
-            business_date: targetDate,
-          },
+          store_id: storeId,
+          status: { in: ["OPEN", "PENDING_CLOSE"] },
+        },
+        orderBy: {
+          opened_at: "desc", // Most recent first
         },
       });
 
@@ -382,8 +430,7 @@ export async function prepareClose(
         );
       }
 
-      // Get starting serials from previous day or pack activation
-      // Returns StartingSerialInfo with isFirstPeriod flag for correct counting
+      // Get starting serials from previous day close or pack activation
       const startingSerials = await getStartingSerials(tx, storeId, packs);
 
       // Validate closing serials against pack ranges
@@ -391,7 +438,6 @@ export async function prepareClose(
         const pack = packs.find((p) => p.pack_id === closing.pack_id)!;
         const startingInfo = startingSerials.get(pack.pack_id) || {
           serial: pack.serial_start,
-          isFirstPeriod: true,
         };
         const closingNum = parseInt(closing.closing_serial, 10);
         const startNum = parseInt(startingInfo.serial, 10);
@@ -415,20 +461,24 @@ export async function prepareClose(
       }
 
       // Calculate estimated totals for preview
-      // Uses calculateTicketsSold helper for correct fencepost handling
+      // SEC-014: Use correct formula based on is_sold_out flag
+      // - Normal scan: tickets_sold = ending - starting
+      // - Sold out: tickets_sold = (serial_end + 1) - starting
       let estimatedTotal = 0;
       const binsPreview = closings.map((closing) => {
         const pack = packs.find((p) => p.pack_id === closing.pack_id)!;
         const startingInfo = startingSerials.get(pack.pack_id) || {
           serial: pack.serial_start,
-          isFirstPeriod: true,
         };
-        // Use helper function for correct ticket counting (fencepost prevention)
-        const ticketsSold = calculateTicketsSold(
-          closing.closing_serial,
-          startingInfo.serial,
-          startingInfo.isFirstPeriod,
-        );
+        // SEC-014: Check is_sold_out flag to determine correct formula
+        // Sold-out packs use depletion formula with +1 adjustment
+        const ticketsSold =
+          closing.is_sold_out === true
+            ? calculateTicketsSoldForDepletion(
+                closing.closing_serial,
+                startingInfo.serial,
+              )
+            : calculateTicketsSold(closing.closing_serial, startingInfo.serial);
         const gamePrice = Number(pack.game.price);
         const salesAmount = ticketsSold * gamePrice;
         estimatedTotal += salesAmount;
@@ -513,7 +563,10 @@ export async function commitClose(
   // Input validation (SEC-014)
   validateUUID(storeId, "storeId");
 
-  return withRLSTransaction(
+  // Track current_shift_id from pending data for DaySummary close
+  let currentShiftId: string | undefined;
+
+  const result = await withRLSTransaction(
     rlsContext,
     async (tx) => {
       // Get store to retrieve timezone (DB-006: tenant isolation)
@@ -529,26 +582,24 @@ export async function commitClose(
         );
       }
 
-      // Get current date in store timezone (DB-006: timezone-aware date calculation)
-      // CRITICAL: Must use store timezone, not UTC, to determine business day
-      const storeTimezone = store.timezone || DEFAULT_STORE_TIMEZONE;
-      const targetDateStr = getCurrentStoreDate(storeTimezone);
-      const targetDate = new Date(targetDateStr + "T00:00:00");
-
       // Find business day with row-level locking via FOR UPDATE
-      const businessDay = await tx.lotteryBusinessDay.findUnique({
+      // PHASE 3: Status-based lookup - find PENDING_CLOSE lottery day for commit
+      // NOTE: Calendar date lookup removed - status is now authoritative
+      // DB-006: TENANT_ISOLATION - Scoped by store_id
+      const businessDay = await tx.lotteryBusinessDay.findFirst({
         where: {
-          store_id_business_date: {
-            store_id: storeId,
-            business_date: targetDate,
-          },
+          store_id: storeId,
+          status: "PENDING_CLOSE", // commitClose only works on PENDING_CLOSE days
+        },
+        orderBy: {
+          pending_close_at: "desc", // Most recent pending close first
         },
       });
 
       if (!businessDay) {
         throw new DayCloseError(
           DAY_CLOSE_ERROR_CODES.DAY_NOT_FOUND,
-          "Business day not found",
+          "No pending lottery day found. Please complete lottery scanning first.",
         );
       }
 
@@ -600,6 +651,13 @@ export async function commitClose(
         );
       }
 
+      // Capture current_shift_id for DaySummary close (outside transaction)
+      // SEC-014: Validate UUID if present
+      if (pendingData.current_shift_id) {
+        validateUUID(pendingData.current_shift_id, "pending current_shift_id");
+        currentShiftId = pendingData.current_shift_id;
+      }
+
       // Re-validate closings (defense in depth)
       validateClosings(pendingData.closings);
 
@@ -622,24 +680,26 @@ export async function commitClose(
       // Calculate totals and create LotteryDayPack records
       let lotteryTotal = 0;
       const binsClosed: CommitCloseResult["bins_closed"] = [];
+      const packsDepleted: DepletedPackInfo[] = [];
       const closedAt = new Date();
 
       for (const closing of pendingData.closings) {
         const pack = packs.find((p) => p.pack_id === closing.pack_id);
         if (!pack) continue;
 
-        // Get starting serial info with isFirstPeriod flag for correct counting
+        // Get starting serial for this pack
         const startingInfo = startingSerials.get(pack.pack_id) || {
           serial: pack.serial_start,
-          isFirstPeriod: true, // New pack - inclusive counting
         };
-        // Use helper function for correct ticket counting (fencepost prevention)
-        const ticketsSold = calculateTicketsSold(
-          closing.closing_serial,
-          startingInfo.serial,
-          startingInfo.isFirstPeriod,
-        );
-        const closingNum = parseInt(closing.closing_serial, 10);
+        // SEC-014: Check is_sold_out flag to determine correct formula
+        // Sold-out packs use depletion formula with +1 adjustment
+        const ticketsSold =
+          closing.is_sold_out === true
+            ? calculateTicketsSoldForDepletion(
+                closing.closing_serial,
+                startingInfo.serial,
+              )
+            : calculateTicketsSold(closing.closing_serial, startingInfo.serial);
         const gamePrice = Number(pack.game.price);
         const salesAmount = ticketsSold * gamePrice;
         lotteryTotal += salesAmount;
@@ -670,18 +730,48 @@ export async function commitClose(
           },
         });
 
-        // Update pack's ending_serial field
-        await tx.lotteryPack.update({
-          where: { pack_id: pack.pack_id },
-          data: {
-            // Check if pack is fully depleted
-            ...(closingNum >= parseInt(pack.serial_end, 10) && {
+        // =====================================================================
+        // PACK DEPLETION ON EXPLICIT SOLD OUT
+        // =====================================================================
+        // SEC-017: AUDIT_TRAILS - Pack depletion is triggered ONLY when user
+        // explicitly marks a pack as sold out via the "Bins that Need Attention"
+        // modal (is_sold_out === true). This is an explicit user action.
+        //
+        // DB-001: ORM_USAGE - Uses Prisma ORM with atomic update within transaction
+        // DB-006: TENANT_ISOLATION - Pack already validated against storeId above
+        //
+        // We do NOT auto-deplete when closing_serial === serial_end because:
+        // - Scanner might capture serial_end as "next position" (normal scan)
+        // - Only explicit user action via checkbox should trigger depletion
+        // =====================================================================
+        if (closing.is_sold_out === true) {
+          // Validate pack is still ACTIVE before depletion (TOCTOU prevention)
+          // SEC-006: SQL_INJECTION - Using Prisma ORM with parameterized values
+          const depletionResult = await tx.lotteryPack.updateMany({
+            where: {
+              pack_id: pack.pack_id,
+              status: "ACTIVE", // Only deplete if currently ACTIVE
+            },
+            data: {
               status: "DEPLETED",
               depleted_at: closedAt,
               depleted_by: rlsContext.userId,
-            }),
-          },
-        });
+              depleted_shift_id: pendingData.current_shift_id || null,
+              depletion_reason: "MANUAL_SOLD_OUT",
+            },
+          });
+
+          // Track successfully depleted packs for post-commit UPC cleanup
+          // SEC-017: AUDIT_TRAILS - Log depletion for audit and UPC sync
+          if (depletionResult.count > 0) {
+            packsDepleted.push({
+              pack_id: pack.pack_id,
+              store_id: storeId,
+              pack_number: pack.pack_number,
+              game_name: pack.game.name,
+            });
+          }
+        }
 
         binsClosed.push({
           bin_number: (pack.bin?.display_order ?? 0) + 1,
@@ -710,17 +800,109 @@ export async function commitClose(
         },
       });
 
+      // Format business_date from the database record (Date -> YYYY-MM-DD string)
+      const businessDateStr = businessDay.business_date
+        .toISOString()
+        .split("T")[0];
+
       return {
         day_id: businessDay.day_id,
-        business_date: targetDateStr,
+        business_date: businessDateStr,
         closed_at: closedAt.toISOString(),
         closings_created: binsClosed.length,
         lottery_total: lotteryTotal,
         bins_closed: binsClosed,
+        packs_depleted: packsDepleted,
       };
     },
     { timeout: TRANSACTION_TIMEOUTS.STANDARD },
   );
+
+  // =========================================================================
+  // CLOSE DAY SUMMARY
+  // =========================================================================
+  // DB-006: TENANT_ISOLATION - Day summary is scoped to same store_id
+  // API-003: ERROR_HANDLING - Non-blocking with structured error logging
+  // LM-001: LOGGING - Structured logging for observability
+  //
+  // After lottery day close commits, close the DaySummary for this business day.
+  // This is done outside the RLS transaction to avoid complexity.
+  // The DaySummary service will:
+  // 1. Verify all shifts are closed (current shift excluded if provided)
+  // 2. Verify lottery is closed (already done above)
+  // 3. Aggregate all shift summaries into day totals
+  // 4. Set status to CLOSED
+  // =========================================================================
+  let closedDaySummaryId: string | undefined;
+  try {
+    const businessDate = new Date(result.business_date + "T00:00:00");
+    const closedDaySummary = await daySummaryService.closeDaySummary(
+      storeId,
+      businessDate,
+      rlsContext.userId,
+      undefined, // notes - optional
+      currentShiftId, // exclude current shift from open shifts check
+    );
+    closedDaySummaryId = closedDaySummary.day_summary_id;
+  } catch (daySummaryError) {
+    // Non-blocking: Log error but don't fail the lottery close
+    // The lottery is already closed, DaySummary can be closed later
+    // SEC-017: AUDIT_TRAILS - Log for investigation, no sensitive data exposed
+    console.error("[LotteryDayCloseService] Failed to close day summary:", {
+      store_id: storeId,
+      business_date: result.business_date,
+      lottery_day_id: result.day_id,
+      error:
+        daySummaryError instanceof Error
+          ? daySummaryError.message
+          : "Unknown error",
+    });
+  }
+
+  // =========================================================================
+  // CREATE NEXT BUSINESS DAY (PHASE 2: Day Close Creates Next Day)
+  // =========================================================================
+  // CRITICAL BUSINESS LOGIC:
+  // After closing the current day, immediately create the NEXT day so that:
+  // 1. When a new shift opens (e.g., at 6:17 PM), it finds an OPEN day to attach to
+  // 2. The lottery wizard finds an OPEN lottery_business_day (not "already closed")
+  // 3. The DaySummary and LotteryBusinessDay are properly linked via FK
+  //
+  // BOUNDARY RULE (gt - greater than):
+  // - Everything at or before closed_at → belongs to CLOSED day
+  // - Everything after closed_at → belongs to NEW day
+  //
+  // DB-006: TENANT_ISOLATION - New records scoped to same store_id
+  // SEC-017: AUDIT_TRAILS - Track who created the new day (same user who closed)
+  // =========================================================================
+  try {
+    const closedAt = new Date(result.closed_at);
+    await createNextBusinessDay(
+      storeId,
+      closedAt,
+      rlsContext.userId,
+      closedDaySummaryId,
+    );
+  } catch (nextDayError) {
+    // Non-blocking: Log error but don't fail the day close
+    // The current day is closed; next day creation is for future convenience
+    // A new day can be created on-demand when a shift opens (fallback in shift.service)
+    // SEC-017: AUDIT_TRAILS - Log for investigation
+    console.error(
+      "[LotteryDayCloseService] Failed to create next business day:",
+      {
+        store_id: storeId,
+        business_date: result.business_date,
+        lottery_day_id: result.day_id,
+        error:
+          nextDayError instanceof Error
+            ? nextDayError.message
+            : "Unknown error",
+      },
+    );
+  }
+
+  return result;
 }
 
 /**
@@ -743,26 +925,12 @@ export async function cancelClose(
   return withRLSTransaction(
     rlsContext,
     async (tx) => {
-      // Get store to retrieve timezone (DB-006: tenant isolation)
-      const store = await tx.store.findUnique({
-        where: { store_id: storeId },
-        select: { store_id: true, timezone: true },
-      });
-
-      if (!store) {
-        return false; // Store not found, nothing to cancel
-      }
-
-      // Get current date in store timezone (DB-006: timezone-aware date calculation)
-      const storeTimezone = store.timezone || DEFAULT_STORE_TIMEZONE;
-      const targetDateStr = getCurrentStoreDate(storeTimezone);
-      const targetDate = new Date(targetDateStr + "T00:00:00");
-
+      // PHASE 3: Status-based update - cancel any PENDING_CLOSE lottery day
+      // DB-006: TENANT_ISOLATION - Scoped by store_id
       const result = await tx.lotteryBusinessDay.updateMany({
         where: {
           store_id: storeId,
-          business_date: targetDate,
-          status: "PENDING_CLOSE",
+          status: "PENDING_CLOSE", // Only cancel PENDING_CLOSE days
         },
         data: {
           status: "OPEN",
@@ -795,29 +963,21 @@ export async function getDayStatus(storeId: string): Promise<{
 } | null> {
   validateUUID(storeId, "storeId");
 
-  // Get store to retrieve timezone (DB-006: tenant isolation)
-  const store = await prisma.store.findUnique({
-    where: { store_id: storeId },
-    select: { timezone: true },
-  });
-
-  // Get current date in store timezone (DB-006: timezone-aware date calculation)
-  const storeTimezone = store?.timezone || DEFAULT_STORE_TIMEZONE;
-  const targetDateStr = getCurrentStoreDate(storeTimezone);
-  const targetDate = new Date(targetDateStr + "T00:00:00");
-
-  const businessDay = await prisma.lotteryBusinessDay.findUnique({
+  // PHASE 3: Status-based lookup - find OPEN or PENDING_CLOSE lottery day
+  // DB-006: TENANT_ISOLATION - Scoped by store_id
+  const businessDay = await prisma.lotteryBusinessDay.findFirst({
     where: {
-      store_id_business_date: {
-        store_id: storeId,
-        business_date: targetDate,
-      },
+      store_id: storeId,
+      status: { in: ["OPEN", "PENDING_CLOSE"] },
     },
     select: {
       day_id: true,
       status: true,
       pending_close_at: true,
       pending_close_expires_at: true,
+    },
+    orderBy: {
+      opened_at: "desc", // Most recent first
     },
   });
 
@@ -861,27 +1021,158 @@ export async function cleanupExpiredPendingCloses(): Promise<number> {
 }
 
 // ============================================================================
+// NEXT DAY CREATION
+// ============================================================================
+
+/**
+ * Create next business day after day close
+ *
+ * Creates both a NEW DaySummary (status=OPEN) and a NEW LotteryBusinessDay (status=OPEN)
+ * linked together via FK. This enables the lottery wizard to find an OPEN lottery day
+ * when a new shift opens after a day close.
+ *
+ * CRITICAL BUSINESS LOGIC:
+ * - Called after a day is closed (lottery + day summary both CLOSED)
+ * - Creates new day with business_date = closed_at timestamp (next moment after close)
+ * - Links lottery_business_day → day_summary via day_summary_id FK
+ * - Uses gt (greater than) boundary: Everything AFTER closed_at belongs to new day
+ *
+ * Security Controls:
+ * - DB-006: TENANT_ISOLATION - All operations scoped to store_id
+ * - SEC-006: SQL_INJECTION - Uses Prisma ORM for all database operations
+ * - SEC-014: INPUT_VALIDATION - UUID validation on all inputs
+ * - DB-001: ORM_USAGE - Atomic transaction for consistency
+ *
+ * @param storeId - Store UUID (validated before call)
+ * @param closedAt - Timestamp when the day was closed (boundary marker)
+ * @param closedByUserId - User who closed the day (for audit)
+ * @param closedDaySummaryId - The day_summary_id of the day being closed (for linking closed lottery day)
+ * @returns NextDayCreationResult with IDs of created records
+ */
+export async function createNextBusinessDay(
+  storeId: string,
+  closedAt: Date,
+  closedByUserId: string,
+  closedDaySummaryId?: string,
+): Promise<NextDayCreationResult> {
+  // SEC-014: Input validation
+  validateUUID(storeId, "storeId");
+  validateUUID(closedByUserId, "closedByUserId");
+  if (closedDaySummaryId) {
+    validateUUID(closedDaySummaryId, "closedDaySummaryId");
+  }
+
+  // Calculate the new business date
+  // BOUNDARY RULE: New day's business_date is the calendar date of the closed_at timestamp
+  // This ensures all activity after close belongs to the new day
+  const newBusinessDate = new Date(closedAt);
+  newBusinessDate.setHours(0, 0, 0, 0);
+  const businessDateStr = newBusinessDate.toISOString().split("T")[0];
+
+  // Create both records atomically in a transaction
+  // DB-001: ORM_USAGE - Using Prisma transaction for atomicity
+  const result = await prisma.$transaction(async (tx) => {
+    // STEP 1: Get or create DaySummary with OPEN status
+    // =========================================================================
+    // IMPORTANT: DaySummary has @@unique([store_id, business_date]) constraint
+    // If we close a day mid-day (e.g., 12:03 PM) and create a new day, BOTH days
+    // would have the same business_date (calendar date). We use upsert to:
+    // - Reuse existing OPEN day_summary if one exists for this date
+    // - Create new one only if none exists
+    // - Update status to OPEN if the existing one was CLOSED (edge case)
+    //
+    // This differs from lottery_business_days which had its unique constraint
+    // removed to support multiple lottery days per calendar date.
+    // =========================================================================
+    // DB-006: TENANT_ISOLATION - Scoped to store_id
+    const newDaySummary = await tx.daySummary.upsert({
+      where: {
+        store_id_business_date: {
+          store_id: storeId,
+          business_date: newBusinessDate,
+        },
+      },
+      create: {
+        store_id: storeId,
+        business_date: newBusinessDate,
+        status: "OPEN",
+        // All numeric fields default to 0 in schema
+      },
+      update: {
+        // If an OPEN day_summary already exists for this date, just return it
+        // If a CLOSED day_summary exists, reset it to OPEN for the new business period
+        // This handles the case where day was closed and reopened on same calendar date
+        status: "OPEN",
+      },
+    });
+
+    // STEP 2: Create new LotteryBusinessDay with OPEN status, linked to DaySummary
+    // Unlike DaySummary, lottery_business_days can have multiple records per date
+    // (unique constraint was removed in migration 20260106100000)
+    // DB-006: TENANT_ISOLATION - Scoped to store_id
+    const newLotteryDay = await tx.lotteryBusinessDay.create({
+      data: {
+        store_id: storeId,
+        business_date: newBusinessDate,
+        status: "OPEN",
+        opened_at: closedAt, // Opens at the moment of previous day's close
+        opened_by: closedByUserId,
+        day_summary_id: newDaySummary.day_summary_id, // Link to DaySummary
+      },
+    });
+
+    // STEP 3: Link the CLOSED lottery day to its corresponding CLOSED day_summary
+    // This maintains the FK relationship for historical records
+    if (closedDaySummaryId) {
+      await tx.lotteryBusinessDay.updateMany({
+        where: {
+          store_id: storeId,
+          status: "CLOSED",
+          closed_at: closedAt,
+          day_summary_id: null, // Only update if not already linked
+        },
+        data: {
+          day_summary_id: closedDaySummaryId,
+        },
+      });
+    }
+
+    return {
+      lottery_day_id: newLotteryDay.day_id,
+      day_summary_id: newDaySummary.day_summary_id,
+      business_date: businessDateStr,
+    };
+  });
+
+  // LM-001: LOGGING - Structured logging for observability
+  console.info("[LotteryDayCloseService] Created next business day:", {
+    store_id: storeId,
+    new_lottery_day_id: result.lottery_day_id,
+    new_day_summary_id: result.day_summary_id,
+    business_date: result.business_date,
+    created_at: closedAt.toISOString(),
+  });
+
+  return result;
+}
+
+// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
 /**
  * Starting serial info for a pack
- * Includes whether this is a "new pack" (using serial_start) vs "continuing pack"
- * (using previous day's ending_serial) for correct ticket counting.
+ *
+ * Contains the starting serial position for ticket counting.
+ * The starting serial is either:
+ * - Previous day's ending serial (for continuing packs)
+ * - Pack's serial_start (for new packs)
+ *
+ * SEC-014: INPUT_VALIDATION - All serial values are validated before use
  */
 interface StartingSerialInfo {
-  /** The starting serial number (3 digits) */
+  /** The starting serial number (3 digits, e.g., "000" or "045") */
   serial: string;
-  /**
-   * True if this pack has never been closed before (using pack's serial_start).
-   * For new packs, the starting serial is the FIRST ticket (inclusive),
-   * so tickets_sold = closing - starting + 1.
-   *
-   * False if this is a continuing pack (using previous day's ending_serial).
-   * For continuing packs, the starting serial is the LAST ticket sold previously,
-   * so tickets_sold = closing - starting (exclusive of starting).
-   */
-  isFirstPeriod: boolean;
 }
 
 /**
@@ -891,14 +1182,14 @@ interface StartingSerialInfo {
  * 1. Previous day's ending serial (from most recent CLOSED day's LotteryDayPack)
  * 2. Pack's serial_start (if never closed before)
  *
- * Returns metadata about each pack's starting position including whether it's
- * the first period for that pack (affects ticket counting formula).
+ * Serial difference calculation: tickets_sold = ending - starting
+ * Examples:
+ * - New pack: serial_start=000, ending=015 → 15-0 = 15 tickets sold
+ * - Continuing pack: prev_ending=045, ending=090 → 90-45 = 45 tickets sold
+ *   (Note: starting serial equals prev_ending for continuing packs)
  *
- * Ticket Counting Logic (Fencepost Error Prevention):
- * - New pack (isFirstPeriod=true): tickets = closing - starting + 1
- *   Example: serial_start=000, closing=029 → 30 tickets (000-029 inclusive)
- * - Continuing pack (isFirstPeriod=false): tickets = closing - starting
- *   Example: prev_ending=045, closing=089 → 44 tickets (046-089, exclusive of 045)
+ * SEC-006: SQL_INJECTION - Uses Prisma ORM for all database operations
+ * DB-006: TENANT_ISOLATION - Queries are scoped to store_id
  */
 async function getStartingSerials(
   tx: Prisma.TransactionClient,
@@ -935,7 +1226,6 @@ async function getStartingSerials(
       if (dayPack.ending_serial) {
         result.set(dayPack.pack_id, {
           serial: dayPack.ending_serial,
-          isFirstPeriod: false, // Continuing pack - exclusive counting
         });
       }
     }
@@ -946,7 +1236,6 @@ async function getStartingSerials(
     if (!result.has(pack.pack_id)) {
       result.set(pack.pack_id, {
         serial: pack.serial_start,
-        isFirstPeriod: true, // New pack - inclusive counting
       });
     }
   }
@@ -955,31 +1244,136 @@ async function getStartingSerials(
 }
 
 /**
- * Calculate tickets sold with correct fencepost handling
+ * Calculate tickets sold using serial difference
  *
- * @param closingSerial - The closing/ending serial number
- * @param startingSerial - The starting serial number
- * @param isFirstPeriod - True if this is the pack's first period (inclusive counting)
+ * Formula: tickets_sold = ending_serial - starting_serial
+ *
+ * The starting serial represents the NEXT ticket to be sold (first unsold),
+ * and the ending serial represents the NEXT ticket to be sold after sales.
+ * The difference gives the exact count of tickets sold during the period.
+ *
+ * Serial Position Semantics:
+ * - Starting serial: Position of the first ticket available for sale
+ * - Ending serial: Position after the last ticket sold (next available)
+ *
+ * Examples:
+ * - Starting: 0, Ending: 0 = 0 tickets sold (no sales, still at position 0)
+ * - Starting: 0, Ending: 1 = 1 ticket sold (ticket #0 sold, now at position 1)
+ * - Starting: 0, Ending: 15 = 15 tickets sold (tickets #0-14 sold)
+ * - Starting: 5, Ending: 10 = 5 tickets sold (tickets #5-9 sold)
+ * - Starting: 45, Ending: 90 = 45 tickets sold (tickets #45-89 sold)
+ *
+ * @param endingSerial - The ending serial position (3 digits, e.g., "015")
+ * @param startingSerial - The starting serial position (3 digits, e.g., "000")
  * @returns Number of tickets sold (never negative)
+ *
+ * SEC-014: INPUT_VALIDATION - Strict numeric validation with NaN guard and bounds check
+ * API-003: ERROR_HANDLING - Returns 0 for invalid input (fail-safe for UI calculations)
  */
 function calculateTicketsSold(
-  closingSerial: string,
+  endingSerial: string,
   startingSerial: string,
-  isFirstPeriod: boolean,
 ): number {
-  const closingNum = parseInt(closingSerial, 10);
-  const startingNum = parseInt(startingSerial, 10);
-
-  // Guard against NaN
-  if (Number.isNaN(closingNum) || Number.isNaN(startingNum)) {
+  // SEC-014: Validate input types before processing
+  if (typeof endingSerial !== "string" || typeof startingSerial !== "string") {
     return 0;
   }
 
-  // For new packs (first period): tickets = closing - starting + 1 (inclusive)
-  // For continuing packs: tickets = closing - starting (exclusive of starting)
-  const ticketsSold = isFirstPeriod
-    ? closingNum - startingNum + 1
-    : closingNum - startingNum;
+  // SEC-014: Parse with explicit radix to prevent octal interpretation
+  const endingNum = parseInt(endingSerial, 10);
+  const startingNum = parseInt(startingSerial, 10);
 
+  // SEC-014: Strict NaN validation using Number.isNaN (not global isNaN)
+  if (Number.isNaN(endingNum) || Number.isNaN(startingNum)) {
+    return 0;
+  }
+
+  // SEC-014: Validate serial range (reasonable bounds check)
+  const MAX_SERIAL = 999;
+  if (
+    endingNum < 0 ||
+    endingNum > MAX_SERIAL ||
+    startingNum < 0 ||
+    startingNum > MAX_SERIAL
+  ) {
+    return 0;
+  }
+
+  // Calculate tickets sold: ending - starting
+  // This gives the exact count of tickets sold during the period
+  // Example: starting=0, ending=15 means tickets 0-14 were sold = 15 tickets
+  const ticketsSold = endingNum - startingNum;
+
+  // Ensure non-negative result (ending should never be less than starting)
+  // Math.max provides defense-in-depth against data integrity issues
+  return Math.max(0, ticketsSold);
+}
+
+/**
+ * Calculate tickets sold for DEPLETED packs (manual or auto sold-out)
+ *
+ * IMPORTANT: This function uses a DIFFERENT formula than calculateTicketsSold.
+ * Use this ONLY for packs marked as "sold out" / depleted.
+ *
+ * Formula: tickets_sold = (serial_end + 1) - starting_serial
+ *
+ * The +1 is required because serial_end is the LAST ticket INDEX (0-based),
+ * not the next position. For example, a 30-ticket pack has serial_end=029,
+ * meaning ticket indices 0-29 are valid. To get the count, we need 029+1=30.
+ *
+ * When to use this function:
+ * 1. Manual depletion - user marks pack as "sold out" in UnscannedBinWarningModal
+ * 2. Auto depletion - new pack activated in same bin, old pack auto-closes
+ *
+ * In these cases, closing_serial equals serial_end (the last ticket index).
+ *
+ * Examples (30-ticket pack with serial_end=029):
+ * - Starting: 0, serial_end: 29 → (29 + 1) - 0 = 30 tickets sold (full pack)
+ * - Starting: 10, serial_end: 29 → (29 + 1) - 10 = 20 tickets sold (partial)
+ * - Starting: 25, serial_end: 29 → (29 + 1) - 25 = 5 tickets sold (end of pack)
+ *
+ * @param serialEnd - The pack's last ticket INDEX (3 digits, e.g., "029" for 30-ticket pack)
+ * @param startingSerial - The starting serial position for today (3 digits, e.g., "000")
+ * @returns Number of tickets sold (never negative)
+ *
+ * SEC-014: INPUT_VALIDATION - Strict numeric validation with NaN guard and bounds check
+ * API-003: ERROR_HANDLING - Returns 0 for invalid input (fail-safe for calculations)
+ */
+function calculateTicketsSoldForDepletion(
+  serialEnd: string,
+  startingSerial: string,
+): number {
+  // SEC-014: Validate input types before processing
+  if (typeof serialEnd !== "string" || typeof startingSerial !== "string") {
+    return 0;
+  }
+
+  // SEC-014: Parse with explicit radix to prevent octal interpretation
+  const serialEndNum = parseInt(serialEnd, 10);
+  const startingNum = parseInt(startingSerial, 10);
+
+  // SEC-014: Strict NaN validation using Number.isNaN (not global isNaN)
+  if (Number.isNaN(serialEndNum) || Number.isNaN(startingNum)) {
+    return 0;
+  }
+
+  // SEC-014: Validate serial range (reasonable bounds check)
+  const MAX_SERIAL = 999;
+  if (
+    serialEndNum < 0 ||
+    serialEndNum > MAX_SERIAL ||
+    startingNum < 0 ||
+    startingNum > MAX_SERIAL
+  ) {
+    return 0;
+  }
+
+  // Depletion formula: (serial_end + 1) - starting = tickets sold
+  // serial_end is the LAST ticket index, so +1 converts to count
+  // Example: serial_end=29, starting=0 → (29+1)-0 = 30 tickets (full 30-ticket pack)
+  const ticketsSold = serialEndNum + 1 - startingNum;
+
+  // Ensure non-negative result (serial_end+1 should never be less than starting)
+  // Math.max provides defense-in-depth against data integrity issues
   return Math.max(0, ticketsSold);
 }

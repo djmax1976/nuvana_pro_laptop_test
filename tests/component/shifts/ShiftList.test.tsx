@@ -66,6 +66,7 @@ describe("4.7-COMPONENT: ShiftList Component", () => {
       store_name: "Store 1",
       cashier_name: "John Doe",
       opener_name: "Manager",
+      day_summary_id: null,
     },
     {
       shift_id: "623e4567-e89b-12d3-a456-426614174005",
@@ -84,6 +85,7 @@ describe("4.7-COMPONENT: ShiftList Component", () => {
       store_name: "Store 1",
       cashier_name: "Jane Smith",
       opener_name: "Manager",
+      day_summary_id: "day-summary-1",
     },
     {
       shift_id: "723e4567-e89b-12d3-a456-426614174006",
@@ -102,6 +104,7 @@ describe("4.7-COMPONENT: ShiftList Component", () => {
       store_name: "Store 2",
       cashier_name: "Bob Johnson",
       opener_name: "Manager",
+      day_summary_id: "day-summary-2",
     },
   ];
 

@@ -15,7 +15,18 @@
     "security/detect-possible-timing-attacks": "warn",
     "security/detect-pseudoRandomBytes": "error",
     "security/detect-new-buffer": "error",
-    "security/detect-bidi-characters": "error"
+    "security/detect-bidi-characters": "error",
+    "no-restricted-syntax": [
+      "warn",
+      {
+        "selector": "NewExpression[callee.name='Date'][arguments.length=1][arguments.0.type='Literal'][arguments.0.value=/^\\d{4}-\\d{2}-\\d{2}$/]",
+        "message": "Do not use new Date() with date-only strings (YYYY-MM-DD). This interprets as UTC midnight and displays wrong dates. Use formatBusinessDate() from @/utils/date-format.utils for business dates, or formatDateTime() with timezone for timestamps. See nuvana_docs/plans/time-fix.md"
+      },
+      {
+        "selector": "NewExpression[callee.name='Date'][arguments.length=1][arguments.0.type='TemplateLiteral']",
+        "message": "Caution: new Date() with template literals may cause timezone bugs. For YYYY-MM-DD business dates, use formatBusinessDate(). For timestamps, use formatDateTime() with store timezone. See nuvana_docs/plans/time-fix.md"
+      }
+    ]
   },
   "overrides": [
     {
