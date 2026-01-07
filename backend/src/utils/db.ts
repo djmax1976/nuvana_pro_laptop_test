@@ -114,7 +114,7 @@ const correlationIdContext = new AsyncLocalStorage<string | null>();
  *
  * @param correlationId - Request correlation ID (typically request.id from Fastify)
  */
-export function setCorrelationId(correlationId: string | null): void {
+export function setCorrelationId(_correlationId: string | null): void {
   // Store is set by runWithCorrelationId, this is a no-op placeholder
   // The actual setting happens via runWithCorrelationId
 }
