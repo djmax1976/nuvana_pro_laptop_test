@@ -497,16 +497,16 @@ test.describe("RECON-API: Authorization", () => {
   });
 
   test("RECON-011: [P0] should return 403 for user without SHIFT_REPORT_VIEW permission", async ({
-    prismaClient,
     storeManagerUser,
-    apiRequest,
+    request,
+    backendUrl,
   }) => {
     // GIVEN: User without required permission (create limited user)
     const limitedUser = await withBypassClient(async (tx) => {
       const userData = createUser({ email: `limited-${Date.now()}@test.com` });
       const user = await tx.user.create({ data: userData });
 
-      // Create a role with no permissions
+      // Create a role with no permissions (empty permission set)
       const role = await tx.role.create({
         data: {
           code: `LIMITED_${Date.now()}`,
@@ -527,30 +527,38 @@ test.describe("RECON-API: Authorization", () => {
       return user;
     });
 
-    // Create token for limited user
+    // Create token for limited user with empty permissions array
+    // SEC-010: Test verifies permission check correctly denies access
     const { createJWTAccessToken } =
       await import("../support/factories/jwt.factory");
     const token = createJWTAccessToken({
       user_id: limitedUser.user_id,
       email: limitedUser.email,
       roles: ["LIMITED"],
+      permissions: [], // Explicitly empty - no SHIFT_REPORT_VIEW permission
       store_ids: [storeManagerUser.store_id],
     });
 
     const date = formatDate(new Date());
 
-    // WHEN: Requesting reconciliation
-    const response = await apiRequest.get(
-      `/api/stores/${storeManagerUser.store_id}/day-summary/${date}/reconciliation`,
+    // WHEN: Requesting reconciliation with cookie-based auth (matches production)
+    // API-004: Backend uses Cookie-based authentication via access_token cookie
+    const response = await request.get(
+      `${backendUrl}/api/stores/${storeManagerUser.store_id}/day-summary/${date}/reconciliation`,
       {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Cookie: `access_token=${token}`,
+        },
       },
     );
 
-    // THEN: Should return 403 Forbidden
+    // THEN: Should return 403 Forbidden with proper error structure
     expect(response.status(), "Should return 403 for unauthorized user").toBe(
       403,
     );
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("PERMISSION_DENIED");
   });
 });
 
@@ -620,7 +628,6 @@ test.describe("RECON-API: Tenant Isolation", () => {
   test("RECON-040: [P0] should only return data for authorized store", async ({
     storeManagerApiRequest,
     storeManagerUser,
-    prismaClient,
   }) => {
     // GIVEN: Shift and day summary for the store
     const businessDate = new Date();
@@ -658,35 +665,32 @@ test.describe("RECON-API: Tenant Isolation", () => {
 
   test("RECON-041: [P0] should return 403 for cross-store access attempt", async ({
     storeManagerApiRequest,
-    storeManagerUser,
-    prismaClient,
   }) => {
     // GIVEN: A different store the user doesn't have access to
-    const { company: otherCompany, store: otherStore } = await withBypassClient(
-      async (tx) => {
-        // Create owner user first
-        const ownerData = createUser({
-          email: `other-owner-${Date.now()}@test.com`,
-        });
-        const owner = await tx.user.create({ data: ownerData });
+    // SEC-001: TENANT_ISOLATION - Verify cross-tenant access is blocked
+    const { store: otherStore } = await withBypassClient(async (tx) => {
+      // Create owner user first
+      const ownerData = createUser({
+        email: `other-owner-${Date.now()}@test.com`,
+      });
+      const owner = await tx.user.create({ data: ownerData });
 
-        // Create company with owner
-        const companyData = createCompany({
-          name: `Test Other Company ${Date.now()}`,
-          owner_user_id: owner.user_id,
-        });
-        const company = await tx.company.create({ data: companyData });
+      // Create company with owner
+      const companyData = createCompany({
+        name: `Test Other Company ${Date.now()}`,
+        owner_user_id: owner.user_id,
+      });
+      const company = await tx.company.create({ data: companyData });
 
-        // Create store
-        const storeData = createStore({
-          name: `Test Other Store ${Date.now()}`,
-          company_id: company.company_id,
-        });
-        const store = await tx.store.create({ data: storeData });
+      // Create store
+      const storeData = createStore({
+        name: `Test Other Store ${Date.now()}`,
+        company_id: company.company_id,
+      });
+      const store = await tx.store.create({ data: storeData });
 
-        return { company, store };
-      },
-    );
+      return { company, store };
+    });
 
     const date = formatDate(new Date());
 
@@ -964,7 +968,7 @@ test.describe("RECON-API: Business Logic", () => {
   }) => {
     // GIVEN: A lottery day with known pack values
     const businessDate = new Date();
-    const lotteryData = await createLotteryDayWithPacks(
+    await createLotteryDayWithPacks(
       storeManagerUser.store_id,
       businessDate,
       "CLOSED",
@@ -1050,27 +1054,63 @@ test.describe("RECON-API: Response Structure", () => {
     expect(response.status()).toBe(200);
     const body = await response.json();
 
-    expect(body).toMatchObject({
-      success: true,
-      data: {
-        store_id: expect.any(String),
-        business_date: expect.any(String),
-        status: expect.any(String),
-        closed_at: expect.anything(), // Can be string or null
-        closed_by: expect.anything(), // Can be string or null
-        closed_by_name: expect.anything(), // Can be string or null
-        shifts: expect.any(Array),
-        lottery: {
-          is_closed: expect.any(Boolean),
-          closed_at: expect.anything(),
-          bins_closed: expect.any(Array),
-          total_sales: expect.any(Number),
-          total_tickets_sold: expect.any(Number),
-        },
-        day_totals: expect.any(Object),
-        notes: expect.anything(),
-      },
-    });
+    // Validate response structure matches DayCloseReconciliationResponse type
+    // SEC-014: Verify only necessary fields are exposed in API response
+    expect(body.success).toBe(true);
+    expect(body.data).toBeDefined();
+
+    // Validate top-level fields
+    expect(typeof body.data.store_id).toBe("string");
+    expect(typeof body.data.business_date).toBe("string");
+    expect(typeof body.data.status).toBe("string");
+    expect(["OPEN", "PENDING_CLOSE", "CLOSED"]).toContain(body.data.status);
+
+    // Nullable fields - can be string or null
+    expect(
+      body.data.closed_at === null || typeof body.data.closed_at === "string",
+    ).toBe(true);
+    expect(
+      body.data.closed_by === null || typeof body.data.closed_by === "string",
+    ).toBe(true);
+    expect(
+      body.data.closed_by_name === null ||
+        typeof body.data.closed_by_name === "string",
+    ).toBe(true);
+    expect(
+      body.data.notes === null || typeof body.data.notes === "string",
+    ).toBe(true);
+
+    // Validate shifts array structure
+    expect(Array.isArray(body.data.shifts)).toBe(true);
+    if (body.data.shifts.length > 0) {
+      const shift = body.data.shifts[0];
+      expect(typeof shift.shift_id).toBe("string");
+      expect(typeof shift.net_sales).toBe("number");
+      expect(typeof shift.transaction_count).toBe("number");
+    }
+
+    // Validate lottery object structure
+    expect(body.data.lottery).toBeDefined();
+    expect(typeof body.data.lottery.is_closed).toBe("boolean");
+    expect(
+      body.data.lottery.closed_at === null ||
+        typeof body.data.lottery.closed_at === "string",
+    ).toBe(true);
+    expect(Array.isArray(body.data.lottery.bins_closed)).toBe(true);
+    expect(typeof body.data.lottery.total_sales).toBe("number");
+    expect(typeof body.data.lottery.total_tickets_sold).toBe("number");
+
+    // Validate day_totals object structure
+    expect(body.data.day_totals).toBeDefined();
+    expect(typeof body.data.day_totals.shift_count).toBe("number");
+    expect(typeof body.data.day_totals.gross_sales).toBe("number");
+    expect(typeof body.data.day_totals.net_sales).toBe("number");
+    expect(typeof body.data.day_totals.tax_collected).toBe("number");
+    expect(typeof body.data.day_totals.transaction_count).toBe("number");
+    expect(typeof body.data.day_totals.total_opening_cash).toBe("number");
+    expect(typeof body.data.day_totals.total_closing_cash).toBe("number");
+    expect(typeof body.data.day_totals.total_expected_cash).toBe("number");
+    expect(typeof body.data.day_totals.total_cash_variance).toBe("number");
 
     // Cleanup
     await cleanupStoreData(storeManagerUser.store_id);

@@ -120,14 +120,16 @@ test.describe("10-7-API: Shift Closing Submission Endpoint", () => {
       store_id: storeManagerUser.store_id,
     });
 
-    // Pack 1: Will be depleted (ending = serial_end)
+    // Pack 1: Will be closed but NOT auto-depleted during shift close
+    // IMPORTANT: The implementation explicitly does NOT auto-deplete packs during shift close.
+    // Packs are only marked DEPLETED through explicit user actions (Mark Sold Out button, etc.)
     const pack1 = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
       status: LotteryPackStatus.ACTIVE,
       current_bin_id: bin.bin_id,
-      serial_start: "000001",
-      serial_end: "000100",
+      serial_start: "001",
+      serial_end: "100",
       activated_shift_id: shift.shift_id,
       activated_by: storeManagerUser.user_id,
       activated_at: new Date(),
@@ -139,8 +141,8 @@ test.describe("10-7-API: Shift Closing Submission Endpoint", () => {
       store_id: storeManagerUser.store_id,
       status: LotteryPackStatus.ACTIVE,
       current_bin_id: bin.bin_id,
-      serial_start: "000101",
-      serial_end: "000200",
+      serial_start: "101",
+      serial_end: "200",
       activated_shift_id: shift.shift_id,
       activated_by: storeManagerUser.user_id,
       activated_at: new Date(),
@@ -149,13 +151,13 @@ test.describe("10-7-API: Shift Closing Submission Endpoint", () => {
     await createLotteryShiftOpening(prismaClient, {
       shift_id: shift.shift_id,
       pack_id: pack1.pack_id,
-      opening_serial: "000001",
+      opening_serial: "001",
     });
 
     await createLotteryShiftOpening(prismaClient, {
       shift_id: shift.shift_id,
       pack_id: pack2.pack_id,
-      opening_serial: "000101",
+      opening_serial: "101",
     });
 
     const closingData = {
@@ -163,13 +165,13 @@ test.describe("10-7-API: Shift Closing Submission Endpoint", () => {
         {
           bin_id: bin.bin_id,
           pack_id: pack1.pack_id,
-          ending_serial: "100", // Depleted (3-digit)
+          ending_serial: "100", // At serial_end but NOT auto-depleted during shift close
           entry_method: "SCAN",
         },
         {
           bin_id: bin.bin_id,
           pack_id: pack2.pack_id,
-          ending_serial: "150", // Active (3-digit)
+          ending_serial: "150", // Partial (between 101 and 200)
           entry_method: "SCAN",
         },
       ],
@@ -183,11 +185,16 @@ test.describe("10-7-API: Shift Closing Submission Endpoint", () => {
     );
 
     // THEN: Summary contains correct counts
+    // NOTE: packs_depleted is 0 because shift close does NOT auto-deplete packs.
+    // Auto-depleted packs are only counted when they were ALREADY depleted via explicit action
+    // (Mark Sold Out button, auto-replace when new pack activated in same bin)
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(body.summary.packs_closed).toBe(2);
-    expect(body.summary.packs_depleted).toBe(1);
+    // Per implementation: pack depletion is NOT triggered during shift close
+    // Packs are only marked DEPLETED through explicit user actions
+    expect(body.summary.packs_depleted).toBe(0);
     expect(body.summary.total_tickets_sold).toBeGreaterThan(0);
   });
 
@@ -605,12 +612,14 @@ test.describe("10-7-API: Shift Closing Submission Endpoint", () => {
     expect(body.success).toBe(false);
   });
 
-  test("TEST-10.7-VAL3: Should accept ending_serial of various lengths", async ({
+  test("TEST-10.7-VAL3: Should accept ending_serial of various lengths within valid range", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
   }) => {
     // GIVEN: Shift with pack
+    // NOTE: The implementation enforces MAX_SERIAL = 999 for serial validation.
+    // Serial numbers must be numeric strings in the range [0-999].
     const shift = await createShift(
       {
         store_id: storeManagerUser.store_id,
@@ -626,13 +635,14 @@ test.describe("10-7-API: Shift Closing Submission Endpoint", () => {
       store_id: storeManagerUser.store_id,
     });
 
+    // Pack with serial range within valid bounds (0-999)
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
       status: LotteryPackStatus.ACTIVE,
       current_bin_id: bin.bin_id,
       serial_start: "001",
-      serial_end: "9999",
+      serial_end: "999", // Max valid serial per implementation (MAX_SERIAL = 999)
       activated_shift_id: shift.shift_id,
       activated_by: storeManagerUser.user_id,
       activated_at: new Date(),
@@ -644,30 +654,33 @@ test.describe("10-7-API: Shift Closing Submission Endpoint", () => {
       opening_serial: "001",
     });
 
-    // GIVEN: Ending serial of 4 digits (within pack range)
+    // GIVEN: Various valid serial formats (all within 0-999 range)
+    // Test with 3-digit padded format
     const closingData = {
       closings: [
         {
           bin_id: bin.bin_id,
           pack_id: pack.pack_id,
-          ending_serial: "1234", // 4 digits - within valid range
+          ending_serial: "500", // Mid-range serial, 3 digits
           entry_method: "SCAN",
         },
       ],
       closed_by: storeManagerUser.user_id,
     };
 
-    // WHEN: Making request with 4-digit ending_serial
+    // WHEN: Making request with valid ending_serial
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/lottery/close`,
       closingData,
     );
 
-    // THEN: Should return success (API accepts various serial lengths)
-    // Note: Serial format validation is business-specific and not enforced at API level
+    // THEN: Should return success
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
+    expect(body.summary.packs_closed).toBe(1);
+    // Verify tickets sold calculation: 500 - 1 = 499 tickets
+    expect(body.summary.total_tickets_sold).toBe(499);
   });
 
   // ============ EDGE CASES ============
@@ -708,7 +721,7 @@ test.describe("10-7-API: Shift Closing Submission Endpoint", () => {
     expect(body.success === false || body.statusCode === 400).toBeTruthy();
   });
 
-  test("TEST-10.7-EDGE-A2: Should accept ending_serial beyond serial_end (marks pack as depleted)", async ({
+  test("TEST-10.7-EDGE-A2: Should accept ending_serial at serial_end (does NOT auto-deplete during shift close)", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
@@ -747,13 +760,13 @@ test.describe("10-7-API: Shift Closing Submission Endpoint", () => {
       opening_serial: "001",
     });
 
-    // GIVEN: Ending serial at or beyond serial_end
+    // GIVEN: Ending serial at serial_end
     const closingData = {
       closings: [
         {
           bin_id: bin.bin_id,
           pack_id: pack.pack_id,
-          ending_serial: "100", // At serial_end - pack should be marked depleted
+          ending_serial: "100", // At serial_end
           entry_method: "SCAN",
         },
       ],
@@ -766,12 +779,21 @@ test.describe("10-7-API: Shift Closing Submission Endpoint", () => {
       closingData,
     );
 
-    // THEN: Should succeed and mark pack as depleted
-    // Note: API accepts this and marks pack as DEPLETED per implementation
+    // THEN: Should succeed but NOT auto-deplete
+    // IMPORTANT: Per implementation, pack depletion is NOT automatically triggered during shift close.
+    // Packs are only marked as DEPLETED through explicit user actions:
+    // 1. Manual "Mark Sold Out" button
+    // 2. "Bins Need Attention" modal → Sold Out checkbox
+    // 3. Auto-replace when new pack is activated in the same bin
+    // This prevents accidental depletion when ending serial happens to match serial_end.
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.summary.packs_depleted).toBe(1);
+    expect(body.summary.packs_closed).toBe(1);
+    // packs_depleted is 0 because shift close does NOT auto-deplete
+    expect(body.summary.packs_depleted).toBe(0);
+    // Verify correct ticket count: 100 - 1 = 99 tickets
+    expect(body.summary.total_tickets_sold).toBe(99);
   });
 
   // ============ DATA LEAKAGE PREVENTION ============

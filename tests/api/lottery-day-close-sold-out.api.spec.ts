@@ -768,11 +768,13 @@ test.describe("API: Lottery Day Close - is_sold_out Flag", () => {
     });
   });
 
-  test("SOLD-OUT-API-012: [P1] Should calculate correctly for single ticket pack sold out", async ({
+  test("SOLD-OUT-API-012: [P1] Should calculate correctly for minimal 2-ticket pack sold out", async ({
     clientUserApiRequest,
     clientUser,
   }) => {
-    // GIVEN: A pack with only 1 ticket (serial_start=000, serial_end=000)
+    // GIVEN: A pack with 2 tickets (serial_start=000, serial_end=001)
+    // Note: Database constraint requires serial_start < serial_end, so single-ticket packs
+    // are not supported. Using minimal 2-ticket pack as the boundary case.
     const store = await withBypassClient(async (tx) => {
       return await tx.store.findFirst({
         where: { company_id: clientUser.company_id },
@@ -792,7 +794,7 @@ test.describe("API: Lottery Day Close - is_sold_out Flag", () => {
       {
         gamePrice: 5.0,
         serialStart: "000",
-        serialEnd: "000", // Single ticket pack
+        serialEnd: "001", // Minimal 2-ticket pack (constraint requires serial_start < serial_end)
       },
     );
     const { shift, cashier } = await createTodayShift(
@@ -801,14 +803,15 @@ test.describe("API: Lottery Day Close - is_sold_out Flag", () => {
       "OPEN",
     );
 
-    // WHEN: Marking as sold out
-    const response = await clientUserApiRequest.post(
-      `/api/lottery/bins/day/${store.store_id}/close`,
+    // WHEN: Using two-phase commit with is_sold_out=true
+    // Phase 1: Prepare close
+    const prepareResponse = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/prepare-close`,
       {
         closings: [
           {
             pack_id: pack.pack_id,
-            closing_serial: "000",
+            closing_serial: "001", // At serial_end
             is_sold_out: true,
           },
         ],
@@ -817,28 +820,56 @@ test.describe("API: Lottery Day Close - is_sold_out Flag", () => {
       },
     );
 
-    // THEN: Should calculate 1 ticket (0 + 1 - 0 = 1) = $5
-    expect(response.status()).toBe(200);
-    const body = await response.json();
+    expect(prepareResponse.status()).toBe(200);
+    const prepareBody = await prepareResponse.json();
+    expect(prepareBody.success).toBe(true);
+
+    // Phase 2: Commit close
+    const commitResponse = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/commit-close`,
+    );
+
+    // THEN: Should calculate 2 tickets using depletion formula (1 + 1 - 0 = 2) = $10
+    expect(commitResponse.status()).toBe(200);
+    const body = await commitResponse.json();
     expect(body.success).toBe(true);
 
     const binsClosed = body.data.bins_closed;
-    if (binsClosed && binsClosed[0]?.sales_amount !== undefined) {
-      expect(
-        binsClosed[0].sales_amount,
-        "Should calculate $5 for single ticket",
-      ).toBe(5);
-    }
+    expect(binsClosed).toBeDefined();
+    expect(binsClosed.length).toBe(1);
+    expect(
+      binsClosed[0].sales_amount,
+      "Should calculate $10 for 2-ticket sold-out pack at $5/ticket",
+    ).toBe(10);
+    expect(
+      binsClosed[0].tickets_sold,
+      "Should calculate 2 tickets sold using depletion formula",
+    ).toBe(2);
 
     // Cleanup
-    const closing = await withBypassClient(async (tx) => {
-      return await tx.lotteryShiftClosing.findFirst({
-        where: { pack_id: pack.pack_id, shift_id: shift.shift_id },
+    const closings = await withBypassClient(async (tx) => {
+      return await tx.lotteryShiftClosing.findMany({
+        where: { shift_id: shift.shift_id },
+      });
+    });
+
+    const businessDay = await withBypassClient(async (tx) => {
+      return await tx.lotteryBusinessDay.findFirst({
+        where: { store_id: store.store_id },
+        orderBy: { created_at: "desc" },
+      });
+    });
+
+    const dayPacks = await withBypassClient(async (tx) => {
+      return await tx.lotteryDayPack.findMany({
+        where: { day_id: businessDay?.day_id },
       });
     });
 
     await cleanupTestData({
-      closingIds: closing ? [closing.closing_id] : [],
+      dayPackIds: dayPacks.map((dp) => dp.day_pack_id),
+      dayIds: businessDay ? [businessDay.day_id] : [],
+      closingIds: closings.map((c) => c.closing_id),
       shiftIds: [shift.shift_id],
       cashierIds: [cashier.cashier_id],
       packIds: [pack.pack_id],
@@ -903,9 +934,10 @@ test.describe("API: Lottery Day Close - Pack Depletion on Sold Out", () => {
     expect(packBefore?.status).toBe("ACTIVE");
     expect(packBefore?.depleted_at).toBeNull();
 
-    // WHEN: I close the day with is_sold_out=true
-    const response = await clientUserApiRequest.post(
-      `/api/lottery/bins/day/${store.store_id}/close`,
+    // WHEN: Using two-phase commit with is_sold_out=true
+    // Phase 1: Prepare close
+    const prepareResponse = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/prepare-close`,
       {
         closings: [
           {
@@ -919,8 +951,17 @@ test.describe("API: Lottery Day Close - Pack Depletion on Sold Out", () => {
       },
     );
 
-    expect(response.status()).toBe(200);
-    const body = await response.json();
+    expect(prepareResponse.status()).toBe(200);
+    const prepareBody = await prepareResponse.json();
+    expect(prepareBody.success).toBe(true);
+
+    // Phase 2: Commit close
+    const commitResponse = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/commit-close`,
+    );
+
+    expect(commitResponse.status()).toBe(200);
+    const body = await commitResponse.json();
     expect(body.success).toBe(true);
 
     // THEN: Pack should now be DEPLETED with audit fields populated
@@ -964,31 +1005,26 @@ test.describe("API: Lottery Day Close - Pack Depletion on Sold Out", () => {
     );
     expect(body.data.packs_depleted[0].pack_id).toBe(pack.pack_id);
 
-    // Cleanup
-    const closings = await withBypassClient(async (tx) => {
-      return await tx.lotteryShiftClosing.findMany({
-        where: { shift_id: shift.shift_id },
+    // Cleanup - get all business days created during test (including next day)
+    const businessDays = await withBypassClient(async (tx) => {
+      return await tx.lotteryBusinessDay.findMany({
+        where: { store_id: store.store_id },
+        orderBy: { created_at: "desc" },
+        take: 2, // Current and potentially next day
       });
     });
 
-    // Also need to clean up business day created
-    const businessDay = await withBypassClient(async (tx) => {
-      return await tx.lotteryBusinessDay.findFirst({
-        where: { store_id: store.store_id },
-        orderBy: { created_at: "desc" },
-      });
-    });
+    const dayIds = businessDays.map((d) => d.day_id);
 
     const dayPacks = await withBypassClient(async (tx) => {
       return await tx.lotteryDayPack.findMany({
-        where: { day_id: businessDay?.day_id },
+        where: { day_id: { in: dayIds } },
       });
     });
 
     await cleanupTestData({
       dayPackIds: dayPacks.map((dp) => dp.day_pack_id),
-      dayIds: businessDay ? [businessDay.day_id] : [],
-      closingIds: closings.map((c) => c.closing_id),
+      dayIds: dayIds,
       shiftIds: [shift.shift_id],
       cashierIds: [cashier.cashier_id],
       packIds: [pack.pack_id],
@@ -1030,9 +1066,10 @@ test.describe("API: Lottery Day Close - Pack Depletion on Sold Out", () => {
       "OPEN",
     );
 
-    // WHEN: I close the day with is_sold_out=false (normal scan)
-    const response = await clientUserApiRequest.post(
-      `/api/lottery/bins/day/${store.store_id}/close`,
+    // WHEN: Using two-phase commit with is_sold_out=false (normal scan)
+    // Phase 1: Prepare close
+    const prepareResponse = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/prepare-close`,
       {
         closings: [
           {
@@ -1046,8 +1083,17 @@ test.describe("API: Lottery Day Close - Pack Depletion on Sold Out", () => {
       },
     );
 
-    expect(response.status()).toBe(200);
-    const body = await response.json();
+    expect(prepareResponse.status()).toBe(200);
+    const prepareBody = await prepareResponse.json();
+    expect(prepareBody.success).toBe(true);
+
+    // Phase 2: Commit close
+    const commitResponse = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/commit-close`,
+    );
+
+    expect(commitResponse.status()).toBe(200);
+    const body = await commitResponse.json();
     expect(body.success).toBe(true);
 
     // THEN: Pack should remain ACTIVE
@@ -1070,30 +1116,26 @@ test.describe("API: Lottery Day Close - Pack Depletion on Sold Out", () => {
       "packs_depleted should be empty array",
     ).toEqual([]);
 
-    // Cleanup
-    const closings = await withBypassClient(async (tx) => {
-      return await tx.lotteryShiftClosing.findMany({
-        where: { shift_id: shift.shift_id },
+    // Cleanup - get all business days created during test (including next day)
+    const businessDays = await withBypassClient(async (tx) => {
+      return await tx.lotteryBusinessDay.findMany({
+        where: { store_id: store.store_id },
+        orderBy: { created_at: "desc" },
+        take: 2,
       });
     });
 
-    const businessDay = await withBypassClient(async (tx) => {
-      return await tx.lotteryBusinessDay.findFirst({
-        where: { store_id: store.store_id },
-        orderBy: { created_at: "desc" },
-      });
-    });
+    const dayIds = businessDays.map((d) => d.day_id);
 
     const dayPacks = await withBypassClient(async (tx) => {
       return await tx.lotteryDayPack.findMany({
-        where: { day_id: businessDay?.day_id },
+        where: { day_id: { in: dayIds } },
       });
     });
 
     await cleanupTestData({
       dayPackIds: dayPacks.map((dp) => dp.day_pack_id),
-      dayIds: businessDay ? [businessDay.day_id] : [],
-      closingIds: closings.map((c) => c.closing_id),
+      dayIds: dayIds,
       shiftIds: [shift.shift_id],
       cashierIds: [cashier.cashier_id],
       packIds: [pack.pack_id],
@@ -1249,9 +1291,10 @@ test.describe("API: Lottery Day Close - Pack Depletion on Sold Out", () => {
       "Pack should appear in bins before day close",
     ).toBeDefined();
 
-    // WHEN: Close day with is_sold_out=true
-    const closeResponse = await clientUserApiRequest.post(
-      `/api/lottery/bins/day/${store.store_id}/close`,
+    // WHEN: Using two-phase commit with is_sold_out=true
+    // Phase 1: Prepare close
+    const prepareResponse = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/prepare-close`,
       {
         closings: [
           {
@@ -1265,7 +1308,14 @@ test.describe("API: Lottery Day Close - Pack Depletion on Sold Out", () => {
       },
     );
 
-    expect(closeResponse.status()).toBe(200);
+    expect(prepareResponse.status()).toBe(200);
+
+    // Phase 2: Commit close
+    const commitResponse = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/commit-close`,
+    );
+
+    expect(commitResponse.status()).toBe(200);
 
     // THEN: Pack should NOT appear in bins query (filtered by status=ACTIVE)
     const binsAfterResponse = await clientUserApiRequest.get(
@@ -1280,30 +1330,26 @@ test.describe("API: Lottery Day Close - Pack Depletion on Sold Out", () => {
       "Depleted pack should NOT appear in bins query after day close",
     ).toBeUndefined();
 
-    // Cleanup
-    const closings = await withBypassClient(async (tx) => {
-      return await tx.lotteryShiftClosing.findMany({
-        where: { shift_id: shift.shift_id },
+    // Cleanup - get all business days created during test (including next day)
+    const businessDays = await withBypassClient(async (tx) => {
+      return await tx.lotteryBusinessDay.findMany({
+        where: { store_id: store.store_id },
+        orderBy: { created_at: "desc" },
+        take: 2,
       });
     });
 
-    const businessDay = await withBypassClient(async (tx) => {
-      return await tx.lotteryBusinessDay.findFirst({
-        where: { store_id: store.store_id },
-        orderBy: { created_at: "desc" },
-      });
-    });
+    const dayIds = businessDays.map((d) => d.day_id);
 
     const dayPacks = await withBypassClient(async (tx) => {
       return await tx.lotteryDayPack.findMany({
-        where: { day_id: businessDay?.day_id },
+        where: { day_id: { in: dayIds } },
       });
     });
 
     await cleanupTestData({
       dayPackIds: dayPacks.map((dp) => dp.day_pack_id),
-      dayIds: businessDay ? [businessDay.day_id] : [],
-      closingIds: closings.map((c) => c.closing_id),
+      dayIds: dayIds,
       shiftIds: [shift.shift_id],
       cashierIds: [cashier.cashier_id],
       packIds: [pack.pack_id],
@@ -1371,9 +1417,10 @@ test.describe("API: Lottery Day Close - Pack Depletion on Sold Out", () => {
       "OPEN",
     );
 
-    // WHEN: Close with mixed is_sold_out flags
-    const response = await clientUserApiRequest.post(
-      `/api/lottery/bins/day/${store.store_id}/close`,
+    // WHEN: Using two-phase commit with mixed is_sold_out flags
+    // Phase 1: Prepare close
+    const prepareResponse = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/prepare-close`,
       {
         closings: [
           { pack_id: pack1.pack_id, closing_serial: "029", is_sold_out: true },
@@ -1385,8 +1432,17 @@ test.describe("API: Lottery Day Close - Pack Depletion on Sold Out", () => {
       },
     );
 
-    expect(response.status()).toBe(200);
-    const body = await response.json();
+    expect(prepareResponse.status()).toBe(200);
+    const prepareBody = await prepareResponse.json();
+    expect(prepareBody.success).toBe(true);
+
+    // Phase 2: Commit close
+    const commitResponse = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/commit-close`,
+    );
+
+    expect(commitResponse.status()).toBe(200);
+    const body = await commitResponse.json();
     expect(body.success).toBe(true);
 
     // THEN: Only sold-out packs should be depleted
@@ -1434,30 +1490,26 @@ test.describe("API: Lottery Day Close - Pack Depletion on Sold Out", () => {
     expect(depletedPackIds).toContain(pack3.pack_id);
     expect(depletedPackIds).not.toContain(pack2.pack_id);
 
-    // Cleanup
-    const closings = await withBypassClient(async (tx) => {
-      return await tx.lotteryShiftClosing.findMany({
-        where: { shift_id: shift.shift_id },
+    // Cleanup - get all business days created during test (including next day)
+    const businessDays = await withBypassClient(async (tx) => {
+      return await tx.lotteryBusinessDay.findMany({
+        where: { store_id: store.store_id },
+        orderBy: { created_at: "desc" },
+        take: 2,
       });
     });
 
-    const businessDay = await withBypassClient(async (tx) => {
-      return await tx.lotteryBusinessDay.findFirst({
-        where: { store_id: store.store_id },
-        orderBy: { created_at: "desc" },
-      });
-    });
+    const dayIds = businessDays.map((d) => d.day_id);
 
     const dayPacks = await withBypassClient(async (tx) => {
       return await tx.lotteryDayPack.findMany({
-        where: { day_id: businessDay?.day_id },
+        where: { day_id: { in: dayIds } },
       });
     });
 
     await cleanupTestData({
       dayPackIds: dayPacks.map((dp) => dp.day_pack_id),
-      dayIds: businessDay ? [businessDay.day_id] : [],
-      closingIds: closings.map((c) => c.closing_id),
+      dayIds: dayIds,
       shiftIds: [shift.shift_id],
       cashierIds: [cashier.cashier_id],
       packIds: [pack1.pack_id, pack2.pack_id, pack3.pack_id],
@@ -1587,13 +1639,20 @@ test.describe("API: Sold Out Formula Comparison (Documentation)", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe("API: Depleted Pack Timestamp Boundary", () => {
-  test("SOLD-OUT-BOUNDARY-001: [P0] Depleted pack with depleted_at === closed_at appears in closing day's depleted list", async ({
+  test("SOLD-OUT-BOUNDARY-001: [P0] Depleted pack with depleted_at === closed_at belongs to closing day (not next day)", async ({
     clientUserApiRequest,
     clientUser,
   }) => {
     // GIVEN: A pack that gets marked sold out during day close
     // This tests the critical boundary condition: when depleted_at === day.closed_at,
-    // the pack should appear in the CURRENT (closing) day's depleted list, not the next day
+    // the pack belongs to the CLOSING day, not the next day.
+    //
+    // Business Rule (Enterprise Close-to-Close Model):
+    // - depleted_at === closed_at: pack was depleted AS PART OF closing the day
+    // - It should be reported in the CLOSING day's summary (packs_depleted in commit response)
+    // - It should NOT appear in the NEXT day's depleted_packs query (gt boundary excludes it)
+    //
+    // SEC-017: AUDIT_TRAILS - Depletion attribution must be accurate for audit
     const store = await withBypassClient(async (tx) => {
       return await tx.store.findFirst({
         where: { company_id: clientUser.company_id },
@@ -1622,9 +1681,10 @@ test.describe("API: Depleted Pack Timestamp Boundary", () => {
       "OPEN",
     );
 
-    // Close the day with is_sold_out=true
-    const closeResponse = await clientUserApiRequest.post(
-      `/api/lottery/bins/day/${store.store_id}/close`,
+    // Using two-phase commit with is_sold_out=true
+    // Phase 1: Prepare close
+    const prepareResponse = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/prepare-close`,
       {
         closings: [
           {
@@ -1638,7 +1698,30 @@ test.describe("API: Depleted Pack Timestamp Boundary", () => {
       },
     );
 
-    expect(closeResponse.status()).toBe(200);
+    expect(prepareResponse.status()).toBe(200);
+
+    // Phase 2: Commit close
+    const commitResponse = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/commit-close`,
+    );
+
+    expect(commitResponse.status()).toBe(200);
+    const commitBody = await commitResponse.json();
+
+    // CRITICAL ASSERTION 1: The depleted pack MUST appear in the commit response
+    // This is the proper attribution - the pack was depleted as part of this day's close
+    expect(
+      commitBody.data.packs_depleted,
+      "Commit response should include packs_depleted",
+    ).toBeDefined();
+    expect(
+      commitBody.data.packs_depleted.length,
+      "Should have exactly 1 depleted pack",
+    ).toBe(1);
+    expect(
+      commitBody.data.packs_depleted[0].pack_id,
+      "Depleted pack_id should match",
+    ).toBe(pack.pack_id);
 
     // Get the depleted pack and business day timestamps
     const [packData, businessDay] = await Promise.all([
@@ -1650,7 +1733,7 @@ test.describe("API: Depleted Pack Timestamp Boundary", () => {
       ),
       withBypassClient(async (tx) =>
         tx.lotteryBusinessDay.findFirst({
-          where: { store_id: store.store_id },
+          where: { store_id: store.store_id, status: "CLOSED" },
           orderBy: { created_at: "desc" },
         }),
       ),
@@ -1669,8 +1752,7 @@ test.describe("API: Depleted Pack Timestamp Boundary", () => {
       "depleted_at should be at or near closed_at",
     ).toBeLessThanOrEqual(1000); // Within 1 second
 
-    // WHEN: We query for the bins/day data again (simulating the next day)
-    // The pack should appear in depleted_packs, NOT in active bins
+    // WHEN: We query for the bins/day data (now showing the NEXT day)
     const binsResponse = await clientUserApiRequest.get(
       `/api/lottery/bins/day/${store.store_id}`,
     );
@@ -1685,33 +1767,37 @@ test.describe("API: Depleted Pack Timestamp Boundary", () => {
       "Depleted pack should NOT appear in active bins",
     ).toBeUndefined();
 
-    // The depleted pack SHOULD appear in depleted_packs list
-    // Note: This is the critical assertion - the gt vs gte fix ensures this works
-    const packInDepletedPacks = binsData.data?.depleted_packs?.find(
+    // CRITICAL ASSERTION 2: The depleted pack should NOT appear in the NEXT day's
+    // depleted_packs list because it belongs to the CLOSED day (depleted_at === closed_at)
+    // The query uses `gt: openBusinessPeriodStart` which correctly excludes boundary packs
+    const packInNextDayDepletedPacks = binsData.data?.depleted_packs?.find(
       (p: { pack_id: string }) => p.pack_id === pack.pack_id,
     );
     expect(
-      packInDepletedPacks,
-      "Depleted pack SHOULD appear in depleted_packs list for the closing day",
-    ).toBeDefined();
+      packInNextDayDepletedPacks,
+      "Depleted pack should NOT appear in NEXT day's depleted_packs (boundary condition: gt excludes depleted_at === closed_at)",
+    ).toBeUndefined();
 
-    // Cleanup
-    const closings = await withBypassClient(async (tx) => {
-      return await tx.lotteryShiftClosing.findMany({
-        where: { shift_id: shift.shift_id },
+    // Cleanup - get all business days created during test (including next day)
+    const businessDays = await withBypassClient(async (tx) => {
+      return await tx.lotteryBusinessDay.findMany({
+        where: { store_id: store.store_id },
+        orderBy: { created_at: "desc" },
+        take: 2,
       });
     });
 
+    const dayIds = businessDays.map((d) => d.day_id);
+
     const dayPacks = await withBypassClient(async (tx) => {
       return await tx.lotteryDayPack.findMany({
-        where: { day_id: businessDay?.day_id },
+        where: { day_id: { in: dayIds } },
       });
     });
 
     await cleanupTestData({
       dayPackIds: dayPacks.map((dp) => dp.day_pack_id),
-      dayIds: businessDay ? [businessDay.day_id] : [],
-      closingIds: closings.map((c) => c.closing_id),
+      dayIds: dayIds,
       shiftIds: [shift.shift_id],
       cashierIds: [cashier.cashier_id],
       packIds: [pack.pack_id],

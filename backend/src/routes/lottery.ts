@@ -3741,6 +3741,13 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                       format: "date-time",
                       nullable: true,
                     },
+                    returned_at: {
+                      type: "string",
+                      format: "date-time",
+                      nullable: true,
+                      description:
+                        "Timestamp when pack was returned (only for RETURNED status)",
+                    },
                     game: {
                       type: "object",
                       properties: {
@@ -3748,6 +3755,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                         game_code: { type: "string" },
                         name: { type: "string" },
                         price: { type: "number", nullable: true },
+                        status: {
+                          type: "string",
+                          enum: ["ACTIVE", "INACTIVE", "DISCONTINUED"],
+                          description:
+                            "Game status (ACTIVE/INACTIVE/DISCONTINUED)",
+                        },
                       },
                     },
                     store: {
@@ -3765,6 +3778,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                         name: { type: "string" },
                         location: { type: "string", nullable: true },
                       },
+                    },
+                    can_return: {
+                      type: "boolean",
+                      description:
+                        "Server-computed return eligibility (true for ACTIVE/RECEIVED, false for DEPLETED/RETURNED)",
                     },
                   },
                 },
@@ -4229,6 +4247,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                     properties: {
                       game_id: { type: "string", format: "uuid" },
                       name: { type: "string" },
+                      status: {
+                        type: "string",
+                        enum: ["ACTIVE", "INACTIVE", "DISCONTINUED"],
+                        description:
+                          "Game status (ACTIVE/INACTIVE/DISCONTINUED)",
+                      },
                     },
                   },
                   store: {
@@ -4246,6 +4270,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                       name: { type: "string" },
                       location: { type: "string", nullable: true },
                     },
+                  },
+                  can_return: {
+                    type: "boolean",
+                    description:
+                      "Server-computed return eligibility (true for ACTIVE/RECEIVED, false for DEPLETED/RETURNED)",
                   },
                   shift_openings: {
                     type: "array",
@@ -4367,6 +4396,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               select: {
                 game_id: true,
                 name: true,
+                status: true, // Game status for UI display (ACTIVE/INACTIVE/DISCONTINUED)
               },
             },
             store: {
@@ -4567,6 +4597,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             game: pack.game,
             store: pack.store,
             bin: pack.bin || null,
+            // SEC-010: AUTHZ - Server-side authorization for return eligibility
+            // Business Rule: ACTIVE and RECEIVED packs can be returned
+            // DEPLETED packs cannot be returned (already sold out)
+            // RETURNED packs cannot be returned again (already returned)
+            can_return: pack.status === "ACTIVE" || pack.status === "RECEIVED",
             shift_openings: pack.shift_openings.map((opening) => ({
               opening_id: opening.opening_id,
               shift_id: opening.shift_id,
@@ -9433,6 +9468,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                     pattern: "^[0-9]{3}$",
                     description: "3-digit ending serial number (e.g., '045')",
                   },
+                  is_sold_out: {
+                    type: "boolean",
+                    default: false,
+                    description:
+                      "Whether this pack was marked as sold out (depleted). When true, uses depletion formula for ticket count.",
+                  },
                 },
               },
             },
@@ -9513,7 +9554,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       const user = (request as any).user as UserIdentity;
       const params = request.params as { storeId: string };
       const body = request.body as {
-        closings: Array<{ pack_id: string; closing_serial: string }>;
+        closings: Array<{
+          pack_id: string;
+          closing_serial: string;
+          is_sold_out?: boolean;
+        }>;
         entry_method?: "SCAN" | "MANUAL";
         current_shift_id?: string;
         authorized_by_user_id?: string;
@@ -9636,6 +9681,20 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                         game_price: { type: "number" },
                         tickets_sold: { type: "integer" },
                         sales_amount: { type: "number" },
+                      },
+                    },
+                  },
+                  packs_depleted: {
+                    type: "array",
+                    description:
+                      "Packs that were depleted (marked sold out) during this day close",
+                    items: {
+                      type: "object",
+                      properties: {
+                        pack_id: { type: "string", format: "uuid" },
+                        store_id: { type: "string", format: "uuid" },
+                        pack_number: { type: "string" },
+                        game_name: { type: "string" },
                       },
                     },
                   },
