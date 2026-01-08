@@ -549,17 +549,22 @@ export async function lookupGamesByCodesBatch(
   }
 
   // Pass 3: Add STATE games (highest priority, overwrites STORE/GLOBAL)
-  for (const game of games) {
-    if (game.state_id === stateId && game.store_id === null) {
-      resultMap.set(game.game_code, {
-        game_id: game.game_id,
-        game_code: game.game_code,
-        name: game.name,
-        tickets_per_pack: game.tickets_per_pack,
-        scope_type: "STATE",
-        state_id: game.state_id,
-        store_id: null,
-      });
+  // IMPORTANT: Only process if stateId is provided (non-null)
+  // This prevents global games (state_id=null, store_id=null) from being
+  // incorrectly classified as "state" games when stateId parameter is null
+  if (stateId) {
+    for (const game of games) {
+      if (game.state_id === stateId && game.store_id === null) {
+        resultMap.set(game.game_code, {
+          game_id: game.game_id,
+          game_code: game.game_code,
+          name: game.name,
+          tickets_per_pack: game.tickets_per_pack,
+          scope_type: "STATE",
+          state_id: game.state_id,
+          store_id: null,
+        });
+      }
     }
   }
 

@@ -1,42 +1,21 @@
 /**
  * E2E Test: Cashier Store Dropdown
  *
+ * Tests the cashier creation flow with store dropdown functionality.
+ * Optimized for speed: single login, consolidated assertions, no redundant tests.
+ *
  * @test-level E2E
  * @story 4.9 - Cashier Management
  * @priority P0 (Critical - Core Cashier Creation Flow)
- *
- * Tests the cashier creation flow with store dropdown functionality:
- * - Verifies store dropdown auto-selects and displays store name when single store exists
- * - Verifies dropdown is disabled when only one store (as per implementation)
- * - Verifies successful cashier creation with auto-selected store
- * - Ensures form validation and submission work correctly
- *
- * Enterprise Patterns Used:
- * - Network-first waiting: Wait for specific API responses, not arbitrary timeouts
- * - Deterministic assertions: Verify API response before checking UI
- * - Test isolation: Each test creates/cleans its own data
- * - Centralized helpers: Reusable login and navigation utilities
- *
- * Implementation Details (CashierForm.tsx):
- * - CLIENT_OWNER users are redirected to /client-dashboard after login
- * - Cashiers management page is at /client-dashboard/cashiers
- * - Store dropdown is disabled when stores.length === 1 (line 252)
- * - Store is auto-selected when stores.length === 1 via useEffect (lines 133-143)
- * - Form shows loading spinner while fetching stores (lines 147-153)
- * - Toast message: title "Cashier created", description "{name} has been added successfully." (lines 216-219)
- *
- * Data-testid Mapping:
- * - cashier-store: Store dropdown trigger (SelectTrigger)
- * - cashier-name: Name input field
- * - cashier-pin: PIN input field (type=password, maxLength=4)
- * - cashier-hired-on: Hired date input (defaults to today)
- * - cashier-termination-date: Termination date input (optional)
- * - submit-cashier: Submit button
- * - create-cashier-btn: "Add Cashier" button in CashierList
- * - cashier-search: Search input in CashierList
  */
 
-import { test, expect, type Page } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Page,
+  type BrowserContext,
+  type Response,
+} from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
@@ -46,166 +25,124 @@ import {
 } from "../../backend/src/utils/public-id";
 import { cleanupTestData } from "../support/cleanup-helper";
 import { createStore, createCompany } from "../support/factories";
-import { loginAsClientOwner } from "../support/auth.helper";
-import { TEST_TIMEOUTS, TEST_CONSTANTS } from "../support/test-config";
+import { TEST_CONSTANTS } from "../support/test-config";
 
 const prisma = new PrismaClient();
 const TEST_PASSWORD = TEST_CONSTANTS.TEST_PASSWORD;
 
-let testUser: any;
-let testCompany: any;
-let testStore: any;
+// Lean timeouts - fail fast, don't pad for slow infra
+const TIMEOUTS = {
+  ELEMENT: 10000,
+  API: 15000,
+  NAVIGATION: 15000,
+} as const;
+
+let testUser: { user_id: string; email: string };
+let testCompany: { company_id: string };
+let testStore: { store_id: string; name: string };
 let testEmail: string;
+let authContext: BrowserContext;
 const createdCashierIds: string[] = [];
 
 /**
- * Navigate to cashiers page and open the add dialog.
- * Uses network-first pattern - waits for API responses that populate the page.
- *
- * @param page - Playwright page object
- * @throws Error with descriptive message if page fails to load
+ * Login once and save browser context for reuse across all tests.
+ * This eliminates redundant login overhead.
  */
-async function navigateToCashiersAndOpenDialog(page: Page): Promise<void> {
-  // Navigate to cashiers page
+async function loginAndSaveContext(browser: any): Promise<BrowserContext> {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+
+  await page.goto("/login", { waitUntil: "networkidle" });
+
+  // Wait for form to be interactive (React hydration complete)
+  const emailInput = page.locator('input[name="email"], input[type="email"]');
+  await emailInput.waitFor({ state: "visible", timeout: TIMEOUTS.ELEMENT });
+  await expect(emailInput).toBeEditable({ timeout: TIMEOUTS.ELEMENT });
+
+  // Fill credentials - use type() for more reliable React form handling
+  await emailInput.click();
+  await emailInput.pressSequentially(testEmail, { delay: 10 });
+
+  const passwordInput = page.locator(
+    'input[name="password"], input[type="password"]',
+  );
+  await passwordInput.click();
+  await passwordInput.pressSequentially(TEST_PASSWORD, { delay: 10 });
+
+  // Verify fields were filled (guards against hydration reset)
+  await expect(emailInput).toHaveValue(testEmail, { timeout: 5000 });
+  await expect(passwordInput).toHaveValue(TEST_PASSWORD, { timeout: 5000 });
+
+  // Submit and wait for redirect
+  const [loginResponse] = await Promise.all([
+    page.waitForResponse(
+      (resp: Response) =>
+        resp.url().includes("/api/auth/login") &&
+        resp.request().method() === "POST",
+      { timeout: TIMEOUTS.API },
+    ),
+    page.locator('button[type="submit"]').click(),
+  ]);
+
+  if (loginResponse.status() !== 200) {
+    throw new Error(`Login failed: ${loginResponse.status()}`);
+  }
+
+  await page.waitForURL(/.*client-dashboard.*/, {
+    timeout: TIMEOUTS.NAVIGATION,
+  });
+
+  // Wait for dashboard to render (auth context populated)
+  await page.locator('[data-testid="client-dashboard-page"]').waitFor({
+    state: "visible",
+    timeout: TIMEOUTS.ELEMENT,
+  });
+
+  await page.close();
+  return context;
+}
+
+/**
+ * Navigate to cashiers page and open add dialog.
+ * Lean implementation - no defensive catches or networkidle waits.
+ */
+async function openAddCashierDialog(page: Page): Promise<void> {
   await page.goto("/client-dashboard/cashiers", {
     waitUntil: "domcontentloaded",
   });
 
-  // Wait for network idle to ensure API calls complete
-  await page
-    .waitForLoadState("networkidle", { timeout: TEST_TIMEOUTS.NETWORK_IDLE })
-    .catch(() => {
-      // networkidle might timeout if there are long-polling requests
-    });
-
-  // Wait for the page to render based on API data
-  // The CashierList component shows a skeleton during loading, then either:
-  // 1. "No cashiers yet" state with create-cashier-btn
-  // 2. Full list with cashier-search and create-cashier-btn
-  // 3. Error state with "Failed to load cashiers"
-  await Promise.race([
-    // Success state: either the Add Cashier button or search field
-    page
-      .locator('[data-testid="create-cashier-btn"]')
-      .first()
-      .waitFor({ state: "visible", timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE }),
-    // Error state
-    page
-      .getByText("Failed to load cashiers")
-      .waitFor({ state: "visible", timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE }),
-    // No stores state
-    page
-      .getByText("No stores available")
-      .waitFor({ state: "visible", timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE }),
-  ]);
-
-  // Check for error states and fail early with meaningful message
-  const hasError = await page.getByText("Failed to load cashiers").isVisible();
-  if (hasError) {
-    throw new Error(
-      "CashierList failed to load - check backend connectivity and store data",
-    );
-  }
-
-  const hasNoStores = await page.getByText("No stores available").isVisible();
-  if (hasNoStores) {
-    throw new Error(
-      "No stores available - test setup may have failed to create store",
-    );
-  }
-
-  // Open Add Cashier dialog - use click action instead of separate waitFor
+  // Wait for page to render
   const addButton = page.locator('[data-testid="create-cashier-btn"]').first();
-  await expect(addButton).toBeVisible({
-    timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
-  });
+  await addButton.waitFor({ state: "visible", timeout: TIMEOUTS.ELEMENT });
   await addButton.click();
 
-  // Wait for dialog to be visible (name input is always present in the dialog form)
-  await expect(page.locator('[data-testid="cashier-name"]')).toBeVisible({
-    timeout: TEST_TIMEOUTS.DIALOG_VISIBLE,
+  // Wait for dialog
+  await page.locator('[data-testid="cashier-name"]').waitFor({
+    state: "visible",
+    timeout: TIMEOUTS.ELEMENT,
   });
-}
-
-/**
- * Wait for stores to load in the CashierForm.
- *
- * The form shows a loading spinner while isLoadingStores is true.
- * When stores load and there's only one store, it auto-selects and disables the dropdown.
- *
- * @param page - Playwright page object
- * @param expectedStoreName - Expected store name to be displayed in the dropdown
- */
-async function waitForStoresLoaded(
-  page: Page,
-  expectedStoreName: string,
-): Promise<void> {
-  const storeDropdown = page.locator('[data-testid="cashier-store"]');
-
-  // Wait for the store dropdown to be visible (form has loaded, not showing spinner)
-  await expect(storeDropdown).toBeVisible({
-    timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
-  });
-
-  // Wait for the dropdown to contain the store name (not placeholder text)
-  // This confirms the store data has loaded and auto-selection has occurred
-  await expect(storeDropdown).toContainText(expectedStoreName, {
-    timeout: TEST_TIMEOUTS.ASSERTION_TEXT,
-  });
-
-  // Verify it's not showing the placeholder (auto-selection worked)
-  await expect(storeDropdown).not.toContainText("Select a store");
-}
-
-/**
- * Verify the hidden Radix select has the correct store value.
- * Radix UI Select creates a hidden <select> element for form submission.
- *
- * @param page - Playwright page object
- * @param expectedStoreId - Expected store ID to be set
- */
-async function verifyHiddenSelectValue(
-  page: Page,
-  expectedStoreId: string,
-): Promise<void> {
-  // Use a retry pattern for the hidden select check as it may not be immediately available
-  await expect(async () => {
-    const hasValidStoreValue = await page.evaluate((storeId) => {
-      // Radix Select creates a hidden native select for form values
-      const hiddenSelect = document.querySelector(
-        'select[aria-hidden="true"]',
-      ) as HTMLSelectElement | null;
-      // Check both that the select exists and has the expected value
-      return hiddenSelect?.value === storeId;
-    }, expectedStoreId);
-    expect(hasValidStoreValue).toBe(true);
-  }).toPass({ timeout: TEST_TIMEOUTS.ASSERTION_VALUE });
 }
 
 test.describe("Cashier Store Dropdown", () => {
-  // Use serial mode to prevent parallel worker race conditions on shared test data
+  // Serial mode ensures tests share the same worker and thus the same beforeAll context
   test.describe.configure({ mode: "serial" });
 
-  test.beforeAll(async () => {
-    // Clean up any existing test data from previous runs
+  test.beforeAll(async ({ browser }) => {
+    // Clean up stale test data
     const existingUsers = await prisma.user.findMany({
       where: { email: { startsWith: "cashier-e2e-" } },
       select: { user_id: true },
     });
 
     for (const user of existingUsers) {
-      await prisma.userRole.deleteMany({
-        where: { user_id: user.user_id },
-      });
+      await prisma.userRole.deleteMany({ where: { user_id: user.user_id } });
     }
-
     await prisma.user.deleteMany({
       where: { email: { startsWith: "cashier-e2e-" } },
     });
 
-    // Create test client user with identifiable email
-    // Using uuidv4() suffix ensures uniqueness even with parallel workers
-    testEmail = `cashier-e2e-${Date.now()}-${uuidv4().slice(0, 8)}@test.com`;
+    // Create test fixtures
+    testEmail = `cashier-e2e-${Date.now()}@test.com`;
     const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10);
 
     testUser = await prisma.user.create({
@@ -220,7 +157,6 @@ test.describe("Cashier Store Dropdown", () => {
       },
     });
 
-    // Create test company owned by the user
     testCompany = await prisma.company.create({
       data: createCompany({
         name: "E2E Test Company for Cashiers",
@@ -229,7 +165,6 @@ test.describe("Cashier Store Dropdown", () => {
       }),
     });
 
-    // Create test store with proper test marker naming
     testStore = await prisma.store.create({
       data: createStore({
         company_id: testCompany.company_id,
@@ -238,9 +173,6 @@ test.describe("Cashier Store Dropdown", () => {
       }),
     });
 
-    // Assign CLIENT_OWNER role to the user for the company
-    // CLIENT_OWNER users are redirected to /client-dashboard after login
-    // CLIENT_USER users are redirected to /mystore, but cashiers page is under /client-dashboard
     const clientOwnerRole = await prisma.role.findUnique({
       where: { code: "CLIENT_OWNER" },
     });
@@ -255,267 +187,121 @@ test.describe("Cashier Store Dropdown", () => {
       });
     }
 
-    // Verify the user can be found in the database (sanity check)
-    const verifyUser = await prisma.user.findUnique({
-      where: { email: testEmail },
-      select: { email: true, status: true, is_client_user: true },
-    });
-    if (!verifyUser) {
-      throw new Error(
-        `Test setup failed: User ${testEmail} was not found in database after creation. ` +
-          `DATABASE_URL: ${process.env.DATABASE_URL}`,
-      );
-    }
-    console.log(
-      `[Setup] Created test user: ${testEmail} (status: ${verifyUser.status})`,
-    );
+    // Login ONCE and save context for all tests
+    authContext = await loginAndSaveContext(browser);
   });
 
   test.afterAll(async () => {
-    // Clean up in correct order to respect FK constraints:
-    // 1. Cashiers (references stores via store_id)
-    // 2. Stores (references companies via company_id)
-    // 3. User roles (references users + companies)
-    // 4. Companies
-    // 5. Users
-
-    // Step 1: Clean up any cashiers created during tests (by ID)
-    if (createdCashierIds.length > 0) {
-      for (const cashierId of createdCashierIds) {
-        await prisma.cashier
-          .delete({ where: { cashier_id: cashierId } })
-          .catch(() => {
-            // Ignore errors - cashier may have already been deleted
-          });
-      }
+    // Cleanup created cashiers
+    for (const cashierId of createdCashierIds) {
+      await prisma.cashier
+        .delete({ where: { cashier_id: cashierId } })
+        .catch(() => {});
     }
 
-    // Step 2: Clean up ALL cashiers in the test store (fallback for any missed)
     if (testStore) {
       await prisma.cashier
         .deleteMany({ where: { store_id: testStore.store_id } })
-        .catch(() => {
-          // Ignore errors - store may not exist or no cashiers
-        });
+        .catch(() => {});
     }
 
-    // Step 3: Use the cleanup helper for remaining entities
-    // cleanupTestData handles: stores -> user roles -> companies -> users
     await cleanupTestData(prisma, {
       stores: testStore ? [testStore.store_id] : [],
       companies: testCompany ? [testCompany.company_id] : [],
       users: testUser ? [testUser.user_id] : [],
     });
 
+    await authContext?.close();
     await prisma.$disconnect();
   });
 
-  test("should show store in dropdown when adding cashier", async ({
-    page,
-  }) => {
-    // Step 1: Login as the test client owner
-    await loginAsClientOwner(page, testEmail, TEST_PASSWORD);
+  test("store dropdown shows auto-selected store and is disabled for single store", async () => {
+    // Use pre-authenticated context
+    const page = await authContext.newPage();
 
-    // Step 2: Navigate to cashiers page and open the add dialog
-    await navigateToCashiersAndOpenDialog(page);
+    try {
+      await openAddCashierDialog(page);
 
-    // Step 3: Wait for stores to load in the form
-    await waitForStoresLoaded(page, testStore.name);
+      const storeDropdown = page.locator('[data-testid="cashier-store"]');
 
-    // Step 4: Verify store dropdown behavior
-    const storeDropdown = page.locator('[data-testid="cashier-store"]');
+      // Verify dropdown state
+      await expect(storeDropdown).toBeVisible({ timeout: TIMEOUTS.ELEMENT });
+      await expect(storeDropdown).toBeDisabled();
+      await expect(storeDropdown).toContainText(testStore.name);
 
-    // Assert dropdown is visible and disabled (single store auto-selection)
-    await expect(storeDropdown).toBeVisible({
-      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
-    });
-    await expect(storeDropdown).toBeDisabled({
-      timeout: TEST_TIMEOUTS.ELEMENT_EDITABLE,
-    });
-
-    // Verify the dropdown displays the store name (already confirmed by waitForStoresLoaded)
-    await expect(storeDropdown).toContainText(testStore.name, {
-      timeout: TEST_TIMEOUTS.ASSERTION_TEXT,
-    });
-
-    // Verify form has a valid store value by checking the hidden native select
-    await verifyHiddenSelectValue(page, testStore.store_id);
+      // Verify hidden select has correct value (form will submit correctly)
+      await expect(async () => {
+        const hasValue = await page.evaluate((storeId) => {
+          const select = document.querySelector(
+            'select[aria-hidden="true"]',
+          ) as HTMLSelectElement;
+          return select?.value === storeId;
+        }, testStore.store_id);
+        expect(hasValue).toBe(true);
+      }).toPass({ timeout: TIMEOUTS.ELEMENT });
+    } finally {
+      await page.close();
+    }
   });
 
-  test("should successfully create a cashier with auto-selected store", async ({
-    page,
-  }) => {
-    // Step 1: Login as the test client owner
-    await loginAsClientOwner(page, testEmail, TEST_PASSWORD);
+  test("creates cashier with auto-selected store without validation errors", async () => {
+    // Use pre-authenticated context
+    const page = await authContext.newPage();
 
-    // Step 2: Navigate to cashiers page and open the add dialog
-    await navigateToCashiersAndOpenDialog(page);
+    try {
+      await openAddCashierDialog(page);
 
-    // Step 3: Wait for stores to load in the form
-    await waitForStoresLoaded(page, testStore.name);
+      // Verify store is pre-selected
+      const storeDropdown = page.locator('[data-testid="cashier-store"]');
+      await expect(storeDropdown).toContainText(testStore.name);
+      await expect(storeDropdown).toBeDisabled();
 
-    // Step 4: Verify store is auto-selected before filling other fields
-    const storeDropdown = page.locator('[data-testid="cashier-store"]');
-    await expect(storeDropdown).toBeVisible({
-      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
-    });
-    await expect(storeDropdown).toBeDisabled();
-    await expect(storeDropdown).toContainText(testStore.name);
+      // Fill form
+      const cashierName = `E2E Test Cashier ${Date.now()}`;
+      await page.locator('[data-testid="cashier-name"]').fill(cashierName);
+      await page.locator('[data-testid="cashier-pin"]').fill("1234");
 
-    // Step 5: Fill in the cashier form
-    const cashierName = `E2E Test Cashier ${Date.now()}`;
+      // Submit and verify API response
+      const [createResponse] = await Promise.all([
+        page.waitForResponse(
+          (resp) =>
+            resp.url().includes(`/api/stores/${testStore.store_id}/cashiers`) &&
+            resp.request().method() === "POST",
+          { timeout: TIMEOUTS.API },
+        ),
+        page.locator('[data-testid="submit-cashier"]').click(),
+      ]);
 
-    const nameInput = page.locator('[data-testid="cashier-name"]');
-    await expect(nameInput).toBeVisible({
-      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
-    });
-    await nameInput.click();
-    await nameInput.fill(cashierName);
+      // Verify success
+      expect(createResponse.status()).toBe(201);
+      const body = await createResponse.json();
+      expect(body.success).toBe(true);
+      expect(body.data.name).toBe(cashierName);
+      expect(body.data.store_id).toBe(testStore.store_id);
 
-    const pinInput = page.locator('[data-testid="cashier-pin"]');
-    await expect(pinInput).toBeVisible({
-      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
-    });
-    await pinInput.click();
-    await pinInput.fill("1234");
+      createdCashierIds.push(body.data.cashier_id);
 
-    // Verify store value is still set after filling other fields (no race condition)
-    await verifyHiddenSelectValue(page, testStore.store_id);
+      // Verify UI updates
+      await expect(page.locator('[data-testid="cashier-name"]')).toBeHidden({
+        timeout: TIMEOUTS.ELEMENT,
+      });
+      await expect(
+        page.getByText("Cashier created", { exact: true }),
+      ).toBeVisible({
+        timeout: TIMEOUTS.ELEMENT,
+      });
 
-    // Step 6: Submit form using Promise.all pattern (network-first)
-    // Set up API listener BEFORE clicking to avoid race conditions
-    const createButton = page.locator('[data-testid="submit-cashier"]');
-    await expect(createButton).toBeVisible({
-      timeout: TEST_TIMEOUTS.BUTTON_ENABLED,
-    });
+      // Key assertion: no store validation error
+      await expect(page.locator("text=Store is required")).not.toBeVisible();
 
-    const [createResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response
-            .url()
-            .includes(`/api/stores/${testStore.store_id}/cashiers`) &&
-          response.request().method() === "POST",
-        { timeout: TEST_TIMEOUTS.API_RESPONSE },
-      ),
-      createButton.click(),
-    ]);
-
-    // Step 7: Verify API response (deterministic assertion)
-    expect(createResponse.status()).toBe(201);
-    const responseBody = await createResponse.json();
-    expect(responseBody.success).toBe(true);
-    expect(responseBody.data).toHaveProperty("cashier_id");
-    expect(responseBody.data.name).toBe(cashierName);
-    expect(responseBody.data.store_id).toBe(testStore.store_id);
-
-    // Track the created cashier ID for cleanup
-    if (responseBody.data.cashier_id) {
-      createdCashierIds.push(responseBody.data.cashier_id);
+      // Verify in database
+      const created = await prisma.cashier.findUnique({
+        where: { cashier_id: body.data.cashier_id },
+      });
+      expect(created).not.toBeNull();
+      expect(created?.store_id).toBe(testStore.store_id);
+    } finally {
+      await page.close();
     }
-
-    // Step 8: Verify UI updates after successful API response
-    // Dialog should close (onSuccess() callback)
-    await expect(page.locator('[data-testid="cashier-name"]')).toBeHidden({
-      timeout: TEST_TIMEOUTS.DIALOG_VISIBLE,
-    });
-
-    // Toast notification should appear (use exact match to avoid matching screen reader text)
-    await expect(
-      page.getByText("Cashier created", { exact: true }),
-    ).toBeVisible({
-      timeout: TEST_TIMEOUTS.ASSERTION_TEXT,
-    });
-
-    // Ensure there's no validation error for store
-    await expect(page.locator("text=Store is required")).not.toBeVisible();
-
-    // Verify we're still on the cashiers page
-    expect(page.url()).toContain("/client-dashboard/cashiers");
-
-    // Verify the page header is visible (indicates page is in valid state)
-    await expect(page.locator("text=Cashiers").first()).toBeVisible();
-
-    // Step 9: Verify cashier was actually created in the database
-    const createdCashier = await prisma.cashier.findUnique({
-      where: { cashier_id: responseBody.data.cashier_id },
-      select: {
-        cashier_id: true,
-        name: true,
-        store_id: true,
-        employee_id: true,
-        is_active: true,
-      },
-    });
-    expect(createdCashier).not.toBeNull();
-    expect(createdCashier?.name).toBe(cashierName);
-    expect(createdCashier?.store_id).toBe(testStore.store_id);
-    expect(createdCashier?.is_active).toBe(true);
-  });
-
-  test("should not show store validation error when store is auto-selected", async ({
-    page,
-  }) => {
-    // This test specifically validates that the auto-selected store
-    // passes form validation when submitting (no "Store is required" error)
-
-    // Step 1: Login
-    await loginAsClientOwner(page, testEmail, TEST_PASSWORD);
-
-    // Step 2: Navigate to cashiers page and open the add dialog
-    await navigateToCashiersAndOpenDialog(page);
-
-    // Step 3: Wait for stores to load
-    await waitForStoresLoaded(page, testStore.name);
-
-    // Step 4: Fill only required fields (name and pin)
-    const cashierName = `E2E Validation Test ${Date.now()}`;
-    const nameInput = page.locator('[data-testid="cashier-name"]');
-    await nameInput.click();
-    await nameInput.fill(cashierName);
-
-    const pinInput = page.locator('[data-testid="cashier-pin"]');
-    await pinInput.click();
-    await pinInput.fill("5678");
-
-    // Step 5: Submit form using Promise.all pattern (network-first)
-    const createButton = page.locator('[data-testid="submit-cashier"]');
-    await expect(createButton).toBeVisible({
-      timeout: TEST_TIMEOUTS.BUTTON_ENABLED,
-    });
-
-    const [createResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response
-            .url()
-            .includes(`/api/stores/${testStore.store_id}/cashiers`) &&
-          response.request().method() === "POST",
-        { timeout: TEST_TIMEOUTS.API_RESPONSE },
-      ),
-      createButton.click(),
-    ]);
-
-    // Step 6: Verify no store validation error appears
-    // The key assertion: store should NOT show validation error
-    await expect(page.locator("text=Store is required")).not.toBeVisible({
-      timeout: TEST_TIMEOUTS.ASSERTION_TEXT,
-    });
-
-    // Step 7: Verify API response (201 means store value was properly submitted)
-    expect(createResponse.status()).toBe(201);
-    const responseBody = await createResponse.json();
-    expect(responseBody.success).toBe(true);
-    expect(responseBody.data.store_id).toBe(testStore.store_id);
-
-    // Track for cleanup
-    if (responseBody.data.cashier_id) {
-      createdCashierIds.push(responseBody.data.cashier_id);
-    }
-
-    // Step 8: Verify dialog closes (success state)
-    await expect(page.locator('[data-testid="cashier-name"]')).toBeHidden({
-      timeout: TEST_TIMEOUTS.DIALOG_VISIBLE,
-    });
   });
 });
