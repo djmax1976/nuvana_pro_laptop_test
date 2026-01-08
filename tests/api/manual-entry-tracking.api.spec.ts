@@ -335,7 +335,7 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
     // THEN: Audit log includes entry method
     expect(response.status()).toBe(200);
 
-    // First, get the closing record to get the closing_id for filtering
+    // Verify the closing record was created
     const closingRecord = await prismaClient.lotteryShiftClosing.findFirst({
       where: {
         shift_id: shift.shift_id,
@@ -346,13 +346,15 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
 
     // AND: Audit log entry has entry_method field in new_values
     // The implementation uses action: "LOTTERY_SHIFT_CLOSING_CREATED" (not "CREATE")
+    // IMPORTANT: The implementation stores record_id as pack_id (not closing_id)
+    // because pack_id is the business-relevant identifier for lottery closings
     // Filter by user_id and record_id to ensure we get the correct audit log in parallel test runs
     const auditLog = await prismaClient.auditLog.findFirst({
       where: {
         table_name: "lottery_shift_closings",
         action: "LOTTERY_SHIFT_CLOSING_CREATED",
         user_id: clientUser.user_id,
-        record_id: closingRecord!.closing_id,
+        record_id: pack.pack_id, // Implementation uses pack_id as record_id
       },
       orderBy: {
         timestamp: "desc",

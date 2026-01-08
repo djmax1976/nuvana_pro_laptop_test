@@ -12,7 +12,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
-import { prisma } from "../utils/db";
+import { prisma, TRANSACTION_TIMEOUTS } from "../utils/db";
 import { shiftService } from "../services/shift.service";
 import { ShiftStatus, LotteryPackStatus } from "@prisma/client";
 import { closeLotteryForShift } from "../services/shift-closing.service";
@@ -651,79 +651,82 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
         }
 
         // Use Prisma transaction to ensure atomicity (all-or-nothing)
-        const result = await prisma.$transaction(async (tx) => {
-          // 1. Create LotteryBin record
-          const newBin = await tx.lotteryBin.create({
-            data: {
-              store_id: params.storeId,
-              name: body.bin_name,
-              location: body.location || null,
-              display_order: body.display_order,
-              is_active: true,
-            },
-            select: {
-              bin_id: true,
-              name: true,
-              location: true,
-              display_order: true,
-              is_active: true,
-            },
-          });
-
-          // 2. Update pack: status = ACTIVE, set current_bin_id, activated_at, activated_by, activated_shift_id
-          await tx.lotteryPack.update({
-            where: { pack_id: pack.pack_id },
-            data: {
-              status: LotteryPackStatus.ACTIVE,
-              current_bin_id: newBin.bin_id,
-              activated_at: new Date(),
-              activated_by: body.activated_by,
-              activated_shift_id: body.activated_shift_id || null,
-            },
-          });
-
-          // 3. Create LotteryShiftOpening record (only if activated_shift_id is provided)
-          if (body.activated_shift_id) {
-            await tx.lotteryShiftOpening.create({
+        const result = await prisma.$transaction(
+          async (tx) => {
+            // 1. Create LotteryBin record
+            const newBin = await tx.lotteryBin.create({
               data: {
-                shift_id: body.activated_shift_id,
-                pack_id: pack.pack_id,
-                opening_serial: body.serial_start,
-              },
-            });
-          }
-
-          // 4. Create LotteryPackBinHistory record
-          await tx.lotteryPackBinHistory.create({
-            data: {
-              pack_id: pack.pack_id,
-              bin_id: newBin.bin_id,
-              moved_by: body.activated_by,
-              reason: "Pack activated during bin creation",
-            },
-          });
-
-          // 5. Create AuditLog entry
-          await tx.auditLog.create({
-            data: {
-              user_id: body.activated_by,
-              action: "CREATE",
-              table_name: "lottery_bins",
-              record_id: newBin.bin_id,
-              new_values: {
-                bin_id: newBin.bin_id,
                 store_id: params.storeId,
                 name: body.bin_name,
-                location: body.location,
+                location: body.location || null,
                 display_order: body.display_order,
-                pack_id: pack.pack_id,
-                pack_number: body.pack_number,
+                is_active: true,
               },
-            },
-          });
+              select: {
+                bin_id: true,
+                name: true,
+                location: true,
+                display_order: true,
+                is_active: true,
+              },
+            });
 
-          return newBin;
-        });
+            // 2. Update pack: status = ACTIVE, set current_bin_id, activated_at, activated_by, activated_shift_id
+            await tx.lotteryPack.update({
+              where: { pack_id: pack.pack_id },
+              data: {
+                status: LotteryPackStatus.ACTIVE,
+                current_bin_id: newBin.bin_id,
+                activated_at: new Date(),
+                activated_by: body.activated_by,
+                activated_shift_id: body.activated_shift_id || null,
+              },
+            });
+
+            // 3. Create LotteryShiftOpening record (only if activated_shift_id is provided)
+            if (body.activated_shift_id) {
+              await tx.lotteryShiftOpening.create({
+                data: {
+                  shift_id: body.activated_shift_id,
+                  pack_id: pack.pack_id,
+                  opening_serial: body.serial_start,
+                },
+              });
+            }
+
+            // 4. Create LotteryPackBinHistory record
+            await tx.lotteryPackBinHistory.create({
+              data: {
+                pack_id: pack.pack_id,
+                bin_id: newBin.bin_id,
+                moved_by: body.activated_by,
+                reason: "Pack activated during bin creation",
+              },
+            });
+
+            // 5. Create AuditLog entry
+            await tx.auditLog.create({
+              data: {
+                user_id: body.activated_by,
+                action: "CREATE",
+                table_name: "lottery_bins",
+                record_id: newBin.bin_id,
+                new_values: {
+                  bin_id: newBin.bin_id,
+                  store_id: params.storeId,
+                  name: body.bin_name,
+                  location: body.location,
+                  display_order: body.display_order,
+                  pack_id: pack.pack_id,
+                  pack_number: body.pack_number,
+                },
+              },
+            });
+
+            return newBin;
+          },
+          { timeout: TRANSACTION_TIMEOUTS.STANDARD },
+        );
 
         return {
           success: true,
@@ -1379,251 +1382,254 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
         }
 
         // Use Prisma transaction to ensure atomicity (all-or-nothing)
-        const result = await prisma.$transaction(async (tx) => {
-          // 1. Check for previous pack in bin (if exists)
-          const previousPack = await tx.lotteryPack.findFirst({
-            where: {
-              current_bin_id: body.bin_id,
-              status: LotteryPackStatus.ACTIVE,
-            },
-            select: {
-              pack_id: true,
-              pack_number: true,
-              serial_start: true,
-              serial_end: true,
-              store_id: true,
-              game: {
-                select: {
-                  name: true,
-                  price: true,
-                  game_code: true,
-                  tickets_per_pack: true,
+        const result = await prisma.$transaction(
+          async (tx) => {
+            // 1. Check for previous pack in bin (if exists)
+            const previousPack = await tx.lotteryPack.findFirst({
+              where: {
+                current_bin_id: body.bin_id,
+                status: LotteryPackStatus.ACTIVE,
+              },
+              select: {
+                pack_id: true,
+                pack_number: true,
+                serial_start: true,
+                serial_end: true,
+                store_id: true,
+                game: {
+                  select: {
+                    name: true,
+                    price: true,
+                    game_code: true,
+                    tickets_per_pack: true,
+                  },
                 },
               },
-            },
-          });
+            });
 
-          // Track depleted pack info for response and UPC sync
-          let depletedPackInfo:
-            | {
-                pack_id: string;
-                pack_number: string;
-                game_name: string;
-                store_id: string;
-                game_code: string;
-                tickets_per_pack: number | null;
-                ticket_price: number;
-              }
-            | undefined;
+            // Track depleted pack info for response and UPC sync
+            let depletedPackInfo:
+              | {
+                  pack_id: string;
+                  pack_number: string;
+                  game_name: string;
+                  store_id: string;
+                  game_code: string;
+                  tickets_per_pack: number | null;
+                  ticket_price: number;
+                }
+              | undefined;
 
-          // 2. Update pack: status = ACTIVE (or DEPLETED if mark_as_depleted), set current_bin_id, activated_at, activated_by, activated_shift_id
-          // Also set serial override and mark sold approval fields if manager approved changes
-          // For pre-sold packs (mark_as_depleted=true), set status to DEPLETED immediately
-          const packStatus = body.mark_as_depleted
-            ? LotteryPackStatus.DEPLETED
-            : LotteryPackStatus.ACTIVE;
+            // 2. Update pack: status = ACTIVE (or DEPLETED if mark_as_depleted), set current_bin_id, activated_at, activated_by, activated_shift_id
+            // Also set serial override and mark sold approval fields if manager approved changes
+            // For pre-sold packs (mark_as_depleted=true), set status to DEPLETED immediately
+            const packStatus = body.mark_as_depleted
+              ? LotteryPackStatus.DEPLETED
+              : LotteryPackStatus.ACTIVE;
 
-          await tx.lotteryPack.update({
-            where: { pack_id: pack.pack_id },
-            data: {
-              status: packStatus,
-              current_bin_id: body.bin_id,
-              activated_at: new Date(),
-              activated_by: body.activated_by,
-              activated_shift_id: body.activated_shift_id || null, // null for manager override
-              // Serial override approval tracking (dual-auth)
-              serial_override_approved_by: serialOverrideApprovedBy,
-              serial_override_approved_at: serialOverrideApprovedAt,
-              serial_override_reason: body.serial_override_reason || null,
-              // Mark sold approval tracking (dual-auth for pre-sold packs)
-              mark_sold_approved_by: markSoldApprovedBy,
-              mark_sold_approved_at: markSoldApprovedAt,
-              mark_sold_reason: body.mark_sold_reason || null,
-              // If pre-sold pack, set depleted fields immediately
-              ...(body.mark_as_depleted && {
-                depleted_at: new Date(),
-                depleted_by: body.activated_by,
-                depleted_shift_id: body.activated_shift_id || null,
-                depletion_reason: "MANUAL_SOLD_OUT" as const,
-              }),
-            },
-          });
-
-          // 3. Handle previous pack in bin
-          if (previousPack) {
-            if (body.deplete_previous) {
-              // Auto-deplete the previous pack when activating new pack in same bin
-              // MCP: SEC-009 - Using transaction for atomicity
-              // NOTE: Preserve current_bin_id for historical reference in depleted packs list
-              // The new pack's activation already assigns it to the bin, so we don't need
-              // to clear the old pack's bin reference. This allows the sold-out list to
-              // show which bin the pack was in when it was depleted.
-              await tx.lotteryPack.update({
-                where: { pack_id: previousPack.pack_id },
-                data: {
-                  status: LotteryPackStatus.DEPLETED,
+            await tx.lotteryPack.update({
+              where: { pack_id: pack.pack_id },
+              data: {
+                status: packStatus,
+                current_bin_id: body.bin_id,
+                activated_at: new Date(),
+                activated_by: body.activated_by,
+                activated_shift_id: body.activated_shift_id || null, // null for manager override
+                // Serial override approval tracking (dual-auth)
+                serial_override_approved_by: serialOverrideApprovedBy,
+                serial_override_approved_at: serialOverrideApprovedAt,
+                serial_override_reason: body.serial_override_reason || null,
+                // Mark sold approval tracking (dual-auth for pre-sold packs)
+                mark_sold_approved_by: markSoldApprovedBy,
+                mark_sold_approved_at: markSoldApprovedAt,
+                mark_sold_reason: body.mark_sold_reason || null,
+                // If pre-sold pack, set depleted fields immediately
+                ...(body.mark_as_depleted && {
                   depleted_at: new Date(),
                   depleted_by: body.activated_by,
                   depleted_shift_id: body.activated_shift_id || null,
-                  depletion_reason: "AUTO_REPLACED",
-                  // current_bin_id intentionally NOT cleared - preserved for audit trail
-                },
-              });
+                  depletion_reason: "MANUAL_SOLD_OUT" as const,
+                }),
+              },
+            });
 
-              // Create closing record for depleted pack only if we have a shift
-              // Manager override (no shift) skips shift closing record
-              if (body.activated_shift_id) {
-                // Fetch cashier_id from the shift for direct cashier reference
-                const shift = await tx.shift.findUnique({
-                  where: { shift_id: body.activated_shift_id },
-                  select: { cashier_id: true },
-                });
-
-                await tx.lotteryShiftClosing.create({
+            // 3. Handle previous pack in bin
+            if (previousPack) {
+              if (body.deplete_previous) {
+                // Auto-deplete the previous pack when activating new pack in same bin
+                // MCP: SEC-009 - Using transaction for atomicity
+                // NOTE: Preserve current_bin_id for historical reference in depleted packs list
+                // The new pack's activation already assigns it to the bin, so we don't need
+                // to clear the old pack's bin reference. This allows the sold-out list to
+                // show which bin the pack was in when it was depleted.
+                await tx.lotteryPack.update({
+                  where: { pack_id: previousPack.pack_id },
                   data: {
-                    shift_id: body.activated_shift_id,
-                    pack_id: previousPack.pack_id,
-                    cashier_id: shift?.cashier_id || null, // Direct cashier reference
-                    closing_serial: previousPack.serial_end,
-                  },
-                });
-              }
-
-              // Create audit log for auto-depletion
-              // MCP: DB-008 - Structured audit logging with complete state tracking
-              await tx.auditLog.create({
-                data: {
-                  user_id: body.activated_by,
-                  action: "UPDATE",
-                  table_name: "lottery_packs",
-                  record_id: previousPack.pack_id,
-                  old_values: {
-                    status: LotteryPackStatus.ACTIVE,
-                    current_bin_id: body.bin_id,
-                  },
-                  new_values: {
                     status: LotteryPackStatus.DEPLETED,
-                    depleted_at: new Date().toISOString(),
+                    depleted_at: new Date(),
                     depleted_by: body.activated_by,
                     depleted_shift_id: body.activated_shift_id || null,
                     depletion_reason: "AUTO_REPLACED",
-                    current_bin_id: body.bin_id, // Preserved for historical reference
-                    auto_replaced_by_pack: pack.pack_id,
-                    manager_override: !body.activated_shift_id,
+                    // current_bin_id intentionally NOT cleared - preserved for audit trail
                   },
+                });
+
+                // Create closing record for depleted pack only if we have a shift
+                // Manager override (no shift) skips shift closing record
+                if (body.activated_shift_id) {
+                  // Fetch cashier_id from the shift for direct cashier reference
+                  const shift = await tx.shift.findUnique({
+                    where: { shift_id: body.activated_shift_id },
+                    select: { cashier_id: true },
+                  });
+
+                  await tx.lotteryShiftClosing.create({
+                    data: {
+                      shift_id: body.activated_shift_id,
+                      pack_id: previousPack.pack_id,
+                      cashier_id: shift?.cashier_id || null, // Direct cashier reference
+                      closing_serial: previousPack.serial_end,
+                    },
+                  });
+                }
+
+                // Create audit log for auto-depletion
+                // MCP: DB-008 - Structured audit logging with complete state tracking
+                await tx.auditLog.create({
+                  data: {
+                    user_id: body.activated_by,
+                    action: "UPDATE",
+                    table_name: "lottery_packs",
+                    record_id: previousPack.pack_id,
+                    old_values: {
+                      status: LotteryPackStatus.ACTIVE,
+                      current_bin_id: body.bin_id,
+                    },
+                    new_values: {
+                      status: LotteryPackStatus.DEPLETED,
+                      depleted_at: new Date().toISOString(),
+                      depleted_by: body.activated_by,
+                      depleted_shift_id: body.activated_shift_id || null,
+                      depletion_reason: "AUTO_REPLACED",
+                      current_bin_id: body.bin_id, // Preserved for historical reference
+                      auto_replaced_by_pack: pack.pack_id,
+                      manager_override: !body.activated_shift_id,
+                    },
+                  },
+                });
+
+                // Set depleted pack info for response and UPC sync
+                depletedPackInfo = {
+                  pack_id: previousPack.pack_id,
+                  pack_number: previousPack.pack_number,
+                  game_name: previousPack.game.name,
+                  store_id: previousPack.store_id,
+                  game_code: previousPack.game.game_code,
+                  tickets_per_pack: previousPack.game.tickets_per_pack,
+                  ticket_price: Number(previousPack.game.price),
+                };
+              }
+              // If deplete_previous is false/undefined, the previous pack remains ACTIVE
+              // but will be orphaned (no bin) - this is the legacy behavior for shift closing
+            }
+
+            // 4. Create LotteryShiftOpening record (only if we have a shift)
+            // Manager override (no shift) skips shift opening record
+            if (body.activated_shift_id) {
+              await tx.lotteryShiftOpening.create({
+                data: {
+                  shift_id: body.activated_shift_id,
+                  pack_id: pack.pack_id,
+                  opening_serial: body.serial_start,
                 },
               });
-
-              // Set depleted pack info for response and UPC sync
-              depletedPackInfo = {
-                pack_id: previousPack.pack_id,
-                pack_number: previousPack.pack_number,
-                game_name: previousPack.game.name,
-                store_id: previousPack.store_id,
-                game_code: previousPack.game.game_code,
-                tickets_per_pack: previousPack.game.tickets_per_pack,
-                ticket_price: Number(previousPack.game.price),
-              };
             }
-            // If deplete_previous is false/undefined, the previous pack remains ACTIVE
-            // but will be orphaned (no bin) - this is the legacy behavior for shift closing
-          }
 
-          // 4. Create LotteryShiftOpening record (only if we have a shift)
-          // Manager override (no shift) skips shift opening record
-          if (body.activated_shift_id) {
-            await tx.lotteryShiftOpening.create({
+            // 5. Create LotteryPackBinHistory record
+            await tx.lotteryPackBinHistory.create({
               data: {
-                shift_id: body.activated_shift_id,
                 pack_id: pack.pack_id,
-                opening_serial: body.serial_start,
+                bin_id: body.bin_id,
+                moved_by: body.activated_by,
+                reason: body.activated_shift_id
+                  ? "Pack activated during shift"
+                  : "Pack activated via manager override",
               },
             });
-          }
 
-          // 5. Create LotteryPackBinHistory record
-          await tx.lotteryPackBinHistory.create({
-            data: {
-              pack_id: pack.pack_id,
-              bin_id: body.bin_id,
-              moved_by: body.activated_by,
-              reason: body.activated_shift_id
-                ? "Pack activated during shift"
-                : "Pack activated via manager override",
-            },
-          });
-
-          // 6. Create AuditLog entry
-          await tx.auditLog.create({
-            data: {
-              user_id: body.activated_by,
-              action: "UPDATE",
-              table_name: "lottery_packs",
-              record_id: pack.pack_id,
-              old_values: {
-                status: LotteryPackStatus.RECEIVED,
-                current_bin_id: null,
-                activated_at: null,
-                activated_by: null,
-                activated_shift_id: null,
+            // 6. Create AuditLog entry
+            await tx.auditLog.create({
+              data: {
+                user_id: body.activated_by,
+                action: "UPDATE",
+                table_name: "lottery_packs",
+                record_id: pack.pack_id,
+                old_values: {
+                  status: LotteryPackStatus.RECEIVED,
+                  current_bin_id: null,
+                  activated_at: null,
+                  activated_by: null,
+                  activated_shift_id: null,
+                },
+                new_values: {
+                  status: LotteryPackStatus.ACTIVE,
+                  current_bin_id: body.bin_id,
+                  activated_at: new Date().toISOString(),
+                  activated_by: body.activated_by,
+                  activated_shift_id: body.activated_shift_id || null,
+                  pack_number: pack.pack_number,
+                  serial_start: body.serial_start,
+                  manager_override: !body.activated_shift_id,
+                  // Dual-auth: Track who approved the serial override
+                  serial_override_approved_by: serialOverrideApprovedBy,
+                  serial_override_approved_at: serialOverrideApprovedAt
+                    ? serialOverrideApprovedAt.toISOString()
+                    : null,
+                  serial_override_reason: body.serial_override_reason || null,
+                  // Dual-auth: Track who approved marking pack as pre-sold
+                  mark_sold_approved_by: markSoldApprovedBy,
+                  mark_sold_approved_at: markSoldApprovedAt
+                    ? markSoldApprovedAt.toISOString()
+                    : null,
+                  mark_sold_reason: body.mark_sold_reason || null,
+                },
               },
-              new_values: {
-                status: LotteryPackStatus.ACTIVE,
-                current_bin_id: body.bin_id,
-                activated_at: new Date().toISOString(),
-                activated_by: body.activated_by,
-                activated_shift_id: body.activated_shift_id || null,
+            });
+
+            // 7. Build updated bin with pack information
+            const updatedBin = {
+              bin_id: bin.bin_id,
+              bin_number: bin.display_order + 1, // display_order is 0-indexed, bin_number is 1-indexed
+              name: bin.name,
+              is_active: bin.is_active,
+              pack: {
+                pack_id: pack.pack_id,
+                game_name: pack.game.name,
+                game_price: pack.game.price.toNumber(),
+                starting_serial: body.serial_start,
+                serial_end: pack.serial_end,
                 pack_number: pack.pack_number,
-                serial_start: body.serial_start,
-                manager_override: !body.activated_shift_id,
-                // Dual-auth: Track who approved the serial override
-                serial_override_approved_by: serialOverrideApprovedBy,
-                serial_override_approved_at: serialOverrideApprovedAt
-                  ? serialOverrideApprovedAt.toISOString()
-                  : null,
-                serial_override_reason: body.serial_override_reason || null,
-                // Dual-auth: Track who approved marking pack as pre-sold
-                mark_sold_approved_by: markSoldApprovedBy,
-                mark_sold_approved_at: markSoldApprovedAt
-                  ? markSoldApprovedAt.toISOString()
-                  : null,
-                mark_sold_reason: body.mark_sold_reason || null,
               },
-            },
-          });
+            };
 
-          // 7. Build updated bin with pack information
-          const updatedBin = {
-            bin_id: bin.bin_id,
-            bin_number: bin.display_order + 1, // display_order is 0-indexed, bin_number is 1-indexed
-            name: bin.name,
-            is_active: bin.is_active,
-            pack: {
-              pack_id: pack.pack_id,
-              game_name: pack.game.name,
-              game_price: pack.game.price.toNumber(),
-              starting_serial: body.serial_start,
-              serial_end: pack.serial_end,
-              pack_number: pack.pack_number,
-            },
-          };
+            // 8. Build previous pack info if exists (not depleted - still in bin)
+            const previousPackInfo =
+              previousPack && !depletedPackInfo
+                ? {
+                    pack_id: previousPack.pack_id,
+                    game_name: previousPack.game.name,
+                    game_price: previousPack.game.price.toNumber(),
+                  }
+                : undefined;
 
-          // 8. Build previous pack info if exists (not depleted - still in bin)
-          const previousPackInfo =
-            previousPack && !depletedPackInfo
-              ? {
-                  pack_id: previousPack.pack_id,
-                  game_name: previousPack.game.name,
-                  game_price: previousPack.game.price.toNumber(),
-                }
-              : undefined;
-
-          return {
-            updatedBin,
-            previousPack: previousPackInfo,
-            depletedPack: depletedPackInfo, // New: info about auto-depleted pack
-          };
-        });
+            return {
+              updatedBin,
+              previousPack: previousPackInfo,
+              depletedPack: depletedPackInfo, // New: info about auto-depleted pack
+            };
+          },
+          { timeout: TRANSACTION_TIMEOUTS.STANDARD },
+        );
 
         // Trigger OPEN → ACTIVE transition on first pack activation
         // This is idempotent - if already ACTIVE, no change occurs

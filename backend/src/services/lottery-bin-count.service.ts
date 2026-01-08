@@ -17,7 +17,7 @@
  * - Reactivating bins: If increasing and soft-deleted bins exist, reactivate them first
  */
 
-import { prisma } from "../utils/db";
+import { prisma, TRANSACTION_TIMEOUTS } from "../utils/db";
 import {
   MIN_LOTTERY_BIN_COUNT,
   MAX_LOTTERY_BIN_COUNT,
@@ -141,137 +141,154 @@ export class LotteryBinCountService {
     }
 
     // Execute in transaction for atomicity
-    return await prisma.$transaction(async (tx) => {
-      // Get current store state
-      const store = await tx.store.findUnique({
-        where: { store_id: storeId },
-        select: {
-          store_id: true,
-          lottery_bin_count: true,
-        },
-      });
-
-      if (!store) {
-        throw new Error(`Store with ID ${storeId} not found`);
-      }
-
-      const previousCount = store.lottery_bin_count;
-
-      // Get all bins for this store (both active and inactive)
-      const allBins = await tx.lotteryBin.findMany({
-        where: { store_id: storeId },
-        include: {
-          packs: {
-            where: { status: "ACTIVE" },
-            select: { pack_id: true },
+    // Use longer timeout for bulk operations (creating up to 200 bins)
+    return await prisma.$transaction(
+      async (tx) => {
+        // Get current store state
+        const store = await tx.store.findUnique({
+          where: { store_id: storeId },
+          select: {
+            store_id: true,
+            lottery_bin_count: true,
           },
-        },
-        orderBy: { display_order: "asc" },
-      });
+        });
 
-      const activeBins = allBins.filter((b) => b.is_active);
-      const inactiveBins = allBins.filter((b) => !b.is_active);
-      const currentActiveCount = activeBins.length;
-
-      let binsCreated = 0;
-      let binsReactivated = 0;
-      let binsDeactivated = 0;
-      let binsWithPacksCount = 0;
-
-      if (newCount > currentActiveCount) {
-        // INCREASING: Need to add more bins
-        const binsToAdd = newCount - currentActiveCount;
-
-        // First, try to reactivate soft-deleted bins
-        const binsToReactivate = inactiveBins
-          .slice(0, binsToAdd)
-          .sort((a, b) => a.display_order - b.display_order);
-
-        for (const bin of binsToReactivate) {
-          await tx.lotteryBin.update({
-            where: { bin_id: bin.bin_id },
-            data: { is_active: true },
-          });
-          binsReactivated++;
+        if (!store) {
+          throw new Error(`Store with ID ${storeId} not found`);
         }
 
-        // If we still need more bins, create new ones
-        const remainingToCreate = binsToAdd - binsReactivated;
-        if (remainingToCreate > 0) {
-          // Find the highest display_order among all bins
-          const maxDisplayOrder =
-            allBins.length > 0
-              ? Math.max(...allBins.map((b) => b.display_order))
-              : -1;
+        const previousCount = store.lottery_bin_count;
 
-          // Create new bins starting from the next display_order
-          for (let i = 0; i < remainingToCreate; i++) {
-            const displayOrder = maxDisplayOrder + 1 + i;
-            await tx.lotteryBin.create({
-              data: {
-                store_id: storeId,
-                name: `Bin ${displayOrder + 1}`, // 1-indexed display name
-                display_order: displayOrder,
-                is_active: true,
-              },
+        // Get all bins for this store (both active and inactive)
+        const allBins = await tx.lotteryBin.findMany({
+          where: { store_id: storeId },
+          include: {
+            packs: {
+              where: { status: "ACTIVE" },
+              select: { pack_id: true },
+            },
+          },
+          orderBy: { display_order: "asc" },
+        });
+
+        const activeBins = allBins.filter((b) => b.is_active);
+        const inactiveBins = allBins.filter((b) => !b.is_active);
+        const currentActiveCount = activeBins.length;
+
+        let binsCreated = 0;
+        let binsReactivated = 0;
+        let binsDeactivated = 0;
+        let binsWithPacksCount = 0;
+
+        if (newCount > currentActiveCount) {
+          // INCREASING: Need to add more bins
+          const binsToAdd = newCount - currentActiveCount;
+
+          // First, try to reactivate soft-deleted bins using bulk update
+          const binsToReactivate = inactiveBins
+            .slice(0, binsToAdd)
+            .sort((a, b) => a.display_order - b.display_order);
+
+          if (binsToReactivate.length > 0) {
+            const binIdsToReactivate = binsToReactivate.map((b) => b.bin_id);
+            await tx.lotteryBin.updateMany({
+              where: { bin_id: { in: binIdsToReactivate } },
+              data: { is_active: true },
             });
-            binsCreated++;
-          }
-        }
-      } else if (newCount < currentActiveCount) {
-        // DECREASING: Need to remove bins
-        const binsToRemove = currentActiveCount - newCount;
-
-        // Sort active bins by display_order DESC (remove highest first)
-        const sortedActiveBins = [...activeBins].sort(
-          (a, b) => b.display_order - a.display_order,
-        );
-
-        // Try to deactivate bins starting from highest number
-        let removed = 0;
-        for (const bin of sortedActiveBins) {
-          if (removed >= binsToRemove) break;
-
-          // Check if bin has active packs
-          if (bin.packs.length > 0) {
-            binsWithPacksCount++;
-            continue; // Skip bins with active packs
+            binsReactivated = binsToReactivate.length;
           }
 
-          // Soft delete the bin
-          await tx.lotteryBin.update({
-            where: { bin_id: bin.bin_id },
-            data: { is_active: false },
-          });
-          binsDeactivated++;
-          removed++;
-        }
+          // If we still need more bins, create new ones using bulk insert
+          const remainingToCreate = binsToAdd - binsReactivated;
+          if (remainingToCreate > 0) {
+            // Find the highest display_order among all bins
+            const maxDisplayOrder =
+              allBins.length > 0
+                ? Math.max(...allBins.map((b) => b.display_order))
+                : -1;
 
-        // If we couldn't remove enough bins due to active packs, throw error
-        if (removed < binsToRemove) {
-          const cannotRemove = binsToRemove - removed;
-          throw new Error(
-            `Cannot reduce bin count: ${cannotRemove} bin(s) have active packs. ` +
-              `Remove or deplete the packs first, then try again.`,
+            // Prepare bin data for bulk creation
+            const binsToCreate = Array.from(
+              { length: remainingToCreate },
+              (_, i) => {
+                const displayOrder = maxDisplayOrder + 1 + i;
+                return {
+                  store_id: storeId,
+                  name: `Bin ${displayOrder + 1}`, // 1-indexed display name
+                  display_order: displayOrder,
+                  is_active: true,
+                };
+              },
+            );
+
+            // Bulk insert all bins at once (much faster than individual creates)
+            await tx.lotteryBin.createMany({
+              data: binsToCreate,
+            });
+            binsCreated = remainingToCreate;
+          }
+        } else if (newCount < currentActiveCount) {
+          // DECREASING: Need to remove bins
+          const binsToRemove = currentActiveCount - newCount;
+
+          // Sort active bins by display_order DESC (remove highest first)
+          const sortedActiveBins = [...activeBins].sort(
+            (a, b) => b.display_order - a.display_order,
           );
+
+          // Separate bins with and without packs
+          const emptyBinsToDeactivate: string[] = [];
+          for (const bin of sortedActiveBins) {
+            if (emptyBinsToDeactivate.length >= binsToRemove) break;
+
+            // Check if bin has active packs
+            if (bin.packs.length > 0) {
+              binsWithPacksCount++;
+              continue; // Skip bins with active packs
+            }
+
+            emptyBinsToDeactivate.push(bin.bin_id);
+          }
+
+          // If we couldn't find enough empty bins, throw error before making changes
+          if (emptyBinsToDeactivate.length < binsToRemove) {
+            const cannotRemove = binsToRemove - emptyBinsToDeactivate.length;
+            throw new Error(
+              `Cannot reduce bin count: ${cannotRemove} bin(s) have active packs. ` +
+                `Remove or deplete the packs first, then try again.`,
+            );
+          }
+
+          // Bulk deactivate all empty bins at once
+          if (emptyBinsToDeactivate.length > 0) {
+            await tx.lotteryBin.updateMany({
+              where: { bin_id: { in: emptyBinsToDeactivate } },
+              data: { is_active: false },
+            });
+            binsDeactivated = emptyBinsToDeactivate.length;
+          }
         }
-      }
 
-      // Update the store's lottery_bin_count
-      await tx.store.update({
-        where: { store_id: storeId },
-        data: { lottery_bin_count: newCount },
-      });
+        // Update the store's lottery_bin_count
+        await tx.store.update({
+          where: { store_id: storeId },
+          data: { lottery_bin_count: newCount },
+        });
 
-      return {
-        previous_count: previousCount,
-        new_count: newCount,
-        bins_created: binsCreated,
-        bins_reactivated: binsReactivated,
-        bins_deactivated: binsDeactivated,
-        bins_with_packs_count: binsWithPacksCount,
-      };
-    });
+        return {
+          previous_count: previousCount,
+          new_count: newCount,
+          bins_created: binsCreated,
+          bins_reactivated: binsReactivated,
+          bins_deactivated: binsDeactivated,
+          bins_with_packs_count: binsWithPacksCount,
+        };
+      },
+      {
+        // TRANSACTION_TIMEOUTS.BULK (120s) for bulk bin operations (up to 200 bins)
+        timeout: TRANSACTION_TIMEOUTS.BULK,
+      },
+    );
   }
 
   /**

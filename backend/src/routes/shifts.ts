@@ -452,6 +452,13 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                         store_name: { type: "string" },
                         cashier_name: { type: "string" },
                         opener_name: { type: "string" },
+                        // Business day association - links shift to its DaySummary
+                        // Required for shift-to-day grouping in DayShiftAccordion component
+                        day_summary_id: {
+                          type: "string",
+                          format: "uuid",
+                          nullable: true,
+                        },
                       },
                     },
                   },

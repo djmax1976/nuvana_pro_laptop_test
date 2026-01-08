@@ -159,9 +159,17 @@ async function createShiftWithDaySummary(
   );
 
   // Link the shift to the day summary
-  await prismaClient.shift.update({
+  const updatedShift = await prismaClient.shift.update({
     where: { shift_id: shift.shift_id },
     data: { day_summary_id: options.day_summary_id },
+    select: { shift_id: true, day_summary_id: true },
+  });
+
+  // Increment the day summary's shift_count so it displays correctly in the UI
+  // The DayShiftAccordion component uses shift_count to show "X shifts" label
+  await prismaClient.daySummary.update({
+    where: { day_summary_id: options.day_summary_id },
+    data: { shift_count: { increment: 1 } },
   });
 
   return {

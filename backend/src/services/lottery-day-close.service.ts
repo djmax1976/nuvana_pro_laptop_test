@@ -386,18 +386,45 @@ export async function prepareClose(
         );
       }
 
-      // Check for other open shifts (excluding current shift)
-      const openShifts = await tx.shift.findMany({
-        where: {
-          store_id: storeId,
-          status: "OPEN",
-          ...(options?.currentShiftId && {
-            shift_id: { not: options.currentShiftId },
-          }),
-        },
-        select: { shift_id: true, pos_terminal_id: true },
-      });
+      // ============================================================
+      // PHASE 4: QUERY PARALLELIZATION
+      // ============================================================
+      // DB-001: ORM_USAGE - Using Prisma ORM for all queries
+      // SEC-006: SQL_INJECTION - Parameterized queries via Prisma
+      // Performance: Run independent queries in parallel using Promise.all
+      // - Open shifts check: Independent, only depends on storeId
+      // - Pack validation: Independent, only depends on packIds and storeId
+      // These queries have NO data dependencies on each other
+      // ============================================================
+      const packIds = closings.map((c) => c.pack_id);
 
+      const [openShifts, packs] = await Promise.all([
+        // Query 1: Check for other open shifts (excluding current shift)
+        tx.shift.findMany({
+          where: {
+            store_id: storeId,
+            status: "OPEN",
+            ...(options?.currentShiftId && {
+              shift_id: { not: options.currentShiftId },
+            }),
+          },
+          select: { shift_id: true, pos_terminal_id: true },
+        }),
+        // Query 2: Validate all packs exist and are active in this store
+        tx.lotteryPack.findMany({
+          where: {
+            pack_id: { in: packIds },
+            store_id: storeId,
+            status: "ACTIVE",
+          },
+          include: {
+            game: { select: { name: true, price: true } },
+            bin: { select: { display_order: true } },
+          },
+        }),
+      ]);
+
+      // API-003: ERROR_HANDLING - Validate results after parallel queries
       if (openShifts.length > 0) {
         throw new DayCloseError(
           DAY_CLOSE_ERROR_CODES.SHIFTS_STILL_OPEN,
@@ -405,20 +432,6 @@ export async function prepareClose(
           { open_shift_count: openShifts.length },
         );
       }
-
-      // Validate all packs exist and are active in this store
-      const packIds = closings.map((c) => c.pack_id);
-      const packs = await tx.lotteryPack.findMany({
-        where: {
-          pack_id: { in: packIds },
-          store_id: storeId,
-          status: "ACTIVE",
-        },
-        include: {
-          game: { select: { name: true, price: true } },
-          bin: { select: { display_order: true } },
-        },
-      });
 
       if (packs.length !== packIds.length) {
         const foundPackIds = new Set(packs.map((p) => p.pack_id));
@@ -569,32 +582,44 @@ export async function commitClose(
   const result = await withRLSTransaction(
     rlsContext,
     async (tx) => {
-      // Get store to retrieve timezone (DB-006: tenant isolation)
-      const store = await tx.store.findUnique({
-        where: { store_id: storeId },
-        select: { store_id: true, timezone: true },
-      });
+      // ============================================================
+      // PHASE 4: QUERY PARALLELIZATION
+      // ============================================================
+      // DB-001: ORM_USAGE - Using Prisma ORM for all queries
+      // SEC-006: SQL_INJECTION - Parameterized queries via Prisma
+      // DB-006: TENANT_ISOLATION - Both queries scoped by store_id
+      // Performance: Run independent queries in parallel using Promise.all
+      // - Store lookup: Depends only on storeId
+      // - BusinessDay lookup: Depends only on storeId
+      // These queries have NO data dependencies on each other
+      // ============================================================
+      const [store, businessDay] = await Promise.all([
+        // Query 1: Get store to retrieve timezone
+        tx.store.findUnique({
+          where: { store_id: storeId },
+          select: { store_id: true, timezone: true },
+        }),
+        // Query 2: Find business day with PENDING_CLOSE status
+        // PHASE 3: Status-based lookup - find PENDING_CLOSE lottery day for commit
+        // NOTE: Calendar date lookup removed - status is now authoritative
+        tx.lotteryBusinessDay.findFirst({
+          where: {
+            store_id: storeId,
+            status: "PENDING_CLOSE", // commitClose only works on PENDING_CLOSE days
+          },
+          orderBy: {
+            pending_close_at: "desc", // Most recent pending close first
+          },
+        }),
+      ]);
 
+      // API-003: ERROR_HANDLING - Validate results after parallel queries
       if (!store) {
         throw new DayCloseError(
           DAY_CLOSE_ERROR_CODES.STORE_NOT_FOUND,
           "Store not found",
         );
       }
-
-      // Find business day with row-level locking via FOR UPDATE
-      // PHASE 3: Status-based lookup - find PENDING_CLOSE lottery day for commit
-      // NOTE: Calendar date lookup removed - status is now authoritative
-      // DB-006: TENANT_ISOLATION - Scoped by store_id
-      const businessDay = await tx.lotteryBusinessDay.findFirst({
-        where: {
-          store_id: storeId,
-          status: "PENDING_CLOSE", // commitClose only works on PENDING_CLOSE days
-        },
-        orderBy: {
-          pending_close_at: "desc", // Most recent pending close first
-        },
-      });
 
       if (!businessDay) {
         throw new DayCloseError(
@@ -815,7 +840,10 @@ export async function commitClose(
         packs_depleted: packsDepleted,
       };
     },
-    { timeout: TRANSACTION_TIMEOUTS.STANDARD },
+    // Phase 2.2: Use BULK timeout (120s) for day close with 50+ packs
+    // DB-001: ORM_USAGE - Extended timeout prevents transaction abort on large datasets
+    // API-003: ERROR_HANDLING - Prevents timeout errors during high-volume day closes
+    { timeout: TRANSACTION_TIMEOUTS.BULK },
   );
 
   // =========================================================================
@@ -1071,78 +1099,81 @@ export async function createNextBusinessDay(
 
   // Create both records atomically in a transaction
   // DB-001: ORM_USAGE - Using Prisma transaction for atomicity
-  const result = await prisma.$transaction(async (tx) => {
-    // STEP 1: Get or create DaySummary with OPEN status
-    // =========================================================================
-    // IMPORTANT: DaySummary has @@unique([store_id, business_date]) constraint
-    // If we close a day mid-day (e.g., 12:03 PM) and create a new day, BOTH days
-    // would have the same business_date (calendar date). We use upsert to:
-    // - Reuse existing OPEN day_summary if one exists for this date
-    // - Create new one only if none exists
-    // - Update status to OPEN if the existing one was CLOSED (edge case)
-    //
-    // This differs from lottery_business_days which had its unique constraint
-    // removed to support multiple lottery days per calendar date.
-    // =========================================================================
-    // DB-006: TENANT_ISOLATION - Scoped to store_id
-    const newDaySummary = await tx.daySummary.upsert({
-      where: {
-        store_id_business_date: {
+  const result = await prisma.$transaction(
+    async (tx) => {
+      // STEP 1: Get or create DaySummary with OPEN status
+      // =========================================================================
+      // IMPORTANT: DaySummary has @@unique([store_id, business_date]) constraint
+      // If we close a day mid-day (e.g., 12:03 PM) and create a new day, BOTH days
+      // would have the same business_date (calendar date). We use upsert to:
+      // - Reuse existing OPEN day_summary if one exists for this date
+      // - Create new one only if none exists
+      // - Update status to OPEN if the existing one was CLOSED (edge case)
+      //
+      // This differs from lottery_business_days which had its unique constraint
+      // removed to support multiple lottery days per calendar date.
+      // =========================================================================
+      // DB-006: TENANT_ISOLATION - Scoped to store_id
+      const newDaySummary = await tx.daySummary.upsert({
+        where: {
+          store_id_business_date: {
+            store_id: storeId,
+            business_date: newBusinessDate,
+          },
+        },
+        create: {
           store_id: storeId,
           business_date: newBusinessDate,
+          status: "OPEN",
+          // All numeric fields default to 0 in schema
         },
-      },
-      create: {
-        store_id: storeId,
-        business_date: newBusinessDate,
-        status: "OPEN",
-        // All numeric fields default to 0 in schema
-      },
-      update: {
-        // If an OPEN day_summary already exists for this date, just return it
-        // If a CLOSED day_summary exists, reset it to OPEN for the new business period
-        // This handles the case where day was closed and reopened on same calendar date
-        status: "OPEN",
-      },
-    });
-
-    // STEP 2: Create new LotteryBusinessDay with OPEN status, linked to DaySummary
-    // Unlike DaySummary, lottery_business_days can have multiple records per date
-    // (unique constraint was removed in migration 20260106100000)
-    // DB-006: TENANT_ISOLATION - Scoped to store_id
-    const newLotteryDay = await tx.lotteryBusinessDay.create({
-      data: {
-        store_id: storeId,
-        business_date: newBusinessDate,
-        status: "OPEN",
-        opened_at: closedAt, // Opens at the moment of previous day's close
-        opened_by: closedByUserId,
-        day_summary_id: newDaySummary.day_summary_id, // Link to DaySummary
-      },
-    });
-
-    // STEP 3: Link the CLOSED lottery day to its corresponding CLOSED day_summary
-    // This maintains the FK relationship for historical records
-    if (closedDaySummaryId) {
-      await tx.lotteryBusinessDay.updateMany({
-        where: {
-          store_id: storeId,
-          status: "CLOSED",
-          closed_at: closedAt,
-          day_summary_id: null, // Only update if not already linked
-        },
-        data: {
-          day_summary_id: closedDaySummaryId,
+        update: {
+          // If an OPEN day_summary already exists for this date, just return it
+          // If a CLOSED day_summary exists, reset it to OPEN for the new business period
+          // This handles the case where day was closed and reopened on same calendar date
+          status: "OPEN",
         },
       });
-    }
 
-    return {
-      lottery_day_id: newLotteryDay.day_id,
-      day_summary_id: newDaySummary.day_summary_id,
-      business_date: businessDateStr,
-    };
-  });
+      // STEP 2: Create new LotteryBusinessDay with OPEN status, linked to DaySummary
+      // Unlike DaySummary, lottery_business_days can have multiple records per date
+      // (unique constraint was removed in migration 20260106100000)
+      // DB-006: TENANT_ISOLATION - Scoped to store_id
+      const newLotteryDay = await tx.lotteryBusinessDay.create({
+        data: {
+          store_id: storeId,
+          business_date: newBusinessDate,
+          status: "OPEN",
+          opened_at: closedAt, // Opens at the moment of previous day's close
+          opened_by: closedByUserId,
+          day_summary_id: newDaySummary.day_summary_id, // Link to DaySummary
+        },
+      });
+
+      // STEP 3: Link the CLOSED lottery day to its corresponding CLOSED day_summary
+      // This maintains the FK relationship for historical records
+      if (closedDaySummaryId) {
+        await tx.lotteryBusinessDay.updateMany({
+          where: {
+            store_id: storeId,
+            status: "CLOSED",
+            closed_at: closedAt,
+            day_summary_id: null, // Only update if not already linked
+          },
+          data: {
+            day_summary_id: closedDaySummaryId,
+          },
+        });
+      }
+
+      return {
+        lottery_day_id: newLotteryDay.day_id,
+        day_summary_id: newDaySummary.day_summary_id,
+        business_date: businessDateStr,
+      };
+    },
+    { timeout: TRANSACTION_TIMEOUTS.STANDARD },
+  );
 
   // LM-001: LOGGING - Structured logging for observability
   console.info("[LotteryDayCloseService] Created next business day:", {

@@ -423,6 +423,155 @@ export async function lookupGameByCodeAndState(
 }
 
 /**
+ * Game lookup result with priority and scope information
+ *
+ * @enterprise-standards
+ * - DB-001: ORM_USAGE - All lookups via Prisma ORM
+ * - DB-006: TENANT_ISOLATION - Games scoped to state/store
+ */
+export interface BatchGameLookupResult {
+  game_id: string;
+  game_code: string;
+  name: string;
+  tickets_per_pack: number | null;
+  scope_type: GameScopeType;
+  state_id: string | null;
+  store_id: string | null;
+}
+
+/**
+ * Batch lookup games by codes with proper scope priority
+ *
+ * Performs a single database query to fetch all games matching the provided codes,
+ * then applies scope priority (STATE > STORE > GLOBAL) to return the best match
+ * for each game code.
+ *
+ * This function eliminates N+1 queries when processing batch pack receptions.
+ * Instead of N calls to lookupGameByCode, use one call to lookupGamesByCodesBatch.
+ *
+ * Scope Priority (highest to lowest):
+ * 1. STATE-scoped games (games tied to the store's state)
+ * 2. STORE-scoped games (games tied directly to the store)
+ * 3. GLOBAL games (legacy games with no state/store scope)
+ *
+ * @enterprise-standards
+ * - DB-001: ORM_USAGE - Uses Prisma ORM with parameterized queries
+ * - DB-006: TENANT_ISOLATION - Enforces state/store scoping
+ * - SEC-006: SQL_INJECTION - No raw SQL, all params bound via Prisma
+ * - API-003: ERROR_HANDLING - Returns Map (no throws), caller handles missing
+ *
+ * @param gameCodes - Array of 4-digit game codes to lookup
+ * @param storeId - Store ID for scope context
+ * @param stateId - Store's state ID for state-scoped lookups
+ * @returns Map of game_code -> game data (missing codes not in map)
+ *
+ * @example
+ * ```typescript
+ * const gameMap = await lookupGamesByCodesBatch(
+ *   ['0001', '0002', '0003'],
+ *   storeId,
+ *   stateId
+ * );
+ * const game = gameMap.get('0001'); // undefined if not found
+ * ```
+ */
+export async function lookupGamesByCodesBatch(
+  gameCodes: string[],
+  storeId: string,
+  stateId: string | null,
+): Promise<Map<string, BatchGameLookupResult>> {
+  // Input validation: filter to valid 4-digit codes only
+  const validCodes = Array.from(
+    new Set(gameCodes.filter((code) => /^\d{4}$/.test(code))),
+  );
+
+  if (validCodes.length === 0) {
+    return new Map();
+  }
+
+  // Single query to fetch ALL potential matches across all scopes
+  // Uses OR conditions to get state-scoped, store-scoped, and global games
+  const games = await prisma.lotteryGame.findMany({
+    where: {
+      game_code: { in: validCodes },
+      status: "ACTIVE",
+      OR: [
+        // State-scoped games (highest priority)
+        ...(stateId ? [{ state_id: stateId, store_id: null }] : []),
+        // Store-scoped games (medium priority)
+        { store_id: storeId, state_id: null },
+        // Global games (lowest priority, legacy)
+        { state_id: null, store_id: null },
+      ],
+    },
+    select: {
+      game_id: true,
+      game_code: true,
+      name: true,
+      tickets_per_pack: true,
+      state_id: true,
+      store_id: true,
+    },
+  });
+
+  // Build result map with scope priority
+  // Process in reverse priority order so higher priority overwrites lower
+  const resultMap = new Map<string, BatchGameLookupResult>();
+
+  // Pass 1: Add GLOBAL games (lowest priority)
+  for (const game of games) {
+    if (game.state_id === null && game.store_id === null) {
+      resultMap.set(game.game_code, {
+        game_id: game.game_id,
+        game_code: game.game_code,
+        name: game.name,
+        tickets_per_pack: game.tickets_per_pack,
+        scope_type: "GLOBAL",
+        state_id: null,
+        store_id: null,
+      });
+    }
+  }
+
+  // Pass 2: Add STORE games (medium priority, overwrites GLOBAL)
+  for (const game of games) {
+    if (game.store_id === storeId && game.state_id === null) {
+      resultMap.set(game.game_code, {
+        game_id: game.game_id,
+        game_code: game.game_code,
+        name: game.name,
+        tickets_per_pack: game.tickets_per_pack,
+        scope_type: "STORE",
+        state_id: null,
+        store_id: game.store_id,
+      });
+    }
+  }
+
+  // Pass 3: Add STATE games (highest priority, overwrites STORE/GLOBAL)
+  // IMPORTANT: Only process if stateId is provided (non-null)
+  // This prevents global games (state_id=null, store_id=null) from being
+  // incorrectly classified as "state" games when stateId parameter is null
+  if (stateId) {
+    for (const game of games) {
+      if (game.state_id === stateId && game.store_id === null) {
+        resultMap.set(game.game_code, {
+          game_id: game.game_id,
+          game_code: game.game_code,
+          name: game.name,
+          tickets_per_pack: game.tickets_per_pack,
+          scope_type: "STATE",
+          state_id: game.state_id,
+          store_id: null,
+        });
+      }
+    }
+  }
+
+  return resultMap;
+}
+
+/**
  * Move pack between bins
  * Story 6.13: Lottery Database Enhancements & Bin Management (AC #5)
  *

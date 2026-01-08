@@ -12,19 +12,23 @@
  * - Uses React Query for data fetching with proper loading/error states
  * - Supports empty state when no bins exist
  * - Includes test IDs for testing
+ * - Uses centralized timezone management via useDateFormat hook
  *
  * MCP Enterprise Best Practices Applied:
+ * - FE-001: STATE_MANAGEMENT - Centralized timezone from StoreContext via useDateFormat
+ * - FE-002: FORM_VALIDATION - Strict type checking on props and UUID validation
+ * - SEC-004: XSS - React auto-escapes all output, no dangerouslySetInnerHTML
+ * - SEC-014: INPUT_VALIDATION - Type-safe props with TypeScript interfaces
+ * - API-003: ERROR_HANDLING - Graceful degradation with safe fallbacks
  * - Proper TypeScript types with JSDoc comments
  * - Error handling with user-friendly messages
  * - Accessibility attributes (ARIA labels, semantic HTML)
- * - Security: XSS prevention via React's automatic escaping
- * - Input validation before API calls
  * - Optimistic UI updates with rollback on error
  *
  * Story 6.13: Lottery Database Enhancements & Bin Management
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Loader2, Trash2 } from "lucide-react";
 import {
@@ -48,6 +52,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { deleteBin } from "@/lib/api/lottery";
+import { useDateFormat } from "@/hooks/useDateFormat";
 
 /**
  * Bin data structure from API
@@ -152,22 +157,56 @@ async function fetchBins(storeId: string): Promise<BinItem[]> {
 }
 
 /**
- * Format date for display
- * @param dateString - ISO date string
- * @returns Formatted date string or "N/A"
+ * Create a timezone-aware date formatter for activation dates
+ * Returns a function that formats ISO date strings using the store's timezone
+ *
+ * MCP Guidance Applied:
+ * - FE-001: STATE_MANAGEMENT - Uses centralized timezone from StoreContext
+ * - SEC-014: INPUT_VALIDATION - Validates input before processing
+ * - API-003: ERROR_HANDLING - Returns safe fallback on error
+ * - SEC-004: XSS - Only uses safe formatting methods, no HTML injection possible
+ *
+ * @param formatDate - Format function from useDateFormat hook
+ * @returns Formatter function for ISO date strings
  */
-function formatActivationDate(dateString?: string | null): string {
-  if (!dateString) return "N/A";
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return "N/A";
-  }
+function createActivationDateFormatter(
+  formatDate: (date: Date | string) => string,
+): (dateString?: string | null) => string {
+  return (dateString?: string | null): string => {
+    // Input validation - check for null/undefined/empty
+    if (!dateString || typeof dateString !== "string") {
+      return "N/A";
+    }
+
+    // Trim whitespace to prevent parsing issues
+    const trimmedInput = dateString.trim();
+    if (trimmedInput.length === 0) {
+      return "N/A";
+    }
+
+    try {
+      const dateObj = new Date(trimmedInput);
+
+      // Validate date is valid (not NaN)
+      // Using Number.isNaN for strict NaN check (SEC-014)
+      if (Number.isNaN(dateObj.getTime())) {
+        return "N/A";
+      }
+
+      // Validate date is within reasonable range (not year 0 or far future)
+      const year = dateObj.getFullYear();
+      if (year < 2000 || year > 2100) {
+        return "N/A";
+      }
+
+      // Use store timezone for formatting via useDateFormat hook
+      return formatDate(trimmedInput);
+    } catch {
+      // Catch any parsing errors and return safe fallback
+      // MCP: API-003 ERROR_HANDLING - Graceful degradation
+      return "N/A";
+    }
+  };
 }
 
 /**
@@ -193,6 +232,19 @@ const INITIAL_DELETE_DIALOG_STATE: DeleteDialogState = {
 export function BinListDisplay({ storeId, onDataLoaded }: BinListDisplayProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  // ========================================================================
+  // TIMEZONE-AWARE DATE FORMATTING
+  // MCP: FE-001 STATE_MANAGEMENT - Centralized timezone from StoreContext
+  // ========================================================================
+  const { formatDate } = useDateFormat();
+
+  // Create memoized date formatter with store timezone
+  // MCP: FE-001 STATE_MANAGEMENT - Memoized formatter for performance
+  const formatActivationDate = useMemo(
+    () => createActivationDateFormatter(formatDate),
+    [formatDate],
+  );
 
   // Delete confirmation dialog state
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>(

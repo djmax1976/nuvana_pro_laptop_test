@@ -7,6 +7,11 @@
  *
  * Story: 6.10 - Lottery Management UI
  * AC #4: View pack details (serial range, tickets remaining, status, game, bin, activation timestamp)
+ *
+ * MCP Guidance Applied:
+ * - FE-001: STATE_MANAGEMENT - Uses centralized timezone from StoreContext
+ * - FE-005: UI_SECURITY - No secrets exposed; only pack metadata displayed
+ * - SEC-004: XSS - React auto-escapes all text content
  */
 
 import {
@@ -28,8 +33,8 @@ import {
   getPackStatusBadgeVariant,
   getPackStatusText,
 } from "./pack-status-badge";
-import { format } from "date-fns";
 import { Loader2, Package, Calendar, MapPin } from "lucide-react";
+import { useDateFormat } from "@/hooks/useDateFormat";
 
 export type PackStatus = "RECEIVED" | "ACTIVE" | "DEPLETED" | "RETURNED";
 
@@ -93,6 +98,14 @@ interface PackDetailsModalProps {
 
 /**
  * Calculate tickets remaining from serial range
+ *
+ * @param serialStart - Starting serial number
+ * @param serialEnd - Ending serial number
+ * @param providedRemaining - Optional pre-calculated remaining count
+ * @returns Number of tickets remaining
+ *
+ * MCP Guidance Applied:
+ * - SEC-014: INPUT_VALIDATION - Validates numeric input before calculation
  */
 function calculateTicketsRemaining(
   serialStart: string,
@@ -111,21 +124,13 @@ function calculateTicketsRemaining(
 }
 
 /**
- * Format timestamp for display
- */
-function formatTimestamp(timestamp: string | null | undefined): string {
-  if (!timestamp) return "—";
-  try {
-    const date = new Date(timestamp);
-    return format(date, "MMM dd, yyyy HH:mm:ss");
-  } catch {
-    return timestamp;
-  }
-}
-
-/**
  * PackDetailsModal component
  * Modal dialog displaying comprehensive pack details
+ *
+ * MCP Guidance Applied:
+ * - FE-001: STATE_MANAGEMENT - Uses useDateFormat hook for centralized timezone
+ * - FE-005: UI_SECURITY - No secrets exposed; only pack metadata displayed
+ * - SEC-004: XSS - React auto-escapes all text content
  */
 export function PackDetailsModal({
   pack,
@@ -133,6 +138,35 @@ export function PackDetailsModal({
   onOpenChange,
   isLoading = false,
 }: PackDetailsModalProps) {
+  /**
+   * Use centralized date formatting with store timezone
+   * This ensures all timestamps display in the store's local time
+   *
+   * MCP Guidance Applied:
+   * - FE-001: STATE_MANAGEMENT - Centralized timezone from StoreContext
+   */
+  const { formatDateTime } = useDateFormat();
+
+  /**
+   * Format timestamp for display using store timezone
+   * Returns em-dash for null/undefined values
+   *
+   * @param timestamp - ISO 8601 timestamp string or null/undefined
+   * @returns Formatted timestamp string in store timezone
+   *
+   * MCP Guidance Applied:
+   * - SEC-014: INPUT_VALIDATION - Handles null/undefined gracefully
+   */
+  const formatTimestamp = (timestamp: string | null | undefined): string => {
+    if (!timestamp) return "—";
+    try {
+      return formatDateTime(timestamp);
+    } catch {
+      // Fallback for malformed timestamps - return original for debugging
+      return timestamp;
+    }
+  };
+
   if (!pack && !isLoading) {
     return null;
   }

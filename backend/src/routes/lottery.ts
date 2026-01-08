@@ -2,15 +2,16 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
-import { prisma } from "../utils/db";
+import { prisma, withRLSTransaction, TRANSACTION_TIMEOUTS } from "../utils/db";
 import { rbacService } from "../services/rbac.service";
 import {
   parseSerializedNumber,
   InvalidSerialNumberError,
 } from "../utils/lottery-serial-parser";
 import {
-  lookupGameByCode,
+  lookupGamesByCodesBatch,
   movePackBetweenBins,
+  type BatchGameLookupResult,
 } from "../services/lottery.service";
 import {
   validateBinTemplate,
@@ -633,93 +634,112 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           }
         }
 
-        // Create pack in transaction to ensure atomicity
-        const pack = await prisma.$transaction(async (tx) => {
-          // Check for duplicate pack_number for this store
-          const existingPack = await tx.lotteryPack.findUnique({
-            where: {
-              store_id_pack_number: {
-                store_id: storeId,
-                pack_number: normalizedPackNumber,
-              },
-            },
-          });
+        // Build RLS context with user's store access for tenant isolation
+        // DB-006: TENANT_ISOLATION - Propagate tenant context from authentication
+        // SEC-006: SQL_INJECTION - All operations use Prisma ORM with parameterized queries
+        const rlsContext = {
+          userId: user.id,
+          storeIds: userRoles
+            .filter((r) => r.scope === "STORE" && r.store_id)
+            .map((r) => r.store_id as string),
+          companyIds: userRoles
+            .filter((r) => r.scope === "COMPANY" && r.company_id)
+            .map((r) => r.company_id as string),
+          isAdmin: userRoles.some((r) => r.scope === "SYSTEM"),
+        };
 
-          if (existingPack) {
-            throw new Error("DUPLICATE_PACK_NUMBER");
-          }
-
-          // Create LotteryPack record with status RECEIVED
-          const newPack = await tx.lotteryPack.create({
-            data: {
-              game_id: body.game_id,
-              store_id: storeId,
-              pack_number: normalizedPackNumber,
-              serial_start: normalizedSerialStart,
-              serial_end: normalizedSerialEnd,
-              status: "RECEIVED",
-              current_bin_id: body.bin_id || null,
-              received_at: new Date(),
-            },
-            include: {
-              game: {
-                select: {
-                  game_id: true,
-                  name: true,
+        // Create pack in RLS-enforced transaction to ensure atomicity and tenant isolation
+        // Phase 5: RLS Consistency - withRLSTransaction sets PostgreSQL session variables
+        const pack = await withRLSTransaction(
+          rlsContext,
+          async (tx) => {
+            // Check for duplicate pack_number for this store
+            const existingPack = await tx.lotteryPack.findUnique({
+              where: {
+                store_id_pack_number: {
+                  store_id: storeId,
+                  pack_number: normalizedPackNumber,
                 },
-              },
-              store: {
-                select: {
-                  store_id: true,
-                  name: true,
-                },
-              },
-              bin: body.bin_id
-                ? {
-                    select: {
-                      bin_id: true,
-                      name: true,
-                      location: true,
-                    },
-                  }
-                : false,
-            },
-          });
-
-          // Create audit log entry (non-blocking - don't fail if audit fails)
-          try {
-            await tx.auditLog.create({
-              data: {
-                user_id: user.id,
-                action: "PACK_RECEIVED",
-                table_name: "lottery_packs",
-                record_id: newPack.pack_id,
-                new_values: {
-                  pack_id: newPack.pack_id,
-                  game_id: newPack.game_id,
-                  store_id: newPack.store_id,
-                  pack_number: newPack.pack_number,
-                  serial_start: newPack.serial_start,
-                  serial_end: newPack.serial_end,
-                  status: newPack.status,
-                  current_bin_id: newPack.current_bin_id,
-                  received_at: newPack.received_at?.toISOString(),
-                } as Record<string, any>,
-                ip_address: ipAddress,
-                user_agent: userAgent,
-                reason: `Lottery pack received by ${user.email} (roles: ${user.roles.join(", ")}) - Pack #${normalizedPackNumber}`,
               },
             });
-          } catch (auditError) {
-            // Log the audit failure but don't fail the pack creation
-            fastify.log.error(
-              { error: auditError },
-              "Failed to create audit log for pack reception",
-            );
-          }
 
-          return newPack;
-        });
+            if (existingPack) {
+              throw new Error("DUPLICATE_PACK_NUMBER");
+            }
+
+            // Create LotteryPack record with status RECEIVED
+            const newPack = await tx.lotteryPack.create({
+              data: {
+                game_id: body.game_id,
+                store_id: storeId,
+                pack_number: normalizedPackNumber,
+                serial_start: normalizedSerialStart,
+                serial_end: normalizedSerialEnd,
+                status: "RECEIVED",
+                current_bin_id: body.bin_id || null,
+                received_at: new Date(),
+              },
+              include: {
+                game: {
+                  select: {
+                    game_id: true,
+                    name: true,
+                  },
+                },
+                store: {
+                  select: {
+                    store_id: true,
+                    name: true,
+                  },
+                },
+                bin: body.bin_id
+                  ? {
+                      select: {
+                        bin_id: true,
+                        name: true,
+                        location: true,
+                      },
+                    }
+                  : false,
+              },
+            });
+
+            // Create audit log entry (non-blocking - don't fail if audit fails)
+            try {
+              await tx.auditLog.create({
+                data: {
+                  user_id: user.id,
+                  action: "PACK_RECEIVED",
+                  table_name: "lottery_packs",
+                  record_id: newPack.pack_id,
+                  new_values: {
+                    pack_id: newPack.pack_id,
+                    game_id: newPack.game_id,
+                    store_id: newPack.store_id,
+                    pack_number: newPack.pack_number,
+                    serial_start: newPack.serial_start,
+                    serial_end: newPack.serial_end,
+                    status: newPack.status,
+                    current_bin_id: newPack.current_bin_id,
+                    received_at: newPack.received_at?.toISOString(),
+                  } as Record<string, any>,
+                  ip_address: ipAddress,
+                  user_agent: userAgent,
+                  reason: `Lottery pack received by ${user.email} (roles: ${user.roles.join(", ")}) - Pack #${normalizedPackNumber}`,
+                },
+              });
+            } catch (auditError) {
+              // Log the audit failure but don't fail the pack creation
+              fastify.log.error(
+                { error: auditError },
+                "Failed to create audit log for pack reception",
+              );
+            }
+
+            return newPack;
+          },
+          { timeout: TRANSACTION_TIMEOUTS.STANDARD },
+        );
 
         reply.code(201);
         return {
@@ -1091,10 +1111,15 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           storeId = defaultStoreId;
         }
 
-        // Validate store exists and get company_id for access check
+        // Validate store exists and get company_id + state_id for access check and game lookup
         const store = await prisma.store.findUnique({
           where: { store_id: storeId },
-          select: { store_id: true, name: true, company_id: true },
+          select: {
+            store_id: true,
+            name: true,
+            company_id: true,
+            state_id: true,
+          },
         });
 
         if (!store) {
@@ -1121,203 +1146,306 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Process batch in transaction for atomicity
-        const result = await prisma.$transaction(
+        /**
+         * ENTERPRISE-GRADE BATCH PACK RECEPTION
+         *
+         * @enterprise-standards
+         * - DB-001: ORM_USAGE - All database operations via Prisma ORM
+         * - DB-006: TENANT_ISOLATION - Store-scoped queries enforced
+         * - SEC-006: SQL_INJECTION - Parameterized queries via Prisma
+         * - API-003: ERROR_HANDLING - Centralized error handling with safe messages
+         *
+         * Performance Optimization:
+         * - Single batch query for all game lookups (eliminates N+1)
+         * - Single batch query for duplicate detection (eliminates N+1)
+         * - Bulk createMany for packs and audit logs
+         * - Target: 100 packs in <2 seconds (was 8-15 seconds)
+         */
+
+        // ============================================================
+        // PHASE 1: Parse all serial numbers (CPU-bound, no DB calls)
+        // ============================================================
+        interface ParsedSerial {
+          serial: string;
+          game_code: string;
+          pack_number: string;
+          serial_start: string;
+        }
+
+        const parsedSerials: ParsedSerial[] = [];
+        const parseErrors: Array<{ serial: string; error: string }> = [];
+        const batchDuplicates: string[] = [];
+        const seenPackNumbers = new Set<string>();
+
+        for (const serial of body.serialized_numbers) {
+          try {
+            const parsed = parseSerializedNumber(serial);
+
+            // Check for duplicates within this batch
+            const packKey = `${storeId}:${parsed.pack_number}`;
+            if (seenPackNumbers.has(packKey)) {
+              batchDuplicates.push(serial);
+              continue;
+            }
+            seenPackNumbers.add(packKey);
+
+            parsedSerials.push({
+              serial,
+              game_code: parsed.game_code,
+              pack_number: parsed.pack_number,
+              serial_start: parsed.serial_start,
+            });
+          } catch (parseError) {
+            if (parseError instanceof InvalidSerialNumberError) {
+              parseErrors.push({ serial, error: parseError.message });
+            } else {
+              parseErrors.push({
+                serial,
+                error: "Unexpected error parsing serial number",
+              });
+            }
+          }
+        }
+
+        // If all serials failed parsing, return early
+        if (parsedSerials.length === 0) {
+          reply.code(200);
+          return {
+            success: true,
+            data: {
+              created: [],
+              duplicates: batchDuplicates,
+              errors: parseErrors,
+              games_not_found: [],
+            },
+          };
+        }
+
+        // ============================================================
+        // PHASE 2: Batch game lookup (SINGLE DB QUERY)
+        // ============================================================
+        const uniqueGameCodes = [
+          ...new Set(parsedSerials.map((p) => p.game_code)),
+        ];
+        const gameMap = await lookupGamesByCodesBatch(
+          uniqueGameCodes,
+          store.store_id,
+          store.state_id,
+        );
+
+        // Separate serials with valid games from those without
+        const gamesNotFound: Array<{
+          serial: string;
+          game_code: string;
+          pack_number: string;
+          serial_start: string;
+        }> = [];
+        const serialsWithGames: Array<
+          ParsedSerial & { game: BatchGameLookupResult }
+        > = [];
+
+        for (const parsed of parsedSerials) {
+          const game = gameMap.get(parsed.game_code);
+          if (!game) {
+            gamesNotFound.push({
+              serial: parsed.serial,
+              game_code: parsed.game_code,
+              pack_number: parsed.pack_number,
+              serial_start: parsed.serial_start,
+            });
+          } else {
+            serialsWithGames.push({ ...parsed, game });
+          }
+        }
+
+        // If no valid games found, return early
+        if (serialsWithGames.length === 0) {
+          reply.code(200);
+          return {
+            success: true,
+            data: {
+              created: [],
+              duplicates: batchDuplicates,
+              errors: parseErrors,
+              games_not_found: gamesNotFound,
+            },
+          };
+        }
+
+        // ============================================================
+        // PHASE 3: Transaction with bulk operations
+        // ============================================================
+        const result = await withRLSTransaction(
+          user.id,
           async (tx) => {
-            const created: any[] = [];
-            const duplicates: string[] = [];
-            const errors: Array<{ serial: string; error: string }> = [];
-            const gamesNotFound: Array<{
-              serial: string;
-              game_code: string;
-              pack_number: string;
-              serial_start: string;
-            }> = [];
+            // STEP 3.1: Batch check for existing packs (SINGLE DB QUERY)
+            const packNumbersToCheck = serialsWithGames.map(
+              (s) => s.pack_number,
+            );
+            const existingPacks = await tx.lotteryPack.findMany({
+              where: {
+                store_id: storeId,
+                pack_number: { in: packNumbersToCheck },
+              },
+              select: { pack_number: true },
+            });
+            const existingPackNumbers = new Set(
+              existingPacks.map((p) => p.pack_number),
+            );
 
-            // Track seen pack numbers in this batch to detect duplicates within batch
-            const seenPackNumbers = new Set<string>();
+            // Filter out duplicates from database
+            const dbDuplicates: string[] = [];
+            const packsToCreate: Array<
+              ParsedSerial & { game: BatchGameLookupResult }
+            > = [];
 
-            // Process each serialized number
-            for (const serial of body.serialized_numbers) {
-              try {
-                // Parse serial number
-                let parsed;
-                try {
-                  parsed = parseSerializedNumber(serial);
-                } catch (parseError) {
-                  if (parseError instanceof InvalidSerialNumberError) {
-                    errors.push({
-                      serial,
-                      error: parseError.message,
-                    });
-                    continue;
-                  }
-                  throw parseError;
-                }
-
-                // Check for duplicate pack numbers within this batch
-                const packKey = `${storeId}:${parsed.pack_number}`;
-                if (seenPackNumbers.has(packKey)) {
-                  duplicates.push(serial);
-                  continue;
-                }
-                seenPackNumbers.add(packKey);
-
-                // Lookup game by game code with company scoping
-                // First looks for store-scoped game, falls back to global game
-                let game;
-                try {
-                  game = await lookupGameByCode(
-                    parsed.game_code,
-                    store.store_id,
-                  );
-                } catch (lookupError: any) {
-                  // Track games not found separately for frontend to handle
-                  gamesNotFound.push({
-                    serial,
-                    game_code: parsed.game_code,
-                    pack_number: parsed.pack_number,
-                    serial_start: parsed.serial_start,
-                  });
-                  continue;
-                }
-
-                // Check for duplicate pack_number in database (per store)
-                const existingPack = await tx.lotteryPack.findUnique({
-                  where: {
-                    store_id_pack_number: {
-                      store_id: storeId,
-                      pack_number: parsed.pack_number,
-                    },
-                  },
-                });
-
-                if (existingPack) {
-                  duplicates.push(serial);
-                  continue;
-                }
-
-                // IMPORTANT: Always force serial_start to "000...0" regardless of scanned barcode
-                // Calculate serial_end based on game's tickets_per_pack
-                // tickets_per_pack is always set (computed from pack_value / price)
-                const ticketsPerPack = game.tickets_per_pack!;
-                const serialEndNum = BigInt(ticketsPerPack - 1); // e.g., 149 for 150 tickets (0-149)
-                const serialStartLength = parsed.serial_start?.length || 3;
-                const serialStart = "0".padStart(serialStartLength, "0");
-                const serialEnd = serialEndNum
-                  .toString()
-                  .padStart(serialStartLength, "0");
-
-                // Create pack
-                const newPack = await tx.lotteryPack.create({
-                  data: {
-                    game_id: game.game_id,
-                    store_id: storeId,
-                    pack_number: parsed.pack_number,
-                    serial_start: serialStart,
-                    serial_end: serialEnd,
-                    status: "RECEIVED",
-                    received_at: new Date(),
-                  },
-                  include: {
-                    game: {
-                      select: {
-                        game_id: true,
-                        name: true,
-                      },
-                    },
-                  },
-                });
-
-                created.push({
-                  pack_id: newPack.pack_id,
-                  game_id: newPack.game_id,
-                  pack_number: newPack.pack_number,
-                  serial_start: newPack.serial_start,
-                  serial_end: newPack.serial_end,
-                  status: newPack.status,
-                  game: newPack.game,
-                });
-
-                // Create audit log entry (non-blocking)
-                try {
-                  await tx.auditLog.create({
-                    data: {
-                      user_id: user.id,
-                      action: "PACK_RECEIVED_BATCH",
-                      table_name: "lottery_packs",
-                      record_id: newPack.pack_id,
-                      new_values: {
-                        pack_id: newPack.pack_id,
-                        game_id: newPack.game_id,
-                        store_id: newPack.store_id,
-                        pack_number: newPack.pack_number,
-                        serial_start: newPack.serial_start,
-                        serial_end: newPack.serial_end,
-                        status: newPack.status,
-                        received_at: newPack.received_at?.toISOString(),
-                        serialized_number: serial,
-                      } as Record<string, any>,
-                      ip_address: ipAddress,
-                      user_agent: userAgent,
-                      reason: `Lottery pack received via batch by ${user.email} - Pack #${parsed.pack_number} (Serial: ${serial})`,
-                    },
-                  });
-                } catch (auditError) {
-                  // Log but don't fail
-                  fastify.log.error(
-                    { error: auditError },
-                    "Failed to create audit log for batch pack reception",
-                  );
-                }
-              } catch (error: any) {
-                // Catch any unexpected errors for this serial
-                errors.push({
-                  serial,
-                  error: error.message || "Unexpected error processing pack",
-                });
+            for (const item of serialsWithGames) {
+              if (existingPackNumbers.has(item.pack_number)) {
+                dbDuplicates.push(item.serial);
+              } else {
+                packsToCreate.push(item);
               }
             }
 
-            // Create batch-level audit log entry
-            // Use store_id as record_id for batch operations since record_id requires UUID format
-            try {
-              await tx.auditLog.create({
-                data: {
-                  user_id: user.id,
-                  action: "BATCH_PACK_RECEIVED",
-                  table_name: "lottery_packs",
-                  record_id: storeId, // Use store_id as the record reference for batch operations
-                  new_values: {
-                    total_serials: body.serialized_numbers.length,
-                    created_count: created.length,
-                    duplicates_count: duplicates.length,
-                    errors_count: errors.length,
-                    store_id: storeId,
-                  } as Record<string, any>,
-                  ip_address: ipAddress,
-                  user_agent: userAgent,
-                  reason: `Batch pack reception by ${user.email} - Created: ${created.length}, Duplicates: ${duplicates.length}, Errors: ${errors.length}`,
+            // If nothing to create, return early
+            if (packsToCreate.length === 0) {
+              return {
+                created: [] as any[],
+                duplicates: [...batchDuplicates, ...dbDuplicates],
+                errors: parseErrors,
+                games_not_found: gamesNotFound,
+              };
+            }
+
+            // STEP 3.2: Prepare pack data for bulk insert
+            const receivedAt = new Date();
+            const packDataForInsert = packsToCreate.map((item) => {
+              const game = item.game;
+              const ticketsPerPack = game.tickets_per_pack ?? 150; // Default if null
+              const serialEndNum = BigInt(ticketsPerPack - 1);
+              const serialStartLength = item.serial_start?.length || 3;
+              const serialStart = "0".padStart(serialStartLength, "0");
+              const serialEnd = serialEndNum
+                .toString()
+                .padStart(serialStartLength, "0");
+
+              return {
+                game_id: game.game_id,
+                store_id: storeId,
+                pack_number: item.pack_number,
+                serial_start: serialStart,
+                serial_end: serialEnd,
+                status: "RECEIVED" as const,
+                received_at: receivedAt,
+              };
+            });
+
+            // STEP 3.3: Bulk create packs (SINGLE DB QUERY)
+            await tx.lotteryPack.createMany({
+              data: packDataForInsert,
+              skipDuplicates: true, // Safety net for race conditions
+            });
+
+            // STEP 3.4: Fetch created packs to get pack_ids for response
+            // This is necessary because createMany doesn't return created records
+            const createdPacks = await tx.lotteryPack.findMany({
+              where: {
+                store_id: storeId,
+                pack_number: { in: packsToCreate.map((p) => p.pack_number) },
+                received_at: receivedAt,
+              },
+              select: {
+                pack_id: true,
+                game_id: true,
+                pack_number: true,
+                serial_start: true,
+                serial_end: true,
+                status: true,
+                game: {
+                  select: {
+                    game_id: true,
+                    name: true,
+                  },
                 },
-              });
+              },
+            });
+
+            // STEP 3.5: Prepare audit log entries for bulk insert
+            const auditEntries = createdPacks.map((pack) => {
+              const originalSerial = packsToCreate.find(
+                (p) => p.pack_number === pack.pack_number,
+              )?.serial;
+              return {
+                user_id: user.id,
+                action: "PACK_RECEIVED_BATCH",
+                table_name: "lottery_packs",
+                record_id: pack.pack_id,
+                new_values: {
+                  pack_id: pack.pack_id,
+                  game_id: pack.game_id,
+                  store_id: storeId,
+                  pack_number: pack.pack_number,
+                  serial_start: pack.serial_start,
+                  serial_end: pack.serial_end,
+                  status: pack.status,
+                  received_at: receivedAt.toISOString(),
+                  serialized_number: originalSerial,
+                } as Record<string, any>,
+                ip_address: ipAddress,
+                user_agent: userAgent,
+                reason: `Lottery pack received via batch by ${user.email} - Pack #${pack.pack_number}`,
+              };
+            });
+
+            // Add batch summary audit log
+            auditEntries.push({
+              user_id: user.id,
+              action: "BATCH_PACK_RECEIVED",
+              table_name: "lottery_packs",
+              record_id: storeId,
+              new_values: {
+                total_serials: body.serialized_numbers.length,
+                created_count: createdPacks.length,
+                duplicates_count: batchDuplicates.length + dbDuplicates.length,
+                errors_count: parseErrors.length,
+                games_not_found_count: gamesNotFound.length,
+                store_id: storeId,
+              } as Record<string, any>,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              reason: `Batch pack reception by ${user.email} - Created: ${createdPacks.length}, Duplicates: ${batchDuplicates.length + dbDuplicates.length}, Errors: ${parseErrors.length}`,
+            });
+
+            // STEP 3.6: Bulk create audit logs (SINGLE DB QUERY)
+            try {
+              await tx.auditLog.createMany({ data: auditEntries });
             } catch (auditError) {
-              // Log but don't fail
+              // Log but don't fail - audit logs are non-critical
               fastify.log.error(
                 { error: auditError },
-                "Failed to create batch audit log",
+                "Failed to create batch audit logs",
               );
             }
 
+            // Format response
+            const created = createdPacks.map((pack) => ({
+              pack_id: pack.pack_id,
+              game_id: pack.game_id,
+              pack_number: pack.pack_number,
+              serial_start: pack.serial_start,
+              serial_end: pack.serial_end,
+              status: pack.status,
+              game: pack.game,
+            }));
+
             return {
               created,
-              duplicates,
-              errors,
+              duplicates: [...batchDuplicates, ...dbDuplicates],
+              errors: parseErrors,
               games_not_found: gamesNotFound,
             };
           },
-          {
-            timeout: 30000, // 30 second timeout for large batches
-          },
+          { timeout: TRANSACTION_TIMEOUTS.BULK }, // 120 second timeout for large batches
         );
 
         reply.code(200);
@@ -1580,143 +1708,162 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           },
         });
 
+        // Build RLS context with user's store access for tenant isolation
+        // DB-006: TENANT_ISOLATION - Propagate tenant context from authentication
+        // SEC-006: SQL_INJECTION - All operations use Prisma ORM with parameterized queries
+        const rlsContext = {
+          userId: user.id,
+          storeIds: userRoles
+            .filter((r) => r.scope === "STORE" && r.store_id)
+            .map((r) => r.store_id as string),
+          companyIds: userRoles
+            .filter((r) => r.scope === "COMPANY" && r.company_id)
+            .map((r) => r.company_id as string),
+          isAdmin: hasSystemScope,
+        };
+
         // Atomically update pack status to ACTIVE only if status is RECEIVED
         // This prevents TOCTOU race conditions by combining verification and update
-        const updatedPack = await prisma.$transaction(async (tx) => {
-          // Use updateMany with status condition to atomically verify and update
-          const updateResult = await tx.lotteryPack.updateMany({
-            where: {
-              pack_id: params.packId,
-              status: "RECEIVED",
-            },
-            data: {
-              status: "ACTIVE",
-              activated_at: new Date(),
-              activated_by: user.id, // Story 10.2: Track who activated the pack
-              activated_shift_id: activeShift?.shift_id || null, // Story 10.2: Track which shift the pack was activated in
-            },
-          });
-
-          // If no rows were affected, determine if it's a bad request or concurrent modification
-          if (updateResult.count === 0) {
-            // Fetch current pack status to provide accurate error message
-            const currentPack = await tx.lotteryPack.findUnique({
-              where: { pack_id: params.packId },
-              select: { status: true },
+        // Phase 5: RLS Consistency - withRLSTransaction sets PostgreSQL session variables
+        const updatedPack = await withRLSTransaction(
+          rlsContext,
+          async (tx) => {
+            // Use updateMany with status condition to atomically verify and update
+            const updateResult = await tx.lotteryPack.updateMany({
+              where: {
+                pack_id: params.packId,
+                status: "RECEIVED",
+              },
+              data: {
+                status: "ACTIVE",
+                activated_at: new Date(),
+                activated_by: user.id, // Story 10.2: Track who activated the pack
+                activated_shift_id: activeShift?.shift_id || null, // Story 10.2: Track which shift the pack was activated in
+              },
             });
 
-            if (!currentPack) {
-              // Pack was deleted concurrently
+            // If no rows were affected, determine if it's a bad request or concurrent modification
+            if (updateResult.count === 0) {
+              // Fetch current pack status to provide accurate error message
+              const currentPack = await tx.lotteryPack.findUnique({
+                where: { pack_id: params.packId },
+                select: { status: true },
+              });
+
+              if (!currentPack) {
+                // Pack was deleted concurrently
+                reply.code(404);
+                throw {
+                  success: false,
+                  error: {
+                    code: "PACK_NOT_FOUND",
+                    message: "Lottery pack not found",
+                  },
+                };
+              }
+
+              // If pack was previously in RECEIVED state, this is a concurrent modification
+              if (initialPackStatus === "RECEIVED") {
+                reply.code(409);
+                throw {
+                  success: false,
+                  error: {
+                    code: "CONCURRENT_MODIFICATION",
+                    message: `Pack status was changed concurrently. Pack was RECEIVED but is now ${currentPack.status}. Please retry the operation.`,
+                  },
+                };
+              }
+
+              // Pack was never in RECEIVED state - this is a bad request
+              reply.code(400);
+              throw {
+                success: false,
+                error: {
+                  code: "INVALID_PACK_STATUS",
+                  message: `Only packs with RECEIVED status can be activated. Current status is ${currentPack.status}.`,
+                },
+              };
+            }
+
+            // Fetch the updated pack with relationships
+            // Include game fields needed for UPC generation (game_code, tickets_per_pack, price)
+            const activatedPack = await tx.lotteryPack.findUnique({
+              where: { pack_id: params.packId },
+              include: {
+                game: {
+                  select: {
+                    game_id: true,
+                    name: true,
+                    game_code: true, // For UPC generation
+                    tickets_per_pack: true, // For UPC generation
+                    price: true, // For UPC generation
+                  },
+                },
+                store: {
+                  select: {
+                    store_id: true,
+                    name: true,
+                  },
+                },
+                bin: {
+                  select: {
+                    bin_id: true,
+                    name: true,
+                    location: true,
+                  },
+                },
+              },
+            });
+
+            if (!activatedPack) {
+              // This should never happen, but handle it defensively
               reply.code(404);
               throw {
                 success: false,
                 error: {
                   code: "PACK_NOT_FOUND",
-                  message: "Lottery pack not found",
+                  message: "Lottery pack not found after update",
                 },
               };
             }
 
-            // If pack was previously in RECEIVED state, this is a concurrent modification
-            if (initialPackStatus === "RECEIVED") {
-              reply.code(409);
-              throw {
-                success: false,
-                error: {
-                  code: "CONCURRENT_MODIFICATION",
-                  message: `Pack status was changed concurrently. Pack was RECEIVED but is now ${currentPack.status}. Please retry the operation.`,
+            // Create audit log entry (non-blocking - don't fail if audit fails)
+            try {
+              await tx.auditLog.create({
+                data: {
+                  user_id: user.id,
+                  action: "PACK_ACTIVATED",
+                  table_name: "lottery_packs",
+                  record_id: activatedPack.pack_id,
+                  new_values: {
+                    pack_id: activatedPack.pack_id,
+                    game_id: activatedPack.game_id,
+                    store_id: activatedPack.store_id,
+                    pack_number: activatedPack.pack_number,
+                    status: activatedPack.status,
+                    previous_status: "RECEIVED",
+                    activated_at: activatedPack.activated_at?.toISOString(),
+                    activated_by: activatedPack.activated_by, // Story 10.2: Track who activated
+                    activated_shift_id: activatedPack.activated_shift_id, // Story 10.2: Track which shift
+                    current_bin_id: activatedPack.current_bin_id, // Story 10.2: Track which bin
+                  } as Record<string, any>,
+                  ip_address: ipAddress,
+                  user_agent: userAgent,
+                  reason: `Lottery pack activated by ${user.email} (roles: ${user.roles.join(", ")}) - Pack #${activatedPack.pack_number}`,
                 },
-              };
+              });
+            } catch (auditError) {
+              // Log the audit failure but don't fail the pack activation
+              fastify.log.error(
+                { error: auditError },
+                "Failed to create audit log for pack activation",
+              );
             }
 
-            // Pack was never in RECEIVED state - this is a bad request
-            reply.code(400);
-            throw {
-              success: false,
-              error: {
-                code: "INVALID_PACK_STATUS",
-                message: `Only packs with RECEIVED status can be activated. Current status is ${currentPack.status}.`,
-              },
-            };
-          }
-
-          // Fetch the updated pack with relationships
-          // Include game fields needed for UPC generation (game_code, tickets_per_pack, price)
-          const activatedPack = await tx.lotteryPack.findUnique({
-            where: { pack_id: params.packId },
-            include: {
-              game: {
-                select: {
-                  game_id: true,
-                  name: true,
-                  game_code: true, // For UPC generation
-                  tickets_per_pack: true, // For UPC generation
-                  price: true, // For UPC generation
-                },
-              },
-              store: {
-                select: {
-                  store_id: true,
-                  name: true,
-                },
-              },
-              bin: {
-                select: {
-                  bin_id: true,
-                  name: true,
-                  location: true,
-                },
-              },
-            },
-          });
-
-          if (!activatedPack) {
-            // This should never happen, but handle it defensively
-            reply.code(404);
-            throw {
-              success: false,
-              error: {
-                code: "PACK_NOT_FOUND",
-                message: "Lottery pack not found after update",
-              },
-            };
-          }
-
-          // Create audit log entry (non-blocking - don't fail if audit fails)
-          try {
-            await tx.auditLog.create({
-              data: {
-                user_id: user.id,
-                action: "PACK_ACTIVATED",
-                table_name: "lottery_packs",
-                record_id: activatedPack.pack_id,
-                new_values: {
-                  pack_id: activatedPack.pack_id,
-                  game_id: activatedPack.game_id,
-                  store_id: activatedPack.store_id,
-                  pack_number: activatedPack.pack_number,
-                  status: activatedPack.status,
-                  previous_status: "RECEIVED",
-                  activated_at: activatedPack.activated_at?.toISOString(),
-                  activated_by: activatedPack.activated_by, // Story 10.2: Track who activated
-                  activated_shift_id: activatedPack.activated_shift_id, // Story 10.2: Track which shift
-                  current_bin_id: activatedPack.current_bin_id, // Story 10.2: Track which bin
-                } as Record<string, any>,
-                ip_address: ipAddress,
-                user_agent: userAgent,
-                reason: `Lottery pack activated by ${user.email} (roles: ${user.roles.join(", ")}) - Pack #${activatedPack.pack_number}`,
-              },
-            });
-          } catch (auditError) {
-            // Log the audit failure but don't fail the pack activation
-            fastify.log.error(
-              { error: auditError },
-              "Failed to create audit log for pack activation",
-            );
-          }
-
-          return activatedPack;
-        });
+            return activatedPack;
+          },
+          { timeout: TRANSACTION_TIMEOUTS.STANDARD },
+        );
 
         // === UPC-A GENERATION AND POS SYNC (BLOCKING) ===
         // Generate UPC-A barcodes for the pack and sync with POS system
@@ -2248,84 +2395,104 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           },
         });
 
-        // Perform atomic update in transaction (ORM_USAGE - DB-001)
-        const result = await prisma.$transaction(async (tx) => {
-          const now = new Date();
+        // Build RLS context with user's store access for tenant isolation
+        // DB-006: TENANT_ISOLATION - Propagate tenant context from authentication
+        // SEC-006: SQL_INJECTION - All operations use Prisma ORM with parameterized queries
+        const hasSystemScope = userRoles.some((r) => r.scope === "SYSTEM");
+        const rlsContext = {
+          userId: user.id,
+          storeIds: userRoles
+            .filter((r) => r.scope === "STORE" && r.store_id)
+            .map((r) => r.store_id as string),
+          companyIds: userRoles
+            .filter((r) => r.scope === "COMPANY" && r.company_id)
+            .map((r) => r.company_id as string),
+          isAdmin: hasSystemScope,
+        };
 
-          // 1. Update pack status to DEPLETED with manual sold out reason
-          const updatedPack = await tx.lotteryPack.update({
-            where: { pack_id: params.packId },
-            data: {
-              status: "DEPLETED",
-              depleted_at: now,
-              depleted_by: user.id,
-              depleted_shift_id: activeShift?.shift_id || null,
-              depletion_reason: "MANUAL_SOLD_OUT",
-            },
-            include: {
-              game: { select: { name: true } },
-              bin: { select: { name: true } },
-            },
-          });
+        // Perform atomic update in RLS-enforced transaction (ORM_USAGE - DB-001)
+        // Phase 5: RLS Consistency - withRLSTransaction sets PostgreSQL session variables
+        const result = await withRLSTransaction(
+          rlsContext,
+          async (tx) => {
+            const now = new Date();
 
-          // 2. Create shift closing record if there's an active shift
-          if (activeShift) {
-            // Check if closing record already exists for this shift/pack
-            const existingClosing = await tx.lotteryShiftClosing.findUnique({
-              where: {
-                shift_id_pack_id: {
-                  shift_id: activeShift.shift_id,
-                  pack_id: params.packId,
-                },
+            // 1. Update pack status to DEPLETED with manual sold out reason
+            const updatedPack = await tx.lotteryPack.update({
+              where: { pack_id: params.packId },
+              data: {
+                status: "DEPLETED",
+                depleted_at: now,
+                depleted_by: user.id,
+                depleted_shift_id: activeShift?.shift_id || null,
+                depletion_reason: "MANUAL_SOLD_OUT",
+              },
+              include: {
+                game: { select: { name: true } },
+                bin: { select: { name: true } },
               },
             });
 
-            if (!existingClosing) {
-              await tx.lotteryShiftClosing.create({
-                data: {
-                  shift_id: activeShift.shift_id,
-                  pack_id: params.packId,
-                  cashier_id: activeShift.cashier_id, // Direct cashier reference
-                  closing_serial: closingSerial,
-                  entry_method: "MANUAL",
-                  manual_entry_authorized_by: user.id,
-                  manual_entry_authorized_at: now,
+            // 2. Create shift closing record if there's an active shift
+            if (activeShift) {
+              // Check if closing record already exists for this shift/pack
+              const existingClosing = await tx.lotteryShiftClosing.findUnique({
+                where: {
+                  shift_id_pack_id: {
+                    shift_id: activeShift.shift_id,
+                    pack_id: params.packId,
+                  },
                 },
               });
+
+              if (!existingClosing) {
+                await tx.lotteryShiftClosing.create({
+                  data: {
+                    shift_id: activeShift.shift_id,
+                    pack_id: params.packId,
+                    cashier_id: activeShift.cashier_id, // Direct cashier reference
+                    closing_serial: closingSerial,
+                    entry_method: "MANUAL",
+                    manual_entry_authorized_by: user.id,
+                    manual_entry_authorized_at: now,
+                  },
+                });
+              }
             }
-          }
 
-          // 3. Create audit log entry
-          try {
-            await tx.auditLog.create({
-              data: {
-                user_id: user.id,
-                action: "PACK_MANUALLY_DEPLETED",
-                table_name: "lottery_packs",
-                record_id: params.packId,
-                new_values: {
-                  status: "DEPLETED",
-                  depleted_at: now.toISOString(),
-                  depleted_by: user.id,
-                  depleted_shift_id: activeShift?.shift_id || null,
-                  depletion_reason: "MANUAL_SOLD_OUT",
-                  closing_serial: closingSerial,
+            // 3. Create audit log entry
+            try {
+              await tx.auditLog.create({
+                data: {
+                  user_id: user.id,
+                  action: "PACK_MANUALLY_DEPLETED",
+                  table_name: "lottery_packs",
+                  record_id: params.packId,
+                  new_values: {
+                    status: "DEPLETED",
+                    depleted_at: now.toISOString(),
+                    depleted_by: user.id,
+                    depleted_shift_id: activeShift?.shift_id || null,
+                    depletion_reason: "MANUAL_SOLD_OUT",
+                    closing_serial: closingSerial,
+                  },
+                  ip_address: ipAddress,
+                  user_agent: userAgent,
+                  reason: `Lottery pack ${pack.pack_number} manually marked as sold out by user`,
                 },
-                ip_address: ipAddress,
-                user_agent: userAgent,
-                reason: `Lottery pack ${pack.pack_number} manually marked as sold out by user`,
-              },
-            });
-          } catch (auditError) {
-            // Log audit failure but don't fail the operation
-            fastify.log.error(
-              { error: auditError },
-              "Failed to create audit log for manual pack depletion",
-            );
-          }
+              });
+            } catch (auditError) {
+              // Log audit failure but don't fail the operation
+              fastify.log.error(
+                { error: auditError },
+                "Failed to create audit log for manual pack depletion",
+              );
+            }
 
-          return updatedPack;
-        });
+            return updatedPack;
+          },
+          { timeout: TRANSACTION_TIMEOUTS.STANDARD },
+        );
 
         // === UPC CLEANUP FROM REDIS AND POS ===
         // Remove UPCs when pack is depleted
@@ -2765,136 +2932,156 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           },
         });
 
-        // DB-001: ORM_USAGE - Perform atomic update in transaction
-        const result = await prisma.$transaction(async (tx) => {
-          const now = new Date();
-          const trimmedNotes = body.return_notes?.trim() || null;
+        // Build RLS context with user's store access for tenant isolation
+        // DB-006: TENANT_ISOLATION - Propagate tenant context from authentication
+        // SEC-006: SQL_INJECTION - All operations use Prisma ORM with parameterized queries
+        const hasSystemScope = userRoles.some((r) => r.scope === "SYSTEM");
+        const rlsContext = {
+          userId: user.id,
+          storeIds: userRoles
+            .filter((r) => r.scope === "STORE" && r.store_id)
+            .map((r) => r.store_id as string),
+          companyIds: userRoles
+            .filter((r) => r.scope === "COMPANY" && r.company_id)
+            .map((r) => r.company_id as string),
+          isAdmin: hasSystemScope,
+        };
 
-          // 1. Update pack status to RETURNED with full tracking data
-          const updatedPack = await tx.lotteryPack.update({
-            where: { pack_id: params.packId },
-            data: {
-              status: "RETURNED",
-              returned_at: now,
-              returned_by: user.id,
-              returned_shift_id: activeShift?.shift_id || null,
-              returned_day_id: businessDay?.day_id || null,
-              return_reason: body.return_reason,
-              return_notes: trimmedNotes,
-              last_sold_serial: body.last_sold_serial,
-              tickets_sold_on_return: ticketsSold,
-              return_sales_amount: salesAmount,
-              // Clear bin assignment
-              current_bin_id: null,
-            },
-          });
+        // DB-001: ORM_USAGE - Perform atomic update in RLS-enforced transaction
+        // Phase 5: RLS Consistency - withRLSTransaction sets PostgreSQL session variables
+        const result = await withRLSTransaction(
+          rlsContext,
+          async (tx) => {
+            const now = new Date();
+            const trimmedNotes = body.return_notes?.trim() || null;
 
-          // 2. Create shift closing record if there's an active shift
-          if (activeShift) {
-            // Check if closing record already exists for this shift/pack
-            const existingClosing = await tx.lotteryShiftClosing.findUnique({
-              where: {
-                shift_id_pack_id: {
-                  shift_id: activeShift.shift_id,
-                  pack_id: params.packId,
-                },
+            // 1. Update pack status to RETURNED with full tracking data
+            const updatedPack = await tx.lotteryPack.update({
+              where: { pack_id: params.packId },
+              data: {
+                status: "RETURNED",
+                returned_at: now,
+                returned_by: user.id,
+                returned_shift_id: activeShift?.shift_id || null,
+                returned_day_id: businessDay?.day_id || null,
+                return_reason: body.return_reason,
+                return_notes: trimmedNotes,
+                last_sold_serial: body.last_sold_serial,
+                tickets_sold_on_return: ticketsSold,
+                return_sales_amount: salesAmount,
+                // Clear bin assignment
+                current_bin_id: null,
               },
             });
 
-            if (!existingClosing) {
-              await tx.lotteryShiftClosing.create({
-                data: {
-                  shift_id: activeShift.shift_id,
+            // 2. Create shift closing record if there's an active shift
+            if (activeShift) {
+              // Check if closing record already exists for this shift/pack
+              const existingClosing = await tx.lotteryShiftClosing.findUnique({
+                where: {
+                  shift_id_pack_id: {
+                    shift_id: activeShift.shift_id,
+                    pack_id: params.packId,
+                  },
+                },
+              });
+
+              if (!existingClosing) {
+                await tx.lotteryShiftClosing.create({
+                  data: {
+                    shift_id: activeShift.shift_id,
+                    pack_id: params.packId,
+                    cashier_id: activeShift.cashier_id,
+                    closing_serial: body.last_sold_serial,
+                    entry_method: "MANUAL",
+                    manual_entry_authorized_by: user.id,
+                    manual_entry_authorized_at: now,
+                  },
+                });
+              }
+            }
+
+            // 3. Create or update day pack record if business day exists
+            if (businessDay) {
+              await tx.lotteryDayPack.upsert({
+                where: {
+                  day_id_pack_id: {
+                    day_id: businessDay.day_id,
+                    pack_id: params.packId,
+                  },
+                },
+                create: {
+                  day_id: businessDay.day_id,
                   pack_id: params.packId,
-                  cashier_id: activeShift.cashier_id,
-                  closing_serial: body.last_sold_serial,
+                  bin_id: pack.current_bin_id,
+                  starting_serial: startingSerial,
+                  ending_serial: body.last_sold_serial,
+                  tickets_sold: ticketsSold,
+                  sales_amount: salesAmount,
                   entry_method: "MANUAL",
-                  manual_entry_authorized_by: user.id,
-                  manual_entry_authorized_at: now,
+                },
+                update: {
+                  ending_serial: body.last_sold_serial,
+                  tickets_sold: ticketsSold,
+                  sales_amount: salesAmount,
+                  entry_method: "MANUAL",
                 },
               });
             }
-          }
 
-          // 3. Create or update day pack record if business day exists
-          if (businessDay) {
-            await tx.lotteryDayPack.upsert({
-              where: {
-                day_id_pack_id: {
-                  day_id: businessDay.day_id,
+            // 4. Create bin history record for audit trail
+            if (pack.current_bin_id) {
+              await tx.lotteryPackBinHistory.create({
+                data: {
                   pack_id: params.packId,
+                  bin_id: pack.current_bin_id,
+                  moved_by: user.id,
+                  reason: `Pack returned: ${body.return_reason}${trimmedNotes ? ` - ${trimmedNotes}` : ""}`,
                 },
-              },
-              create: {
-                day_id: businessDay.day_id,
-                pack_id: params.packId,
-                bin_id: pack.current_bin_id,
-                starting_serial: startingSerial,
-                ending_serial: body.last_sold_serial,
-                tickets_sold: ticketsSold,
-                sales_amount: salesAmount,
-                entry_method: "MANUAL",
-              },
-              update: {
-                ending_serial: body.last_sold_serial,
-                tickets_sold: ticketsSold,
-                sales_amount: salesAmount,
-                entry_method: "MANUAL",
-              },
-            });
-          }
+              });
+            }
 
-          // 4. Create bin history record for audit trail
-          if (pack.current_bin_id) {
-            await tx.lotteryPackBinHistory.create({
-              data: {
-                pack_id: params.packId,
-                bin_id: pack.current_bin_id,
-                moved_by: user.id,
-                reason: `Pack returned: ${body.return_reason}${trimmedNotes ? ` - ${trimmedNotes}` : ""}`,
-              },
-            });
-          }
-
-          // 5. Create audit log entry for compliance
-          try {
-            await tx.auditLog.create({
-              data: {
-                user_id: user.id,
-                action: "PACK_RETURNED",
-                table_name: "lottery_packs",
-                record_id: params.packId,
-                old_values: {
-                  status: pack.status,
-                  current_bin_id: pack.current_bin_id,
+            // 5. Create audit log entry for compliance
+            try {
+              await tx.auditLog.create({
+                data: {
+                  user_id: user.id,
+                  action: "PACK_RETURNED",
+                  table_name: "lottery_packs",
+                  record_id: params.packId,
+                  old_values: {
+                    status: pack.status,
+                    current_bin_id: pack.current_bin_id,
+                  },
+                  new_values: {
+                    status: "RETURNED",
+                    returned_at: now.toISOString(),
+                    returned_by: user.id,
+                    returned_shift_id: activeShift?.shift_id || null,
+                    returned_day_id: businessDay?.day_id || null,
+                    return_reason: body.return_reason,
+                    return_notes: trimmedNotes,
+                    last_sold_serial: body.last_sold_serial,
+                    tickets_sold_on_return: ticketsSold,
+                    return_sales_amount: salesAmount,
+                  },
+                  ip_address: ipAddress,
+                  user_agent: userAgent,
+                  reason: `Lottery pack ${pack.pack_number} returned (${body.return_reason}). Sold ${ticketsSold} tickets ($${salesAmount.toFixed(2)})`,
                 },
-                new_values: {
-                  status: "RETURNED",
-                  returned_at: now.toISOString(),
-                  returned_by: user.id,
-                  returned_shift_id: activeShift?.shift_id || null,
-                  returned_day_id: businessDay?.day_id || null,
-                  return_reason: body.return_reason,
-                  return_notes: trimmedNotes,
-                  last_sold_serial: body.last_sold_serial,
-                  tickets_sold_on_return: ticketsSold,
-                  return_sales_amount: salesAmount,
-                },
-                ip_address: ipAddress,
-                user_agent: userAgent,
-                reason: `Lottery pack ${pack.pack_number} returned (${body.return_reason}). Sold ${ticketsSold} tickets ($${salesAmount.toFixed(2)})`,
-              },
-            });
-          } catch (auditError) {
-            // Log audit failure but don't fail the operation
-            fastify.log.error(
-              { error: auditError },
-              "Failed to create audit log for pack return",
-            );
-          }
+              });
+            } catch (auditError) {
+              // Log audit failure but don't fail the operation
+              fastify.log.error(
+                { error: auditError },
+                "Failed to create audit log for pack return",
+              );
+            }
 
-          return { updatedPack };
-        });
+            return { updatedPack };
+          },
+          { timeout: TRANSACTION_TIMEOUTS.STANDARD },
+        );
 
         // Capture pre-update values for response (bin cleared during update)
         const gameName = pack.game.name;
@@ -3707,6 +3894,31 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               description:
                 "Search by game name or pack number (case-insensitive, min 2 chars)",
             },
+            page: {
+              type: "integer",
+              minimum: 1,
+              default: 1,
+              description: "Page number (1-indexed, default: 1)",
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 100,
+              default: 50,
+              description: "Items per page (max: 100, default: 50)",
+            },
+            sort_by: {
+              type: "string",
+              enum: ["received_at", "pack_number", "status", "activated_at"],
+              default: "received_at",
+              description: "Field to sort by (default: received_at)",
+            },
+            sort_order: {
+              type: "string",
+              enum: ["asc", "desc"],
+              default: "desc",
+              description: "Sort order (default: desc)",
+            },
           },
         },
         response: {
@@ -3787,6 +3999,29 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   },
                 },
               },
+              meta: {
+                type: "object",
+                properties: {
+                  page: { type: "integer", description: "Current page number" },
+                  limit: { type: "integer", description: "Items per page" },
+                  total: {
+                    type: "integer",
+                    description: "Total items matching filter",
+                  },
+                  total_pages: {
+                    type: "integer",
+                    description: "Total number of pages",
+                  },
+                  has_next: {
+                    type: "boolean",
+                    description: "Whether there is a next page",
+                  },
+                  has_prev: {
+                    type: "boolean",
+                    description: "Whether there is a previous page",
+                  },
+                },
+              },
             },
           },
           400: {
@@ -3851,6 +4086,10 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         status?: "RECEIVED" | "ACTIVE" | "DEPLETED" | "RETURNED";
         game_id?: string;
         search?: string;
+        page?: number;
+        limit?: number;
+        sort_by?: "received_at" | "pack_number" | "status" | "activated_at";
+        sort_order?: "asc" | "desc";
       };
 
       try {
@@ -3861,6 +4100,20 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           request.socket.remoteAddress ||
           null;
         const userAgent = request.headers["user-agent"] || null;
+
+        /**
+         * ENTERPRISE-GRADE PAGINATION
+         *
+         * @enterprise-standards
+         * - API-001: VALIDATION - Pagination params validated via schema
+         * - DB-001: ORM_USAGE - Prisma take/skip for efficient pagination
+         * - API-003: ERROR_HANDLING - Safe defaults for missing params
+         */
+        const page = Math.max(1, query.page ?? 1);
+        const limit = Math.min(100, Math.max(1, query.limit ?? 50));
+        const sortBy = query.sort_by ?? "received_at";
+        const sortOrder = query.sort_order ?? "desc";
+        const skip = (page - 1) * limit;
 
         // Get user roles to determine store access (RLS enforcement)
         const userRoles = await rbacService.getUserRoles(user.id);
@@ -3939,39 +4192,48 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           ];
         }
 
-        // Query packs with relationships using Prisma ORM
+        // Query packs with relationships using Prisma ORM with PAGINATION
         // SEC-010: AUTHZ - RLS enforced via whereClause store_id validation above
         // API-008: OUTPUT_FILTERING - Explicit field whitelist prevents data leakage
-        const packs = await prisma.lotteryPack.findMany({
-          where: whereClause,
-          include: {
-            game: {
-              select: {
-                game_id: true,
-                game_code: true,
-                name: true,
-                price: true,
-                status: true, // Game status for UI display (ACTIVE/INACTIVE/DISCONTINUED)
+        // PERF: Parallel queries for data + count
+        const [packs, total] = await Promise.all([
+          prisma.lotteryPack.findMany({
+            where: whereClause,
+            include: {
+              game: {
+                select: {
+                  game_id: true,
+                  game_code: true,
+                  name: true,
+                  price: true,
+                  status: true, // Game status for UI display (ACTIVE/INACTIVE/DISCONTINUED)
+                },
+              },
+              store: {
+                select: {
+                  store_id: true,
+                  name: true,
+                },
+              },
+              bin: {
+                select: {
+                  bin_id: true,
+                  name: true,
+                  location: true,
+                },
               },
             },
-            store: {
-              select: {
-                store_id: true,
-                name: true,
-              },
-            },
-            bin: {
-              select: {
-                bin_id: true,
-                name: true,
-                location: true,
-              },
-            },
-          },
-          orderBy: {
-            received_at: "desc",
-          },
-        });
+            orderBy: { [sortBy]: sortOrder },
+            take: limit,
+            skip: skip,
+          }),
+          prisma.lotteryPack.count({ where: whereClause }),
+        ]);
+
+        // Calculate pagination metadata
+        const totalPages = Math.ceil(total / limit);
+        const hasNext = page < totalPages;
+        const hasPrev = page > 1;
 
         // Create audit log entry (non-blocking)
         try {
@@ -4024,6 +4286,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             // RETURNED packs cannot be returned again (already returned)
             can_return: pack.status === "ACTIVE" || pack.status === "RECEIVED",
           })),
+          meta: {
+            page,
+            limit,
+            total,
+            total_pages: totalPages,
+            has_next: hasNext,
+            has_prev: hasPrev,
+          },
         };
       } catch (error: any) {
         fastify.log.error({ error }, "Error querying lottery packs");
@@ -4991,6 +5261,31 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               format: "uuid",
               description: "Store UUID (required)",
             },
+            page: {
+              type: "integer",
+              minimum: 1,
+              default: 1,
+              description: "Page number (1-indexed)",
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 100,
+              default: 50,
+              description: "Items per page (max 100)",
+            },
+            sort_by: {
+              type: "string",
+              enum: ["name", "display_order", "created_at"],
+              default: "display_order",
+              description: "Field to sort by",
+            },
+            sort_order: {
+              type: "string",
+              enum: ["asc", "desc"],
+              default: "asc",
+              description: "Sort direction",
+            },
           },
         },
         response: {
@@ -5007,8 +5302,32 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                     store_id: { type: "string", format: "uuid" },
                     name: { type: "string" },
                     location: { type: "string", nullable: true },
+                    display_order: { type: "integer" },
                     created_at: { type: "string", format: "date-time" },
                     updated_at: { type: "string", format: "date-time" },
+                  },
+                },
+              },
+              meta: {
+                type: "object",
+                properties: {
+                  page: { type: "integer", description: "Current page number" },
+                  limit: { type: "integer", description: "Items per page" },
+                  total: {
+                    type: "integer",
+                    description: "Total bins matching filter",
+                  },
+                  total_pages: {
+                    type: "integer",
+                    description: "Total number of pages",
+                  },
+                  has_next: {
+                    type: "boolean",
+                    description: "Whether there is a next page",
+                  },
+                  has_prev: {
+                    type: "boolean",
+                    description: "Whether there is a previous page",
                   },
                 },
               },
@@ -5073,6 +5392,10 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       const user = (request as any).user as UserIdentity;
       const query = request.query as {
         store_id: string;
+        page?: number;
+        limit?: number;
+        sort_by?: "name" | "display_order" | "created_at";
+        sort_order?: "asc" | "desc";
       };
 
       try {
@@ -5084,36 +5407,30 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           null;
         const userAgent = request.headers["user-agent"] || null;
 
+        /**
+         * ENTERPRISE-GRADE PAGINATION
+         *
+         * @enterprise-standards
+         * - API-001: VALIDATION - Pagination params validated via schema
+         * - DB-001: ORM_USAGE - Prisma take/skip for efficient pagination
+         * - API-003: ERROR_HANDLING - Safe defaults for missing params
+         */
+        const page = Math.max(1, query.page ?? 1);
+        const limit = Math.min(100, Math.max(1, query.limit ?? 50));
+        const sortBy = query.sort_by ?? "display_order";
+        const sortOrder = query.sort_order ?? "asc";
+        const skip = (page - 1) * limit;
+
         // Get user roles to determine store access (RLS enforcement)
         const userRoles = await rbacService.getUserRoles(user.id);
         const hasSystemScope = userRoles.some(
           (role) => role.scope === "SYSTEM",
         );
 
-        // Validate store_id matches user's store (RLS enforcement)
-        // System admins can access any store
-        if (!hasSystemScope) {
-          const userStoreRole = userRoles.find(
-            (role) =>
-              role.scope === "STORE" && role.store_id === query.store_id,
-          );
-          if (!userStoreRole) {
-            reply.code(403);
-            return {
-              success: false,
-              error: {
-                code: "FORBIDDEN",
-                message:
-                  "You can only query bins for your assigned store. store_id does not match your store access",
-              },
-            };
-          }
-        }
-
-        // Validate store exists
+        // Validate store exists and get company_id for scope check
         const store = await prisma.store.findUnique({
           where: { store_id: query.store_id },
-          select: { store_id: true, name: true },
+          select: { store_id: true, name: true, company_id: true },
         });
 
         if (!store) {
@@ -5127,17 +5444,59 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Query bins using Prisma ORM (prevents SQL injection)
+        // Validate store access based on user's role scope (RLS enforcement)
+        // Scope hierarchy: SYSTEM > COMPANY > STORE
+        if (!hasSystemScope) {
+          // Check for STORE scope: user has direct store assignment
+          const hasStoreAccess = userRoles.some(
+            (role) =>
+              role.scope === "STORE" && role.store_id === query.store_id,
+          );
+
+          // Check for COMPANY scope: user has company-level access (e.g., CLIENT_OWNER)
+          const hasCompanyAccess = userRoles.some(
+            (role) =>
+              role.scope === "COMPANY" &&
+              role.company_id !== null &&
+              role.company_id === store.company_id,
+          );
+
+          if (!hasStoreAccess && !hasCompanyAccess) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "FORBIDDEN",
+                message:
+                  "You can only query bins for your assigned store. store_id does not match your store access",
+              },
+            };
+          }
+        }
+
+        // Build where clause for bins query
+        const whereClause = {
+          store_id: query.store_id,
+          is_active: true,
+        };
+
+        // Query bins with pagination using Prisma ORM (prevents SQL injection)
         // RLS enforced via store_id filter, only active bins (soft-deleted excluded)
-        const bins = await prisma.lotteryBin.findMany({
-          where: {
-            store_id: query.store_id,
-            is_active: true,
-          },
-          orderBy: {
-            name: "asc",
-          },
-        });
+        // PERF: Parallel queries for data + count
+        const [bins, total] = await Promise.all([
+          prisma.lotteryBin.findMany({
+            where: whereClause,
+            orderBy: { [sortBy]: sortOrder },
+            take: limit,
+            skip: skip,
+          }),
+          prisma.lotteryBin.count({ where: whereClause }),
+        ]);
+
+        // Calculate pagination metadata
+        const totalPages = Math.ceil(total / limit);
+        const hasNext = page < totalPages;
+        const hasPrev = page > 1;
 
         // Create audit log entry (non-blocking)
         try {
@@ -5150,6 +5509,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               new_values: {
                 query_type: "GET_BINS",
                 store_id: query.store_id,
+                page,
+                limit,
               } as Record<string, any>,
               ip_address: ipAddress,
               user_agent: userAgent,
@@ -5170,9 +5531,18 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             store_id: bin.store_id,
             name: bin.name,
             location: bin.location,
+            display_order: bin.display_order,
             created_at: bin.created_at.toISOString(),
             updated_at: bin.updated_at.toISOString(),
           })),
+          meta: {
+            page,
+            limit,
+            total,
+            total_pages: totalPages,
+            has_next: hasNext,
+            has_prev: hasPrev,
+          },
         };
       } catch (error: any) {
         fastify.log.error({ error }, "Error querying lottery bins");
@@ -5609,43 +5979,62 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Create configuration using Prisma ORM (prevents SQL injection)
-        const config = await prisma.$transaction(async (tx) => {
-          const newConfig = await tx.lotteryBinConfiguration.create({
-            data: {
-              store_id: params.storeId,
-              bin_template: body.bin_template,
-            },
-          });
+        // Build RLS context with user's store access for tenant isolation
+        // DB-006: TENANT_ISOLATION - Propagate tenant context from authentication
+        // SEC-006: SQL_INJECTION - All operations use Prisma ORM with parameterized queries
+        const rlsContext = {
+          userId: user.id,
+          storeIds: userRoles
+            .filter((r) => r.scope === "STORE" && r.store_id)
+            .map((r) => r.store_id as string),
+          companyIds: userRoles
+            .filter((r) => r.scope === "COMPANY" && r.company_id)
+            .map((r) => r.company_id as string),
+          isAdmin: hasSystemScope,
+        };
 
-          // Create audit log entry (non-blocking - don't fail if audit fails)
-          try {
-            await tx.auditLog.create({
+        // Create configuration using Prisma ORM in RLS-enforced transaction
+        // Phase 5: RLS Consistency - withRLSTransaction sets PostgreSQL session variables
+        const config = await withRLSTransaction(
+          rlsContext,
+          async (tx) => {
+            const newConfig = await tx.lotteryBinConfiguration.create({
               data: {
-                user_id: user.id,
-                action: "LOTTERY_BIN_CONFIG_CREATED",
-                table_name: "lottery_bin_configurations",
-                record_id: newConfig.config_id,
-                new_values: {
-                  config_id: newConfig.config_id,
-                  store_id: newConfig.store_id,
-                  bin_template: newConfig.bin_template,
-                  bin_count: body.bin_template.length,
-                } as Record<string, any>,
-                ip_address: ipAddress,
-                user_agent: userAgent,
-                reason: `Bin configuration created by ${user.email} (roles: ${user.roles.join(", ")}) - Store: ${params.storeId}, Bins: ${body.bin_template.length}`,
+                store_id: params.storeId,
+                bin_template: body.bin_template,
               },
             });
-          } catch (auditError) {
-            fastify.log.error(
-              { error: auditError },
-              "Failed to create audit log for bin configuration creation",
-            );
-          }
 
-          return newConfig;
-        });
+            // Create audit log entry (non-blocking - don't fail if audit fails)
+            try {
+              await tx.auditLog.create({
+                data: {
+                  user_id: user.id,
+                  action: "LOTTERY_BIN_CONFIG_CREATED",
+                  table_name: "lottery_bin_configurations",
+                  record_id: newConfig.config_id,
+                  new_values: {
+                    config_id: newConfig.config_id,
+                    store_id: newConfig.store_id,
+                    bin_template: newConfig.bin_template,
+                    bin_count: body.bin_template.length,
+                  } as Record<string, any>,
+                  ip_address: ipAddress,
+                  user_agent: userAgent,
+                  reason: `Bin configuration created by ${user.email} (roles: ${user.roles.join(", ")}) - Store: ${params.storeId}, Bins: ${body.bin_template.length}`,
+                },
+              });
+            } catch (auditError) {
+              fastify.log.error(
+                { error: auditError },
+                "Failed to create audit log for bin configuration creation",
+              );
+            }
+
+            return newConfig;
+          },
+          { timeout: TRANSACTION_TIMEOUTS.STANDARD },
+        );
 
         reply.code(201);
         return {
@@ -5899,47 +6288,66 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Update configuration using Prisma ORM (prevents SQL injection)
-        const config = await prisma.$transaction(async (tx) => {
-          const updatedConfig = await tx.lotteryBinConfiguration.update({
-            where: { store_id: params.storeId },
-            data: {
-              bin_template: body.bin_template,
-            },
-          });
+        // Build RLS context with user's store access for tenant isolation
+        // DB-006: TENANT_ISOLATION - Propagate tenant context from authentication
+        // SEC-006: SQL_INJECTION - All operations use Prisma ORM with parameterized queries
+        const rlsContext = {
+          userId: user.id,
+          storeIds: userRoles
+            .filter((r) => r.scope === "STORE" && r.store_id)
+            .map((r) => r.store_id as string),
+          companyIds: userRoles
+            .filter((r) => r.scope === "COMPANY" && r.company_id)
+            .map((r) => r.company_id as string),
+          isAdmin: hasSystemScope,
+        };
 
-          // Create audit log entry (non-blocking - don't fail if audit fails)
-          try {
-            await tx.auditLog.create({
+        // Update configuration using Prisma ORM in RLS-enforced transaction
+        // Phase 5: RLS Consistency - withRLSTransaction sets PostgreSQL session variables
+        const config = await withRLSTransaction(
+          rlsContext,
+          async (tx) => {
+            const updatedConfig = await tx.lotteryBinConfiguration.update({
+              where: { store_id: params.storeId },
               data: {
-                user_id: user.id,
-                action: "LOTTERY_BIN_CONFIG_UPDATED",
-                table_name: "lottery_bin_configurations",
-                record_id: updatedConfig.config_id,
-                old_values: {
-                  bin_template: existingConfig.bin_template,
-                  bin_count: Array.isArray(existingConfig.bin_template)
-                    ? existingConfig.bin_template.length
-                    : 0,
-                } as Record<string, any>,
-                new_values: {
-                  bin_template: updatedConfig.bin_template,
-                  bin_count: body.bin_template.length,
-                } as Record<string, any>,
-                ip_address: ipAddress,
-                user_agent: userAgent,
-                reason: `Bin configuration updated by ${user.email} (roles: ${user.roles.join(", ")}) - Store: ${params.storeId}, Bins: ${body.bin_template.length}`,
+                bin_template: body.bin_template,
               },
             });
-          } catch (auditError) {
-            fastify.log.error(
-              { error: auditError },
-              "Failed to create audit log for bin configuration update",
-            );
-          }
 
-          return updatedConfig;
-        });
+            // Create audit log entry (non-blocking - don't fail if audit fails)
+            try {
+              await tx.auditLog.create({
+                data: {
+                  user_id: user.id,
+                  action: "LOTTERY_BIN_CONFIG_UPDATED",
+                  table_name: "lottery_bin_configurations",
+                  record_id: updatedConfig.config_id,
+                  old_values: {
+                    bin_template: existingConfig.bin_template,
+                    bin_count: Array.isArray(existingConfig.bin_template)
+                      ? existingConfig.bin_template.length
+                      : 0,
+                  } as Record<string, any>,
+                  new_values: {
+                    bin_template: updatedConfig.bin_template,
+                    bin_count: body.bin_template.length,
+                  } as Record<string, any>,
+                  ip_address: ipAddress,
+                  user_agent: userAgent,
+                  reason: `Bin configuration updated by ${user.email} (roles: ${user.roles.join(", ")}) - Store: ${params.storeId}, Bins: ${body.bin_template.length}`,
+                },
+              });
+            } catch (auditError) {
+              fastify.log.error(
+                { error: auditError },
+                "Failed to create audit log for bin configuration update",
+              );
+            }
+
+            return updatedConfig;
+          },
+          { timeout: TRANSACTION_TIMEOUTS.STANDARD },
+        );
 
         return {
           success: true,

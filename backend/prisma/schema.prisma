@@ -442,6 +442,9 @@ model AuditLog {
   @@index([record_id])
   @@index([table_name, timestamp])
   @@index([user_id, timestamp])
+  // Phase 3: Composite index for entity-specific audit queries
+  // DB-004: INDEXING - Supports audit trail lookups per entity
+  @@index([table_name, record_id])
   @@map("audit_logs")
 }
 
@@ -1214,6 +1217,9 @@ model Shift {
   @@index([public_id])
   @@index([day_summary_id])
   @@index([store_id, day_summary_id])
+  // Phase 3: Composite index for shift queries during day close operations
+  // DB-004: INDEXING - Supports open shift detection and day summary validation
+  @@index([store_id, status, day_summary_id])
   // NOTE: Additional partial index for active shift lookups exists in migration
   // 20251217_add_performance_indexes: idx_shifts_terminal_status_open
   // WHERE pos_terminal_id = X AND status = Y AND closed_at IS NULL
@@ -1589,6 +1595,14 @@ model LotteryPack {
   @@index([returned_shift_id])
   @@index([returned_day_id])
   @@index([return_reason])
+  // Phase 3: Composite index for pack queries filtered by store, status, and bin
+  // DB-004: INDEXING - Supports GET /stores/:storeId/lottery/packs?status=X&bin_id=Y
+  @@index([store_id, status, current_bin_id])
+  // NOTE: Additional partial indexes for status-specific queries exist in migration
+  // 20260107000000_phase_3_index_optimization:
+  //   - idx_lottery_packs_store_depleted WHERE status='DEPLETED'
+  //   - idx_lottery_packs_store_returned WHERE status='RETURNED'
+  //   - idx_lottery_packs_store_activated WHERE activated_at IS NOT NULL
   @@map("lottery_packs")
 }
 
@@ -1821,6 +1835,10 @@ model LotteryBusinessDay {
   @@index([status, pending_close_expires_at])
   /// Index for FK lookups to day_summary
   @@index([day_summary_id])
+  // NOTE: Additional partial index for closed day lookup exists in migration
+  // 20260107000000_phase_3_index_optimization:
+  //   - idx_lottery_business_days_store_closed (store_id, closed_at DESC) WHERE status='CLOSED'
+  //   - Critical for getStartingSerials() performance during day close
   @@map("lottery_business_days")
 }
 

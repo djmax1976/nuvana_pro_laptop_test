@@ -328,6 +328,24 @@ if (!shouldDisableRateLimit) {
 // This automatically wraps ALL route handlers with RLS context for tenant isolation
 app.register(rlsPlugin);
 
+/**
+ * Phase 6.1: Query Metrics Monitoring
+ *
+ * Enterprise coding standards applied:
+ * - LM-002: MONITORING - Performance probes for database queries
+ * - DB-008: QUERY_LOGGING - Automatic query timing via Prisma events
+ * - CDP-005: DATA_MASKING - No sensitive data in query logs
+ *
+ * Query metrics are automatically collected via Prisma's event system.
+ * The QueryMetricsService aggregates timing data for:
+ * - Slow query detection (configurable threshold)
+ * - N+1 pattern detection
+ * - Transaction timeout tracking
+ *
+ * Access metrics via GET /api/health/query-metrics (admin only)
+ */
+app.log.info("Phase 6.1: Query metrics monitoring enabled");
+
 // Register health check routes
 app.register(healthRoutes);
 
@@ -480,6 +498,10 @@ app.get("/", async () => {
       //        POST /api/stores/:storeId/naxml/watcher/start - Start watcher
       //        POST /api/stores/:storeId/naxml/watcher/stop - Stop watcher
       naxml: "/api/stores/:storeId/naxml",
+      // Query Metrics (Phase 6.1): GET /api/health/query-metrics - Database query performance metrics (admin only)
+      //                           PATCH /api/health/query-metrics/config - Update metrics configuration (admin only)
+      //                           POST /api/health/query-metrics/reset - Reset all metrics (admin only)
+      queryMetrics: "/api/health/query-metrics",
     },
     documentation: "https://github.com/your-org/nuvana-pro",
   };
