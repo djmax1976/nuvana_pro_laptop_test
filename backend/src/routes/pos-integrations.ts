@@ -212,8 +212,11 @@ export async function posIntegrationRoutes(
         const { storeId } = paramsResult.data;
         await verifyStoreAccess(storeId, user);
 
-        const integration = await prisma.pOSIntegration.findUnique({
-          where: { store_id: storeId },
+        const integration = await prisma.pOSIntegration.findFirst({
+          where: {
+            store_id: storeId,
+            is_active: true, // Only return active integrations
+          },
         });
 
         if (!integration) {
