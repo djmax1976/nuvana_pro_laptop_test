@@ -172,7 +172,28 @@ export async function seedRBAC() {
       },
     });
 
-    console.log("✅ Seeded 7 roles");
+    // SUPPORT - SUPPORT scope (support staff with COMPANY + STORE level access, NOT SYSTEM)
+    // SUPPORT scope is a new scope type that grants access to both Company and Store levels
+    // This is different from COMPANY scope - SUPPORT explicitly has both levels
+    // SUPPORT does NOT have SYSTEM level access (cannot access system-wide resources)
+    const supportRole = await prisma.role.upsert({
+      where: { code: "SUPPORT" },
+      update: {
+        scope: "SUPPORT",
+        description:
+          "Support staff with COMPANY + STORE level access for troubleshooting and customer assistance (no SYSTEM access)",
+        is_system_role: true,
+      },
+      create: {
+        code: "SUPPORT",
+        scope: "SUPPORT",
+        description:
+          "Support staff with COMPANY + STORE level access for troubleshooting and customer assistance (no SYSTEM access)",
+        is_system_role: true,
+      },
+    });
+
+    console.log("✅ Seeded 8 roles");
 
     // Map roles to permissions
     console.log("Mapping roles to permissions...");
@@ -565,6 +586,87 @@ export async function seedRBAC() {
       }
     }
     console.log("✅ CASHIER: Permissions mapped");
+
+    // SUPPORT: Read access to company and store data for troubleshooting
+    // COMPANY scope - can access assigned company and all stores within it
+    // Permissions are read-heavy for support/troubleshooting, no destructive operations
+    const supportPermissions = [
+      // Company & Store Read Access (COMPANY scope)
+      PERMISSIONS.COMPANY_READ,
+      PERMISSIONS.STORE_READ,
+
+      // User Read Access (for support troubleshooting)
+      PERMISSIONS.USER_READ,
+
+      // Shift Read Access (STORE scope - inherited via COMPANY scope)
+      PERMISSIONS.SHIFT_READ,
+      PERMISSIONS.SHIFT_REPORT_VIEW,
+
+      // Transaction Read Access
+      PERMISSIONS.TRANSACTION_READ,
+
+      // Inventory Read Access
+      PERMISSIONS.INVENTORY_READ,
+
+      // Lottery Read Access - Full read access for troubleshooting
+      PERMISSIONS.LOTTERY_GAME_READ,
+      PERMISSIONS.LOTTERY_PACK_READ,
+      PERMISSIONS.LOTTERY_VARIANCE_READ,
+      PERMISSIONS.LOTTERY_BIN_READ,
+      PERMISSIONS.LOTTERY_BIN_CONFIG_READ,
+      PERMISSIONS.LOTTERY_REPORT,
+
+      // Reports - Full read access for support analysis
+      PERMISSIONS.REPORT_SHIFT,
+      PERMISSIONS.REPORT_DAILY,
+      PERMISSIONS.REPORT_ANALYTICS,
+      PERMISSIONS.REPORT_EXPORT,
+
+      // Client Dashboard Access (required for dashboard access)
+      PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
+
+      // Client Employee Read Access (for support troubleshooting)
+      PERMISSIONS.CLIENT_EMPLOYEE_READ,
+
+      // Cashier Read Access
+      PERMISSIONS.CASHIER_READ,
+
+      // Configuration Read Access (for troubleshooting config issues)
+      PERMISSIONS.TENDER_TYPE_READ,
+      PERMISSIONS.DEPARTMENT_READ,
+      PERMISSIONS.TAX_RATE_READ,
+      PERMISSIONS.CONFIG_READ,
+
+      // POS Integration Read Access (for troubleshooting sync issues)
+      PERMISSIONS.POS_CONNECTION_READ,
+      PERMISSIONS.POS_SYNC_LOG_READ,
+
+      // POS Audit Read Access (for compliance support)
+      PERMISSIONS.POS_AUDIT_READ,
+
+      // Admin Audit View (for support to view audit logs)
+      PERMISSIONS.ADMIN_AUDIT_VIEW,
+    ];
+
+    for (const permissionCode of supportPermissions) {
+      const permissionId = permissionMap.get(permissionCode);
+      if (permissionId) {
+        await prisma.rolePermission.upsert({
+          where: {
+            role_id_permission_id: {
+              role_id: supportRole.role_id,
+              permission_id: permissionId,
+            },
+          },
+          update: {},
+          create: {
+            role_id: supportRole.role_id,
+            permission_id: permissionId,
+          },
+        });
+      }
+    }
+    console.log("✅ SUPPORT: Permissions mapped");
 
     console.log("✅ RBAC seed completed successfully");
   } catch (error) {

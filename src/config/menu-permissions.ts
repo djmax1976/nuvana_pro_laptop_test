@@ -34,6 +34,8 @@ export interface MenuPermissionConfig {
   mode?: PermissionRequirementMode;
   /** If true, menu is always visible regardless of permissions */
   alwaysVisible?: boolean;
+  /** If true, requires re-authentication before navigating to this menu item */
+  requiresAuth?: boolean;
 }
 
 /**
@@ -100,6 +102,9 @@ export const PERMISSION_CODES = {
   DEPARTMENT_MANAGE: "DEPARTMENT_MANAGE",
   TAX_RATE_READ: "TAX_RATE_READ",
   TAX_RATE_MANAGE: "TAX_RATE_MANAGE",
+
+  // POS Integration
+  POS_SYNC_TRIGGER: "POS_SYNC_TRIGGER",
 } as const;
 
 export type PermissionCode =
@@ -234,6 +239,16 @@ export const CLIENT_MENU_PERMISSIONS: MenuPermissionConfig[] = [
       PERMISSION_CODES.TAX_RATE_MANAGE,
     ],
     mode: "ANY", // Show if user can read or manage any config
+  },
+
+  // POS Integration - Always visible, requires re-authentication before access
+  // Any user can see the link, but must authenticate as someone with POS_SYNC_TRIGGER
+  {
+    menuKey: "pos_integration",
+    menuTitle: "POS Integration",
+    requiredPermissions: [], // No permission required for visibility
+    alwaysVisible: true, // Link is always visible
+    requiresAuth: true, // Flag for sidebar to show auth modal before navigation
   },
 
   // AI Assistant - Always visible (feature toggle, not permission-based)

@@ -60,7 +60,10 @@ export class CircularHierarchyError extends Error {
  */
 class DepartmentService {
   /**
-   * List all departments for a client (includes system defaults)
+   * List all departments for a client
+   *
+   * By default, only returns company-specific departments (no system defaults).
+   * POS-synced departments have both client_id and store_id set.
    *
    * @param options - Query options
    * @returns List of departments
@@ -69,7 +72,7 @@ class DepartmentService {
     const {
       client_id,
       include_inactive = false,
-      include_system = true,
+      include_system = false, // Changed: Don't include system defaults by default
       parent_id,
       is_lottery,
       include_children = false,

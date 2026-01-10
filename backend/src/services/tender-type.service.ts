@@ -50,7 +50,10 @@ export class SystemTenderTypeError extends Error {
  */
 class TenderTypeService {
   /**
-   * List all tender types for a client (includes system defaults)
+   * List all tender types for a client
+   *
+   * By default, only returns company-specific tender types (no system defaults).
+   * POS-synced tender types have both client_id and store_id set.
    *
    * @param options - Query options
    * @returns List of tender types
@@ -59,7 +62,7 @@ class TenderTypeService {
     const {
       client_id,
       include_inactive = false,
-      include_system = true,
+      include_system = false, // Changed: Don't include system defaults by default
     } = options;
 
     const where: Prisma.TenderTypeWhereInput = {

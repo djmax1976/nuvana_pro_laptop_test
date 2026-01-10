@@ -86,6 +86,27 @@ export interface POSNoAuthCredentials {
 // ============================================================================
 
 /**
+ * Preview of data available from POS (returned during connection test)
+ */
+export interface POSDataPreview {
+  /** Preview of departments available */
+  departments?: {
+    count: number;
+    items: Array<{ posCode: string; displayName: string }>;
+  };
+  /** Preview of tender types available */
+  tenderTypes?: {
+    count: number;
+    items: Array<{ posCode: string; displayName: string }>;
+  };
+  /** Preview of tax rates available */
+  taxRates?: {
+    count: number;
+    items: Array<{ posCode: string; name: string; rate: number }>;
+  };
+}
+
+/**
  * Result of testing a POS connection
  */
 export interface POSConnectionTestResult {
@@ -103,6 +124,8 @@ export interface POSConnectionTestResult {
   errorCode?: string;
   /** Detailed error information */
   errorDetails?: Record<string, unknown>;
+  /** Preview of available data (populated on successful connection) */
+  preview?: POSDataPreview;
 }
 
 // ============================================================================
@@ -418,6 +441,8 @@ export interface UpdatePOSIntegrationInput {
   timeout?: number;
   authType?: POSAuthType;
   authCredentials?: Record<string, unknown>;
+  /** XML Gateway path for file-based POS (BOOutbox export path) */
+  xmlGatewayPath?: string;
   syncEnabled?: boolean;
   syncIntervalMins?: number;
   syncDepartments?: boolean;

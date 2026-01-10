@@ -40,27 +40,27 @@ interface TenderTypeFormProps {
 
 interface FormData {
   code: string;
-  name: string;
+  display_name: string;
   description: string;
-  is_cash: boolean;
+  is_cash_equivalent: boolean;
   requires_reference: boolean;
-  display_order: number;
+  sort_order: number;
 }
 
 interface FormErrors {
   code?: string;
-  name?: string;
+  display_name?: string;
   description?: string;
-  display_order?: string;
+  sort_order?: string;
 }
 
 const initialFormData: FormData = {
   code: "",
-  name: "",
+  display_name: "",
   description: "",
-  is_cash: false,
+  is_cash_equivalent: false,
   requires_reference: false,
-  display_order: 0,
+  sort_order: 0,
 };
 
 /**
@@ -78,18 +78,18 @@ function validateForm(data: FormData, mode: "create" | "edit"): FormErrors {
     }
   }
 
-  if (!data.name.trim()) {
-    errors.name = "Name is required";
-  } else if (data.name.length > 100) {
-    errors.name = "Name must be 100 characters or less";
+  if (!data.display_name.trim()) {
+    errors.display_name = "Name is required";
+  } else if (data.display_name.length > 100) {
+    errors.display_name = "Name must be 100 characters or less";
   }
 
   if (data.description && data.description.length > 500) {
     errors.description = "Description must be 500 characters or less";
   }
 
-  if (data.display_order < 0 || data.display_order > 9999) {
-    errors.display_order = "Display order must be between 0 and 9999";
+  if (data.sort_order < 0 || data.sort_order > 9999) {
+    errors.sort_order = "Sort order must be between 0 and 9999";
   }
 
   return errors;
@@ -115,11 +115,11 @@ export function TenderTypeForm({ tenderTypeId, mode }: TenderTypeFormProps) {
     if (mode === "edit" && existingTenderType) {
       setFormData({
         code: existingTenderType.code,
-        name: existingTenderType.name,
+        display_name: existingTenderType.display_name,
         description: existingTenderType.description || "",
-        is_cash: existingTenderType.is_cash,
+        is_cash_equivalent: existingTenderType.is_cash_equivalent,
         requires_reference: existingTenderType.requires_reference,
-        display_order: existingTenderType.display_order,
+        sort_order: existingTenderType.sort_order,
       });
     }
   }, [mode, existingTenderType]);
@@ -170,11 +170,11 @@ export function TenderTypeForm({ tenderTypeId, mode }: TenderTypeFormProps) {
       if (mode === "create") {
         const input: CreateTenderTypeInput = {
           code: formData.code.trim(),
-          name: formData.name.trim(),
+          display_name: formData.display_name.trim(),
           description: formData.description.trim() || undefined,
-          is_cash: formData.is_cash,
+          is_cash_equivalent: formData.is_cash_equivalent,
           requires_reference: formData.requires_reference,
-          display_order: formData.display_order,
+          sort_order: formData.sort_order,
         };
 
         await createMutation.mutateAsync(input);
@@ -184,11 +184,11 @@ export function TenderTypeForm({ tenderTypeId, mode }: TenderTypeFormProps) {
         });
       } else {
         const input: UpdateTenderTypeInput = {
-          name: formData.name.trim(),
+          display_name: formData.display_name.trim(),
           description: formData.description.trim() || undefined,
-          is_cash: formData.is_cash,
+          is_cash_equivalent: formData.is_cash_equivalent,
           requires_reference: formData.requires_reference,
-          display_order: formData.display_order,
+          sort_order: formData.sort_order,
         };
 
         await updateMutation.mutateAsync({
@@ -266,7 +266,7 @@ export function TenderTypeForm({ tenderTypeId, mode }: TenderTypeFormProps) {
           <p className="text-sm text-muted-foreground">
             {mode === "create"
               ? "Add a new payment method"
-              : `Editing ${existingTenderType?.name}`}
+              : `Editing ${existingTenderType?.display_name}`}
           </p>
         </div>
       </div>
@@ -306,21 +306,23 @@ export function TenderTypeForm({ tenderTypeId, mode }: TenderTypeFormProps) {
 
             {/* Name */}
             <div className="space-y-2">
-              <Label htmlFor="name">
+              <Label htmlFor="display_name">
                 Name <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="name"
-                name="name"
-                value={formData.name}
+                id="display_name"
+                name="display_name"
+                value={formData.display_name}
                 onChange={handleChange}
                 placeholder="e.g., Visa Credit Card"
                 maxLength={100}
-                className={errors.name ? "border-destructive" : ""}
+                className={errors.display_name ? "border-destructive" : ""}
                 data-testid="tender-type-name-input"
               />
-              {errors.name && (
-                <p className="text-sm text-destructive">{errors.name}</p>
+              {errors.display_name && (
+                <p className="text-sm text-destructive">
+                  {errors.display_name}
+                </p>
               )}
             </div>
 
@@ -343,26 +345,24 @@ export function TenderTypeForm({ tenderTypeId, mode }: TenderTypeFormProps) {
               )}
             </div>
 
-            {/* Display Order */}
+            {/* Sort Order */}
             <div className="space-y-2">
-              <Label htmlFor="display_order">Display Order</Label>
+              <Label htmlFor="sort_order">Sort Order</Label>
               <Input
-                id="display_order"
-                name="display_order"
+                id="sort_order"
+                name="sort_order"
                 type="number"
-                value={formData.display_order}
+                value={formData.sort_order}
                 onChange={handleChange}
                 min={0}
                 max={9999}
                 className={
-                  errors.display_order ? "border-destructive w-32" : "w-32"
+                  errors.sort_order ? "border-destructive w-32" : "w-32"
                 }
-                data-testid="tender-type-display-order-input"
+                data-testid="tender-type-sort-order-input"
               />
-              {errors.display_order && (
-                <p className="text-sm text-destructive">
-                  {errors.display_order}
-                </p>
+              {errors.sort_order && (
+                <p className="text-sm text-destructive">{errors.sort_order}</p>
               )}
               <p className="text-xs text-muted-foreground">
                 Lower numbers appear first in lists
@@ -373,19 +373,20 @@ export function TenderTypeForm({ tenderTypeId, mode }: TenderTypeFormProps) {
             <div className="space-y-4">
               <div className="flex items-center space-x-2">
                 <Checkbox
-                  id="is_cash"
-                  checked={formData.is_cash}
+                  id="is_cash_equivalent"
+                  checked={formData.is_cash_equivalent}
                   onCheckedChange={(checked) =>
-                    handleCheckboxChange("is_cash", !!checked)
+                    handleCheckboxChange("is_cash_equivalent", !!checked)
                   }
                   data-testid="tender-type-is-cash-checkbox"
                 />
-                <Label htmlFor="is_cash" className="font-normal">
-                  This is a cash payment method
+                <Label htmlFor="is_cash_equivalent" className="font-normal">
+                  This is a cash equivalent payment method
                 </Label>
               </div>
               <p className="text-xs text-muted-foreground ml-6">
-                Cash payments are tracked separately for drawer reconciliation
+                Cash equivalent payments are tracked separately for drawer
+                reconciliation
               </p>
 
               <div className="flex items-center space-x-2">

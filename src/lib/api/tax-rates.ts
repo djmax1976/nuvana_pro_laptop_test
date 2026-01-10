@@ -55,6 +55,8 @@ export interface TaxRate {
   is_compound: boolean;
   client_id: string | null;
   store_id: string | null;
+  pos_code: string | null;
+  pos_source: string | null;
   is_active: boolean;
   is_system: boolean;
   created_at: string;

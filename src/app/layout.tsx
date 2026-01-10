@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/providers/ThemeProvider";
 // DISABLED: ThemeSync causing issues - will be fixed later
 // import { ThemeSync } from "@/components/providers/ThemeSync";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { ElevationTokenProvider } from "@/contexts/ElevationTokenContext";
 import { Toaster } from "@/components/ui/toaster";
 
 // Force all pages to be dynamically rendered
@@ -112,12 +113,14 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <AuthProvider>
-            <QueryProvider>
-              {/* DISABLED: ThemeSync causing issues - will be fixed later */}
-              {/* <ThemeSync /> */}
-              {children}
-              <Toaster />
-            </QueryProvider>
+            <ElevationTokenProvider>
+              <QueryProvider>
+                {/* DISABLED: ThemeSync causing issues - will be fixed later */}
+                {/* <ThemeSync /> */}
+                {children}
+                <Toaster />
+              </QueryProvider>
+            </ElevationTokenProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

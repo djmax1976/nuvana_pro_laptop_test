@@ -143,7 +143,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         // This ensures RLS policies are satisfied when querying user_roles table
         // Returns userRoles for routing logic without needing a second query
         const authService = new AuthService();
-        const { accessToken, refreshToken, roles, userRoles } =
+        const { accessToken, refreshToken, roles, userRoles, permissions } =
           await authService.generateTokenPairWithRBAC(user.user_id, user.email);
 
         // Set httpOnly cookies
@@ -267,6 +267,7 @@ export async function authRoutes(fastify: FastifyInstance) {
               is_client_user: isClientUser,
               user_role: userRole,
               roles: roleCodes,
+              permissions, // Include permissions for frontend permission checks
             },
           },
         });
@@ -1538,6 +1539,403 @@ export async function authRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to verify credentials",
+          },
+        };
+      }
+    },
+  );
+
+  // ===========================================================================
+  // ELEVATED ACCESS VERIFICATION (Step-Up Authentication)
+  // ===========================================================================
+  // Enterprise-grade step-up authentication for sensitive operations
+  // Does NOT modify the user's session - returns a short-lived elevation token
+  //
+  // Security Standards:
+  // - SEC-010: AUTHZ - Validates credentials and permission without session modification
+  // - SEC-012: SESSION_TIMEOUT - Short-lived tokens (5 minutes default)
+  // - SEC-014: INPUT_VALIDATION - Strict Zod schema validation
+  // - API-003: ERROR_HANDLING - Generic errors, detailed server-side logging
+  // ===========================================================================
+
+  // Validation schema for elevated access request
+  const elevatedAccessSchema = z.object({
+    email: z.string().email("Invalid email format").max(254),
+    password: z.string().min(1, "Password is required"),
+    required_permission: z.string().min(1, "Permission is required").max(100),
+    store_id: z.string().uuid("Invalid store ID").optional(),
+  });
+
+  /**
+   * Verify Elevated Access - Step-up authentication for sensitive operations
+   * POST /api/auth/verify-elevated-access
+   *
+   * This endpoint:
+   * 1. Validates user credentials (email/password)
+   * 2. Verifies user has the required permission
+   * 3. Returns a short-lived elevation token (NOT session cookies)
+   * 4. Logs all attempts for security audit
+   *
+   * The elevation token:
+   * - Is short-lived (5 minutes default, configurable)
+   * - Is single-use (replay protection via JTI tracking)
+   * - Is scoped to a specific permission and optionally a store
+   * - Does NOT modify the user's session
+   *
+   * Rate limited: 5 attempts per 15 minutes per IP
+   */
+  fastify.post(
+    "/api/auth/verify-elevated-access",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      // Import services here to avoid circular dependencies at module load
+      const { elevatedAccessAuditService } =
+        await import("../services/auth/elevated-access-audit.service");
+      const { elevationTokenService } =
+        await import("../services/auth/elevation-token.service");
+
+      // Extract request metadata for audit logging
+      const ipAddress =
+        (request.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+        request.ip ||
+        request.socket.remoteAddress ||
+        "unknown";
+      const userAgent = (request.headers["user-agent"] as string) || undefined;
+      const requestId =
+        (request.headers["x-request-id"] as string) || undefined;
+
+      try {
+        // SEC-014: INPUT_VALIDATION - Validate request body
+        const parseResult = elevatedAccessSchema.safeParse(request.body);
+
+        if (!parseResult.success) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message:
+                parseResult.error.issues[0]?.message || "Invalid request",
+            },
+          };
+        }
+
+        const { email, password, required_permission, store_id } =
+          parseResult.data;
+        const normalizedEmail = email.toLowerCase().trim();
+
+        // Rate limiting check (5 attempts per 15 minutes per IP)
+        const rateLimitStatus = await elevatedAccessAuditService.checkRateLimit(
+          ipAddress,
+          "ip",
+          15 * 60 * 1000, // 15 minutes
+          5, // max attempts
+        );
+
+        if (rateLimitStatus.isLimited) {
+          // Log rate limit event
+          await elevatedAccessAuditService.logRateLimited({
+            userEmail: normalizedEmail,
+            requestedPermission: required_permission,
+            storeId: store_id,
+            ipAddress,
+            userAgent,
+            requestId,
+            result: "FAILED_RATE_LIMIT",
+            attemptCount: rateLimitStatus.attemptCount,
+            rateLimitWindow: rateLimitStatus.windowStart,
+          });
+
+          reply.code(429);
+          return {
+            success: false,
+            error: {
+              code: "RATE_LIMITED",
+              message: "Too many attempts. Please try again later.",
+              retry_after_seconds: 15 * 60, // 15 minutes
+            },
+          };
+        }
+
+        // Find user by email
+        const user = await prisma.user.findUnique({
+          where: { email: normalizedEmail },
+          select: {
+            user_id: true,
+            email: true,
+            password_hash: true,
+            status: true,
+            name: true,
+          },
+        });
+
+        if (!user || !user.password_hash) {
+          // Log failed attempt - user not found
+          await elevatedAccessAuditService.logElevationDenied({
+            userEmail: normalizedEmail,
+            requestedPermission: required_permission,
+            storeId: store_id,
+            ipAddress,
+            userAgent,
+            requestId,
+            result: "FAILED_CREDENTIALS",
+            errorCode: "USER_NOT_FOUND",
+            errorMessage: "User not found or no password set",
+            attemptCount: rateLimitStatus.attemptCount + 1,
+          });
+
+          // Generic error to prevent user enumeration
+          reply.code(401);
+          return {
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid credentials or insufficient permissions",
+            },
+          };
+        }
+
+        // Check if user is active
+        if (user.status !== "ACTIVE") {
+          await elevatedAccessAuditService.logElevationDenied({
+            userId: user.user_id,
+            userEmail: normalizedEmail,
+            requestedPermission: required_permission,
+            storeId: store_id,
+            ipAddress,
+            userAgent,
+            requestId,
+            result: "FAILED_CREDENTIALS",
+            errorCode: "USER_INACTIVE",
+            errorMessage: "User account is inactive",
+            attemptCount: rateLimitStatus.attemptCount + 1,
+          });
+
+          reply.code(401);
+          return {
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid credentials or insufficient permissions",
+            },
+          };
+        }
+
+        // Verify password
+        const isValidPassword = await bcrypt.compare(
+          password,
+          user.password_hash,
+        );
+
+        if (!isValidPassword) {
+          await elevatedAccessAuditService.logElevationDenied({
+            userId: user.user_id,
+            userEmail: normalizedEmail,
+            requestedPermission: required_permission,
+            storeId: store_id,
+            ipAddress,
+            userAgent,
+            requestId,
+            result: "FAILED_CREDENTIALS",
+            errorCode: "INVALID_PASSWORD",
+            errorMessage: "Password verification failed",
+            attemptCount: rateLimitStatus.attemptCount + 1,
+          });
+
+          reply.code(401);
+          return {
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid credentials or insufficient permissions",
+            },
+          };
+        }
+
+        // Check if user has the required permission
+        // Get user's roles with their permissions
+        const userRolesWithPerms = await prisma.userRole.findMany({
+          where: { user_id: user.user_id },
+          include: {
+            role: {
+              include: {
+                role_permissions: {
+                  include: {
+                    permission: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        // Collect all permissions from user's roles
+        const userPermissions = new Set<string>();
+        for (const ur of userRolesWithPerms) {
+          for (const rp of ur.role.role_permissions) {
+            userPermissions.add(rp.permission.code);
+          }
+        }
+
+        if (!userPermissions.has(required_permission)) {
+          await elevatedAccessAuditService.logElevationDenied({
+            userId: user.user_id,
+            userEmail: normalizedEmail,
+            requestedPermission: required_permission,
+            storeId: store_id,
+            ipAddress,
+            userAgent,
+            requestId,
+            result: "FAILED_PERMISSION",
+            errorCode: "MISSING_PERMISSION",
+            errorMessage: `User lacks required permission: ${required_permission}`,
+            attemptCount: rateLimitStatus.attemptCount + 1,
+          });
+
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message: "Invalid credentials or insufficient permissions",
+            },
+          };
+        }
+
+        // If store_id is provided, verify user has access to the store
+        // EXCEPTION: Users with SYSTEM-scoped roles (SUPERADMIN) have global access
+        if (store_id) {
+          // Check if user has any SYSTEM-scoped role (e.g., SUPERADMIN)
+          const hasSystemRole = userRolesWithPerms.some(
+            (ur) => ur.role.scope === "SYSTEM",
+          );
+
+          let hasAccess = hasSystemRole; // SYSTEM roles bypass store/company checks
+
+          if (!hasAccess) {
+            const storeAccess = await prisma.userRole.findFirst({
+              where: {
+                user_id: user.user_id,
+                store_id: store_id,
+              },
+            });
+
+            // Also check company-level access
+            const store = await prisma.store.findUnique({
+              where: { store_id },
+              select: { company_id: true },
+            });
+
+            const companyAccess = store
+              ? await prisma.userRole.findFirst({
+                  where: {
+                    user_id: user.user_id,
+                    company_id: store.company_id,
+                  },
+                })
+              : null;
+
+            hasAccess = !!(storeAccess || companyAccess);
+          }
+
+          if (!hasAccess) {
+            await elevatedAccessAuditService.logElevationDenied({
+              userId: user.user_id,
+              userEmail: normalizedEmail,
+              requestedPermission: required_permission,
+              storeId: store_id,
+              ipAddress,
+              userAgent,
+              requestId,
+              result: "FAILED_STORE_ACCESS",
+              errorCode: "NO_STORE_ACCESS",
+              errorMessage: `User has no access to store: ${store_id}`,
+              attemptCount: rateLimitStatus.attemptCount + 1,
+            });
+
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "FORBIDDEN",
+                message: "Invalid credentials or insufficient permissions",
+              },
+            };
+          }
+        }
+
+        // All checks passed - compute user identity for elevation token
+        // Collect roles and permissions from user's roles
+        const roles: string[] = [];
+        const allPermissions = new Set<string>();
+        const companyIds = new Set<string>();
+        const storeIds = new Set<string>();
+
+        for (const ur of userRolesWithPerms) {
+          roles.push(ur.role.code);
+          for (const rp of ur.role.role_permissions) {
+            allPermissions.add(rp.permission.code);
+          }
+          if (ur.company_id) companyIds.add(ur.company_id);
+          if (ur.store_id) storeIds.add(ur.store_id);
+        }
+
+        // Compute is_system_admin (same logic as auth.service.ts)
+        const is_system_admin = userRolesWithPerms.some(
+          (ur) => ur.role.code === "SUPERADMIN" && ur.role.scope === "SYSTEM",
+        );
+
+        // Generate elevation token with full user identity
+        const tokenResult = elevationTokenService.generateToken({
+          userId: user.user_id,
+          email: user.email,
+          permission: required_permission,
+          storeId: store_id,
+          // Include full user identity for authorization override
+          roles,
+          permissions: Array.from(allPermissions),
+          is_system_admin,
+          company_ids: Array.from(companyIds),
+          store_ids: Array.from(storeIds),
+        });
+
+        // Log successful elevation
+        await elevatedAccessAuditService.logElevationGranted({
+          userId: user.user_id,
+          userEmail: user.email,
+          requestedPermission: required_permission,
+          storeId: store_id,
+          tokenJti: tokenResult.jti,
+          tokenIssuedAt: tokenResult.issuedAt,
+          tokenExpiresAt: tokenResult.expiresAt,
+          ipAddress,
+          userAgent,
+          requestId,
+        });
+
+        // Return elevation token (NOT session cookies)
+        reply.code(200);
+        return {
+          success: true,
+          data: {
+            elevation_token: tokenResult.token,
+            expires_in: tokenResult.expiresIn,
+            expires_at: tokenResult.expiresAt.toISOString(),
+            permission: required_permission,
+            store_id: store_id || null,
+          },
+        };
+      } catch (error) {
+        fastify.log.error(
+          { error, ipAddress },
+          "Error in verify-elevated-access",
+        );
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to verify elevated access",
           },
         };
       }

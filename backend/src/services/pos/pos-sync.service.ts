@@ -166,6 +166,7 @@ export class POSSyncService {
         timeout: input.timeout,
         auth_type: input.authType,
         auth_credentials: encryptedCredentials as any,
+        xml_gateway_path: input.xmlGatewayPath,
         sync_enabled: input.syncEnabled,
         sync_interval_mins: input.syncIntervalMins,
         sync_departments: input.syncDepartments,
@@ -201,6 +202,13 @@ export class POSSyncService {
 
   /**
    * Test a POS connection with provided config (before saving)
+   *
+   * SEC-014: INPUT_VALIDATION - Parameters validated at route level before calling this method
+   * API-003: ERROR_HANDLING - Returns structured error responses
+   *
+   * Supports both:
+   * - Network-based POS systems (uses host/port)
+   * - File-based POS systems (uses host as xmlGatewayPath for Gilbarco NAXML)
    */
   async testConnectionConfig(
     posType: POSSystemType,
@@ -219,7 +227,9 @@ export class POSSyncService {
     }
 
     const adapter = getPOSAdapter(posType);
-    const config: POSConnectionConfig = {
+
+    // Build base connection config
+    const config: POSConnectionConfig & Record<string, unknown> = {
       host,
       port,
       useSsl,
@@ -228,7 +238,39 @@ export class POSSyncService {
       credentials: this.buildCredentialsObject(authType, credentials),
     };
 
-    return adapter.testConnection(config);
+    // For file-based POS systems, map host to xmlGatewayPath
+    // This enables the adapter's testConnection method to find the correct path
+    // GILBARCO_PASSPORT uses NAXML file exchange
+    // GILBARCO_NAXML uses NAXML file exchange (same as PASSPORT but explicit)
+    // GILBARCO_COMMANDER also uses NAXML file exchange
+    // VERIFONE_* systems also use file-based exchange
+    const fileBased: POSSystemType[] = [
+      "GILBARCO_PASSPORT",
+      "GILBARCO_NAXML",
+      "GILBARCO_COMMANDER",
+      "VERIFONE_RUBY2",
+      "VERIFONE_COMMANDER",
+      "VERIFONE_SAPPHIRE",
+      "GENERIC_XML",
+    ];
+
+    if (fileBased.includes(posType)) {
+      // For file-based systems, host contains the XMLGateway or exchange folder path
+      config.xmlGatewayPath = host;
+      // Also set NAXML-specific defaults for Gilbarco
+      if (
+        posType === "GILBARCO_PASSPORT" ||
+        posType === "GILBARCO_NAXML" ||
+        posType === "GILBARCO_COMMANDER"
+      ) {
+        config.naxmlVersion = "3.4";
+        config.generateAcknowledgments = true;
+        config.storeLocationId = ""; // Will be set from store on actual save
+        config.archiveProcessedFiles = false;
+      }
+    }
+
+    return adapter.testConnection(config as POSConnectionConfig);
   }
 
   // ============================================================================
@@ -894,6 +936,10 @@ export class POSSyncService {
 
   /**
    * Build connection config from integration record
+   *
+   * For file-based POS systems (GILBARCO_*, VERIFONE_*, GENERIC_XML),
+   * the host field contains the XMLGateway folder path and must be
+   * mapped to xmlGatewayPath for the adapter to function correctly.
    */
   private buildConnectionConfig(
     integration: POSIntegration,
@@ -911,7 +957,7 @@ export class POSSyncService {
       );
     }
 
-    return {
+    const baseConfig: POSConnectionConfig & Record<string, unknown> = {
       host: integration.host,
       port: integration.port,
       useSsl: integration.use_ssl,
@@ -919,6 +965,36 @@ export class POSSyncService {
       authType: integration.auth_type,
       credentials,
     };
+
+    // For file-based POS systems, map host to xmlGatewayPath
+    // This enables the adapter's sync methods to find the correct path
+    const fileBased: POSSystemType[] = [
+      "GILBARCO_PASSPORT",
+      "GILBARCO_NAXML",
+      "GILBARCO_COMMANDER",
+      "VERIFONE_RUBY2",
+      "VERIFONE_COMMANDER",
+      "VERIFONE_SAPPHIRE",
+      "GENERIC_XML",
+    ];
+
+    if (fileBased.includes(integration.pos_type)) {
+      // For file-based systems, host contains the XMLGateway or exchange folder path
+      baseConfig.xmlGatewayPath = integration.host;
+      // Also set NAXML-specific defaults for Gilbarco
+      if (
+        integration.pos_type === "GILBARCO_PASSPORT" ||
+        integration.pos_type === "GILBARCO_NAXML" ||
+        integration.pos_type === "GILBARCO_COMMANDER"
+      ) {
+        baseConfig.naxmlVersion = "3.4";
+        baseConfig.generateAcknowledgments = true;
+        baseConfig.storeLocationId = integration.store_id;
+        baseConfig.archiveProcessedFiles = true; // Enable archiving for sync operations
+      }
+    }
+
+    return baseConfig as POSConnectionConfig;
   }
 
   /**

@@ -83,6 +83,8 @@ model User {
   documents_rejected          ScannedDocument[]       @relation("ScannedDocumentRejectedBy")
   // Lottery Game Import relations
   lottery_game_imports        LotteryGameImport[]     @relation("LotteryGameImportCreatedBy")
+  // Elevated Access Audit (Security Events)
+  elevated_access_audits      ElevatedAccessAudit[]   @relation("ElevatedAccessAuditUser")
 
   @@index([email])
   @@index([status])
@@ -143,6 +145,9 @@ model Company {
   pos_audits    POSDataExchangeAudit[]
   // Scanned Documents (OCR Feature)
   scanned_documents ScannedDocument[]
+  // Fuel Models (Phase 5: XML Parsing)
+  fuel_grades   FuelGrade[]          @relation("FuelGradeCompany")
+  fuel_positions FuelPosition[]      @relation("FuelPositionCompany")
 
   // === INDEXES ===
   @@index([owner_user_id])
@@ -241,6 +246,11 @@ model Store {
   scheduled_export_logs NAXMLScheduledExportLog[]
   // Scanned Documents (OCR Feature)
   scanned_documents     ScannedDocument[]
+  // Elevated Access Audit (Security Events)
+  elevated_access_audits ElevatedAccessAudit[]   @relation("ElevatedAccessAuditStore")
+  // Fuel Models (Phase 5: XML Parsing)
+  fuel_positions        FuelPosition[]          @relation("FuelPositionStore")
+  meter_readings        MeterReading[]          @relation("MeterReadingStore")
 
   // === INDEXES ===
   @@index([company_id])
@@ -446,6 +456,108 @@ model AuditLog {
   // DB-004: INDEXING - Supports audit trail lookups per entity
   @@index([table_name, record_id])
   @@map("audit_logs")
+}
+
+// ============================================================================
+// ELEVATED ACCESS AUDIT (Security Event Logging)
+// ============================================================================
+// Enterprise-grade audit logging for elevated access/step-up authentication
+// Tracks all elevation requests, token usage, and security events
+// SEC-010: AUTHZ - Complete audit trail for elevated access operations
+// ============================================================================
+
+/// Elevated access event types for security audit
+enum ElevatedAccessEventType {
+  ELEVATION_REQUESTED    // User requested elevated access
+  ELEVATION_GRANTED      // Credentials verified, token issued
+  ELEVATION_DENIED       // Invalid credentials or missing permission
+  ELEVATION_EXPIRED      // Token expired before use
+  ELEVATION_USED         // Token was used for an operation
+  ELEVATION_REVOKED      // Token manually revoked
+  ELEVATION_RATE_LIMITED // Request blocked due to rate limiting
+}
+
+/// Result status of elevated access events
+enum ElevatedAccessResult {
+  SUCCESS
+  FAILED_CREDENTIALS     // Invalid email or password
+  FAILED_PERMISSION      // User lacks required permission
+  FAILED_RATE_LIMIT      // Too many attempts
+  FAILED_TOKEN_EXPIRED   // Token expired
+  FAILED_TOKEN_INVALID   // Token signature invalid or malformed
+  FAILED_TOKEN_USED      // Token already used (replay attempt)
+  FAILED_SCOPE_MISMATCH  // Token scope doesn't match request
+  FAILED_STORE_ACCESS    // User doesn't have access to store
+}
+
+/// Elevated Access Audit - Comprehensive security event logging
+/// Tracks all step-up authentication requests and token usage
+/// Partitioned by month on timestamp for efficient querying and retention
+///
+/// Security Standards:
+/// - SEC-010: AUTHZ - Complete audit trail for authorization decisions
+/// - SEC-012: SESSION_TIMEOUT - Tracks token expiry and usage
+/// - SEC-014: INPUT_VALIDATION - Logs validation failures
+/// - API-003: ERROR_HANDLING - Captures error details for investigation
+model ElevatedAccessAudit {
+  audit_id            String                   @id @default(uuid()) @db.Uuid
+
+  // User context
+  user_id             String                   @db.Uuid
+  user_email          String                   @db.VarChar(255)
+
+  // Session binding - ties elevation to original session
+  session_id          String?                  @db.VarChar(64)
+
+  // Event details
+  event_type          ElevatedAccessEventType
+  result              ElevatedAccessResult
+
+  // Permission and scope
+  requested_permission String                  @db.VarChar(100)
+  store_id            String?                  @db.Uuid
+
+  // Token tracking (for GRANTED/USED/EXPIRED events)
+  token_jti           String?                  @unique @db.VarChar(64) // JWT ID for replay protection
+  token_issued_at     DateTime?               @db.Timestamptz(6)
+  token_expires_at    DateTime?               @db.Timestamptz(6)
+  token_used_at       DateTime?               @db.Timestamptz(6)
+
+  // Request metadata
+  ip_address          String                   @db.VarChar(45) // IPv4 or IPv6
+  user_agent          String?                  @db.VarChar(500)
+  request_id          String?                  @db.VarChar(64) // Correlation ID
+
+  // Error details (for failed events)
+  error_code          String?                  @db.VarChar(50)
+  error_message       String?                  @db.VarChar(500)
+
+  // Rate limiting context
+  attempt_count       Int?                     // Number of attempts in window
+  rate_limit_window   DateTime?               @db.Timestamptz(6) // Window start time
+
+  // Timestamps
+  created_at          DateTime                 @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  user                User                     @relation("ElevatedAccessAuditUser", fields: [user_id], references: [user_id])
+  store               Store?                   @relation("ElevatedAccessAuditStore", fields: [store_id], references: [store_id])
+
+  // Indexes for common query patterns
+  @@index([user_id])                          // Query by user
+  @@index([user_email])                       // Query by email (for failed attempts with unknown user)
+  @@index([event_type])                       // Filter by event type
+  @@index([result])                           // Filter by result
+  @@index([store_id])                         // Query by store
+  @@index([token_jti])                        // Lookup by token ID
+  @@index([ip_address])                       // Security: detect attack patterns
+  @@index([created_at])                       // Time-based queries
+  @@index([user_id, created_at])             // User activity timeline
+  @@index([user_id, event_type, created_at]) // User event history
+  @@index([ip_address, created_at])          // IP-based rate limiting queries
+  @@index([result, created_at])              // Failed attempt analysis
+
+  @@map("elevated_access_audit")
 }
 
 enum ShiftStatus {
@@ -1205,6 +1317,8 @@ model Shift {
   z_report          ZReport? // One Z per shift
   // Scanned Documents (OCR Feature)
   scanned_documents ScannedDocument[]
+  // Fuel Models (Phase 5: XML Parsing)
+  meter_readings    MeterReading[]    @relation("MeterReadingShift")
 
   @@index([store_id])
   @@index([opened_by])
@@ -1946,6 +2060,9 @@ model POSIntegration {
   file_watcher_configs  POSFileWatcherConfig[]
   // NAXML Scheduled Export relations (Phase 2)
   scheduled_exports     NAXMLScheduledExport[]
+  // Fuel Models (Phase 5: XML Parsing)
+  fuel_grades           FuelGrade[]            @relation("FuelGradePOSIntegration")
+  fuel_positions        FuelPosition[]         @relation("FuelPositionPOSIntegration")
 
   // === INDEXES ===
   @@index([store_id])
@@ -2444,6 +2561,8 @@ model ShiftSummary {
   hourly_summaries     ShiftHourlySummary[]
   // Z Report relation (Phase 4) - one-to-one
   z_report             ZReport?
+  // Fuel Models (Phase 5: XML Parsing)
+  fuel_summaries       ShiftFuelSummary[]
 
   // === INDEXES ===
   @@index([store_id, business_date])
@@ -2718,6 +2837,9 @@ model DaySummary {
   // Lottery business days linked to this day summary
   // Typically one-to-one, but supports multiple during day transitions
   lottery_business_days LotteryBusinessDay[]
+  // Fuel Models (Phase 5: XML Parsing)
+  fuel_summaries        DayFuelSummary[]       @relation("DayFuelSummaryDaySummary")
+  meter_readings        MeterReading[]         @relation("MeterReadingDaySummary")
 
   // === INDEXES ===
   @@unique([store_id, business_date])
@@ -2886,6 +3008,342 @@ model DayHourlySummary {
   @@index([day_summary_id])
   @@index([hour_start])
   @@map("day_hourly_summaries")
+}
+
+// ============================================================================
+// FUEL MODELS - Movement Report Data (Phase 5: XML Parsing)
+// ============================================================================
+// These models store fuel sales data extracted from NAXML Movement Reports.
+// FGM (Fuel Grade Movement), FPM (Fuel Product Movement), MSM (Misc Summary)
+// files are parsed and stored in these structures for reporting and reconciliation.
+//
+// Multi-tenant isolation: All models filter by company_id/store_id
+// SEC-006: All queries use parameterized ORM operations
+// ============================================================================
+
+/// FuelProductType - Classification of fuel products for reporting
+enum FuelProductType {
+  GASOLINE // Regular, Plus, Premium
+  DIESEL // Diesel #1, Diesel #2
+  KEROSENE // Heating fuel
+  DEF // Diesel Exhaust Fluid
+  OTHER // Any other fuel type
+}
+
+/// FuelTenderType - Payment method classification for fuel sales
+/// Maps to NAXML TenderCode values
+enum FuelTenderType {
+  CASH // Inside cash payment
+  OUTSIDE_CREDIT // Pay-at-pump credit card
+  OUTSIDE_DEBIT // Pay-at-pump debit card
+  INSIDE_CREDIT // Inside credit card
+  INSIDE_DEBIT // Inside debit card
+  FLEET // Fleet card (WEX, Fuelman, etc.)
+  OTHER // Other payment methods
+}
+
+/// MeterReadingType - Type of pump meter reading
+enum MeterReadingType {
+  OPEN // Reading at shift/day open
+  CLOSE // Reading at shift/day close
+  INTERIM // Mid-period reading
+}
+
+// ============================================================================
+// FUEL GRADE - Fuel Product Definitions (Phase 5.1)
+// ============================================================================
+// Stores fuel grade/product configuration for a company.
+// Grades are discovered from movement reports on initial POS connection.
+// Maps POS grade IDs (001, 002, etc.) to human-readable names.
+// ============================================================================
+
+model FuelGrade {
+  fuel_grade_id String @id @default(uuid()) @db.Uuid
+
+  // === TENANT SCOPE ===
+  company_id         String  @db.Uuid
+  pos_integration_id String? @db.Uuid
+
+  // === GRADE IDENTIFICATION ===
+  // POS grade ID from XML (e.g., "001", "002", "003", "021", "300")
+  grade_id     String  @db.VarChar(10)
+  // Optional product code if different from grade ID
+  product_code String? @db.VarChar(20)
+
+  // === DISPLAY INFORMATION ===
+  // Human-readable name (e.g., "UNLEAD REG", "DIESEL #1")
+  name        String  @db.VarChar(100)
+  // Short name for UI display (e.g., "REG", "DSL")
+  short_name  String? @db.VarChar(20)
+  description String? @db.VarChar(255)
+
+  // === CLASSIFICATION ===
+  product_type FuelProductType @default(GASOLINE)
+
+  // === CONFIGURATION ===
+  display_order Int     @default(0) // Sort order in UI
+  is_active     Boolean @default(true) // Soft delete flag
+
+  // === AUDIT FIELDS ===
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  created_by String?   @db.Uuid
+  updated_by String?   @db.Uuid
+
+  // === RELATIONS ===
+  company            Company            @relation("FuelGradeCompany", fields: [company_id], references: [company_id], onDelete: Cascade)
+  pos_integration    POSIntegration?    @relation("FuelGradePOSIntegration", fields: [pos_integration_id], references: [pos_integration_id], onDelete: SetNull)
+  shift_fuel_summaries ShiftFuelSummary[]
+  day_fuel_summaries   DayFuelSummary[]
+
+  // === CONSTRAINTS ===
+  // Grade ID must be unique within a company
+  @@unique([company_id, grade_id])
+
+  // === INDEXES ===
+  @@index([company_id])
+  @@index([pos_integration_id])
+  @@index([is_active])
+  @@index([product_type])
+  @@map("fuel_grades")
+}
+
+// ============================================================================
+// FUEL POSITION - Pump/Dispenser Definitions (Phase 5.2)
+// ============================================================================
+// Stores fuel dispenser/pump positions for a store.
+// Positions are discovered from FPM movement reports.
+// Each position can dispense multiple fuel grades.
+// ============================================================================
+
+model FuelPosition {
+  fuel_position_id String @id @default(uuid()) @db.Uuid
+
+  // === TENANT SCOPE ===
+  company_id         String  @db.Uuid
+  store_id           String  @db.Uuid
+  pos_integration_id String? @db.Uuid
+
+  // === POSITION IDENTIFICATION ===
+  // POS position ID from XML (e.g., "1", "2", "3")
+  position_id  String  @db.VarChar(10)
+  // Optional dispenser ID if different from position
+  dispenser_id String? @db.VarChar(20)
+
+  // === DISPLAY INFORMATION ===
+  // Human-readable name (e.g., "Pump 1", "Island A - Position 1")
+  name        String? @db.VarChar(100)
+  description String? @db.VarChar(255)
+
+  // === CONFIGURATION ===
+  // Array of grade IDs available at this position
+  // Stored as JSON array of strings: ["001", "002", "003"]
+  fuel_grade_ids Json?   @db.JsonB
+  is_active      Boolean @default(true)
+
+  // === AUDIT FIELDS ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  company         Company         @relation("FuelPositionCompany", fields: [company_id], references: [company_id], onDelete: Cascade)
+  store           Store           @relation("FuelPositionStore", fields: [store_id], references: [store_id], onDelete: Cascade)
+  pos_integration POSIntegration? @relation("FuelPositionPOSIntegration", fields: [pos_integration_id], references: [pos_integration_id], onDelete: SetNull)
+  meter_readings  MeterReading[]
+
+  // === CONSTRAINTS ===
+  // Position ID must be unique within a store
+  @@unique([store_id, position_id])
+
+  // === INDEXES ===
+  @@index([store_id])
+  @@index([company_id])
+  @@index([pos_integration_id])
+  @@index([is_active])
+  @@map("fuel_positions")
+}
+
+// ============================================================================
+// SHIFT FUEL SUMMARY - Shift-Level Fuel Sales by Grade and Tender (Phase 5.3)
+// ============================================================================
+// Stores fuel sales data extracted from FGM movement reports.
+// One row per (shift, fuel grade, tender type) combination.
+// Links to ShiftSummary for complete shift reporting.
+// ============================================================================
+
+model ShiftFuelSummary {
+  shift_fuel_summary_id String @id @default(uuid()) @db.Uuid
+
+  // === SHIFT REFERENCE ===
+  shift_summary_id String @db.Uuid
+  fuel_grade_id    String @db.Uuid
+
+  // === TENDER TYPE ===
+  tender_type FuelTenderType
+
+  // === SALES DATA ===
+  // Volume sold (gallons/liters) - Decimal(12,3) for 3 decimal precision
+  sales_volume      Decimal @db.Decimal(12, 3)
+  // Amount sold (currency) - Decimal(12,2) for cents
+  sales_amount      Decimal @db.Decimal(12, 2)
+  // Discount amount applied
+  discount_amount   Decimal @default(0) @db.Decimal(12, 2)
+  // Number of discount transactions
+  discount_count    Int     @default(0)
+  // Number of fuel transactions
+  transaction_count Int     @default(0)
+
+  // === PRICING ===
+  // Average unit price (price per gallon/liter)
+  unit_price Decimal? @db.Decimal(8, 4)
+
+  // === SOURCE TRACKING ===
+  // Hash of source XML file for idempotency
+  source_file_hash String? @db.VarChar(64)
+
+  // === AUDIT FIELDS ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  shift_summary ShiftSummary @relation(fields: [shift_summary_id], references: [shift_summary_id], onDelete: Cascade)
+  fuel_grade    FuelGrade    @relation(fields: [fuel_grade_id], references: [fuel_grade_id])
+
+  // === CONSTRAINTS ===
+  // Only one row per (shift, grade, tender) combination
+  @@unique([shift_summary_id, fuel_grade_id, tender_type])
+
+  // === INDEXES ===
+  @@index([shift_summary_id])
+  @@index([fuel_grade_id])
+  @@index([tender_type])
+  @@index([source_file_hash])
+  @@map("shift_fuel_summaries")
+}
+
+// ============================================================================
+// METER READING - Pump Meter Readings for Reconciliation (Phase 5.4)
+// ============================================================================
+// Stores non-resettable pump meter readings from FPM movement reports.
+// Used for fuel inventory reconciliation (book vs physical).
+// Cumulative readings - never reset, always increasing.
+// ============================================================================
+
+model MeterReading {
+  meter_reading_id String @id @default(uuid()) @db.Uuid
+
+  // === STORE REFERENCE ===
+  store_id         String  @db.Uuid
+  fuel_position_id String  @db.Uuid
+  shift_id         String? @db.Uuid
+  day_summary_id   String? @db.Uuid
+
+  // === PRODUCT IDENTIFICATION ===
+  // Fuel product ID at this position (from FPM XML)
+  fuel_product_id String @db.VarChar(10)
+
+  // === READING TYPE ===
+  reading_type MeterReadingType
+
+  // === TIMING ===
+  reading_timestamp DateTime @db.Timestamptz(6)
+  business_date     DateTime @db.Date
+
+  // === METER VALUES ===
+  // Cumulative volume reading - Decimal(15,3) for high precision
+  // Meter readings are cumulative totalizers that never reset
+  volume_reading Decimal @db.Decimal(15, 3)
+  // Cumulative amount reading - Decimal(15,2)
+  amount_reading Decimal @db.Decimal(15, 2)
+
+  // === SOURCE TRACKING ===
+  source_file_hash String? @db.VarChar(64)
+
+  // === AUDIT FIELDS ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  store         Store        @relation("MeterReadingStore", fields: [store_id], references: [store_id], onDelete: Cascade)
+  fuel_position FuelPosition @relation(fields: [fuel_position_id], references: [fuel_position_id])
+  shift         Shift?       @relation("MeterReadingShift", fields: [shift_id], references: [shift_id], onDelete: SetNull)
+  day_summary   DaySummary?  @relation("MeterReadingDaySummary", fields: [day_summary_id], references: [day_summary_id], onDelete: SetNull)
+
+  // === INDEXES ===
+  // Primary query pattern: readings by store and date
+  @@index([store_id, business_date])
+  // Reconciliation queries by position
+  @@index([fuel_position_id])
+  // Shift-level lookups
+  @@index([shift_id])
+  // Day-level lookups
+  @@index([day_summary_id])
+  // Reading type filter
+  @@index([reading_type])
+  // Composite for reconciliation queries
+  @@index([store_id, business_date, reading_type])
+  @@map("meter_readings")
+}
+
+// ============================================================================
+// DAY FUEL SUMMARY - Day-Level Aggregated Fuel Data (Phase 5.5)
+// ============================================================================
+// Aggregates fuel sales data across all shifts for a business day.
+// Includes reconciliation data (book vs meter variance).
+// Links to DaySummary for complete daily reporting.
+// ============================================================================
+
+model DayFuelSummary {
+  day_fuel_summary_id String @id @default(uuid()) @db.Uuid
+
+  // === DAY REFERENCE ===
+  day_summary_id String @db.Uuid
+  fuel_grade_id  String @db.Uuid
+
+  // === AGGREGATED SALES ===
+  // Total volume sold (sum across all shifts)
+  total_volume   Decimal @db.Decimal(12, 3)
+  // Total sales amount
+  total_sales    Decimal @db.Decimal(12, 2)
+  // Total discounts applied
+  total_discount Decimal @default(0) @db.Decimal(12, 2)
+
+  // === TENDER BREAKDOWN ===
+  // Cash sales volume and amount
+  cash_volume Decimal @default(0) @db.Decimal(12, 3)
+  cash_sales  Decimal @default(0) @db.Decimal(12, 2)
+  // Credit sales (outside + inside)
+  credit_volume Decimal @default(0) @db.Decimal(12, 3)
+  credit_sales  Decimal @default(0) @db.Decimal(12, 2)
+  // Debit sales (outside + inside)
+  debit_volume Decimal @default(0) @db.Decimal(12, 3)
+  debit_sales  Decimal @default(0) @db.Decimal(12, 2)
+
+  // === RECONCILIATION ===
+  // Volume from FPM meter readings (physical)
+  meter_volume Decimal? @db.Decimal(12, 3)
+  // Volume from FGM sales data (book)
+  book_volume  Decimal? @db.Decimal(12, 3)
+  // Variance: meter - book (negative = over-dispense/shortage)
+  variance_volume Decimal? @db.Decimal(12, 3)
+  // Variance in currency
+  variance_amount Decimal? @db.Decimal(12, 2)
+
+  // === AUDIT FIELDS ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  day_summary DaySummary @relation("DayFuelSummaryDaySummary", fields: [day_summary_id], references: [day_summary_id], onDelete: Cascade)
+  fuel_grade  FuelGrade  @relation(fields: [fuel_grade_id], references: [fuel_grade_id])
+
+  // === CONSTRAINTS ===
+  // Only one row per (day, grade) combination
+  @@unique([day_summary_id, fuel_grade_id])
+
+  // === INDEXES ===
+  @@index([day_summary_id])
+  @@index([fuel_grade_id])
+  @@map("day_fuel_summaries")
 }
 
 // ============================================================================

@@ -102,6 +102,7 @@ function createApiClient(): AxiosInstance {
           requestUrl.includes("/auth/verify-management") ||
           requestUrl.includes("/auth/verify-user-permission") ||
           requestUrl.includes("/auth/verify-cashier-permission") ||
+          requestUrl.includes("/auth/verify-elevated-access") ||
           requestUrl.includes("/cashiers/authenticate-pin") ||
           requestUrl.includes("/cashiers/authenticate");
 

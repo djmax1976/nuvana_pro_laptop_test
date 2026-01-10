@@ -23,6 +23,7 @@ import { NAXMLService, createNAXMLService } from "../../naxml/naxml.service";
 import type {
   POSConnectionConfig,
   POSConnectionTestResult,
+  POSDataPreview,
   POSDepartment,
   POSTenderType,
   POSCashier,
@@ -283,11 +284,15 @@ export class GilbarcoNAXMLAdapter extends BasePOSAdapter {
         await this.ensureDirectoryExists(this.getErrorPath(naxmlConfig));
       }
 
+      // Fetch preview data on successful connection (non-blocking)
+      const preview = await this.fetchPreviewData(naxmlConfig);
+
       return {
         success: true,
         message: `Connected to Gilbarco Passport XMLGateway at ${naxmlConfig.xmlGatewayPath}`,
         posVersion: naxmlConfig.naxmlVersion || "3.4",
         latencyMs: Date.now() - startTime,
+        preview,
       };
     } catch (error) {
       this.log("error", "Connection test failed", {
@@ -301,6 +306,129 @@ export class GilbarcoNAXMLAdapter extends BasePOSAdapter {
           error instanceof GilbarcoNAXMLError ? error.code : "CONNECTION_ERROR",
         latencyMs: Date.now() - startTime,
       };
+    }
+  }
+
+  /**
+   * Fetch preview data from the POS for display during setup wizard.
+   * This reads ALL files and returns ALL items for user selection.
+   * Files are read without archiving (preview only).
+   *
+   * @param config - NAXML configuration
+   * @returns All available departments, tenders, and tax rates for selection
+   */
+  private async fetchPreviewData(
+    config: GilbarcoNAXMLConfig,
+  ): Promise<POSDataPreview | undefined> {
+    try {
+      const outboxPath = this.getOutboxPath(config);
+      const preview: POSDataPreview = {};
+
+      // Fetch ALL departments from ALL matching files
+      const deptFiles = await this.getXmlFiles(outboxPath, [
+        "DeptMaint*.xml",
+        "Department*.xml",
+      ]);
+      if (deptFiles.length > 0) {
+        const departments: POSDepartment[] = [];
+        for (const filePath of deptFiles) {
+          try {
+            const xml = await fs.readFile(filePath, "utf-8");
+            const result = this.naxmlService.importDepartments(xml);
+            if (result.success) {
+              departments.push(...result.data);
+            }
+          } catch {
+            // Skip files that fail to parse
+          }
+        }
+        if (departments.length > 0) {
+          // Return ALL items - user will select which to import
+          preview.departments = {
+            count: departments.length,
+            items: departments.map((d) => ({
+              posCode: d.posCode,
+              displayName: d.displayName,
+              isTaxable: d.isTaxable,
+            })),
+          };
+        }
+      }
+
+      // Fetch ALL tender types from ALL matching files
+      const tenderFiles = await this.getXmlFiles(outboxPath, [
+        "TenderMaint*.xml",
+        "MOP*.xml",
+      ]);
+      if (tenderFiles.length > 0) {
+        const tenders: POSTenderType[] = [];
+        for (const filePath of tenderFiles) {
+          try {
+            const xml = await fs.readFile(filePath, "utf-8");
+            const result = this.naxmlService.importTenderTypes(xml);
+            if (result.success) {
+              tenders.push(...result.data);
+            }
+          } catch {
+            // Skip files that fail to parse
+          }
+        }
+        if (tenders.length > 0) {
+          // Return ALL items - user will select which to import
+          preview.tenderTypes = {
+            count: tenders.length,
+            items: tenders.map((t) => ({
+              posCode: t.posCode,
+              displayName: t.displayName,
+              isElectronic: t.isElectronic,
+            })),
+          };
+        }
+      }
+
+      // Fetch ALL tax rates from ALL matching files
+      const taxFiles = await this.getXmlFiles(outboxPath, [
+        "TaxMaint*.xml",
+        "TaxRate*.xml",
+      ]);
+      if (taxFiles.length > 0) {
+        const taxRates: POSTaxRate[] = [];
+        for (const filePath of taxFiles) {
+          try {
+            const xml = await fs.readFile(filePath, "utf-8");
+            const result = this.naxmlService.importTaxRates(xml);
+            if (result.success) {
+              taxRates.push(...result.data);
+            }
+          } catch {
+            // Skip files that fail to parse
+          }
+        }
+        if (taxRates.length > 0) {
+          // Return ALL items - user will select which to import
+          preview.taxRates = {
+            count: taxRates.length,
+            items: taxRates.map((t) => ({
+              posCode: t.posCode,
+              name: t.displayName,
+              rate: t.rate,
+              jurisdiction: t.jurisdictionCode,
+            })),
+          };
+        }
+      }
+
+      // Only return preview if we have at least some data
+      if (preview.departments || preview.tenderTypes || preview.taxRates) {
+        return preview;
+      }
+
+      return undefined;
+    } catch (error) {
+      this.log("warn", "Failed to fetch preview data", {
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      return undefined;
     }
   }
 

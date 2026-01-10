@@ -45,6 +45,10 @@ import { reconciliationRoutes } from "./routes/reconciliation";
 import documentScanningRoutes from "./routes/document-scanning";
 import { geographicRoutes } from "./routes/geographic";
 import { rlsPlugin } from "./middleware/rls.middleware";
+import {
+  startAllActiveWatchers,
+  stopAllWatchers,
+} from "./services/pos/file-watcher-autostart.service";
 
 const PORT = parseInt(
   process.env.BACKEND_PORT || process.env.PORT || "3001",
@@ -581,6 +585,28 @@ const start = async () => {
     await app.listen({ port: PORT, host });
     app.log.info(`Server listening on ${host}:${PORT}`);
     app.log.info("Health endpoint available at /api/health");
+
+    // Start file watchers for all active POS integrations
+    // Enterprise coding standards: DB-006 (TENANT_ISOLATION), API-003 (ERROR_HANDLING)
+    app.log.info("Starting file watchers for active POS integrations...");
+    try {
+      const watcherSummary = await startAllActiveWatchers();
+      app.log.info(
+        {
+          totalActive: watcherSummary.totalActive,
+          started: watcherSummary.started,
+          failed: watcherSummary.failed,
+          skipped: watcherSummary.skipped,
+        },
+        "File watcher auto-start completed",
+      );
+    } catch (err) {
+      app.log.warn(
+        { err },
+        "File watcher auto-start failed - file polling will not be active",
+      );
+      // Don't crash - file watchers are not critical for server operation
+    }
   } catch (err) {
     app.log.error(err);
     process.exit(1);
@@ -591,6 +617,16 @@ const start = async () => {
 const shutdown = async (signal: string) => {
   app.log.info(`Received ${signal}, shutting down gracefully...`);
   try {
+    // Stop all file watchers first to prevent new file processing during shutdown
+    app.log.info("Stopping all file watchers...");
+    try {
+      await stopAllWatchers();
+      app.log.info("File watchers stopped successfully");
+    } catch (err) {
+      app.log.warn({ err }, "Error stopping file watchers");
+      // Continue with shutdown even if file watchers fail to stop
+    }
+
     // Close Fastify server
     await app.close();
     app.log.info("Server closed successfully");
