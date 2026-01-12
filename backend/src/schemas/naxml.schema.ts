@@ -105,17 +105,8 @@ export const NAXMLFileLogQuerySchema = z.object({
 });
 
 // ============================================================================
-// File Watcher Config Schemas
+// Path Validation Schema
 // ============================================================================
-
-/**
- * File pattern validation (glob patterns)
- */
-const FilePatternSchema = z
-  .string()
-  .min(1, "File pattern cannot be empty")
-  .max(100, "File pattern too long")
-  .regex(/^[\w\*\?\.\-\[\]]+$/i, "Invalid file pattern characters");
 
 /**
  * Path validation (security: prevent path traversal)
@@ -131,110 +122,6 @@ const SafePathSchema = z
   .refine(
     (path) => !path.includes("~"),
     "Path cannot contain home directory references (~)",
-  );
-
-/**
- * Create File Watcher Config Request Schema
- */
-export const FileWatcherConfigCreateSchema = z.object({
-  watch_path: SafePathSchema,
-  processed_path: SafePathSchema.optional(),
-  error_path: SafePathSchema.optional(),
-  file_patterns: z
-    .array(FilePatternSchema)
-    .min(1, "At least one file pattern is required")
-    .max(20, "Maximum 20 file patterns allowed")
-    .default(["*.xml", "TLog*.xml", "Dept*.xml"]),
-  poll_interval_seconds: z
-    .number()
-    .int()
-    .min(10, "Poll interval must be at least 10 seconds")
-    .max(3600, "Poll interval must be at most 3600 seconds (1 hour)")
-    .default(60),
-  is_active: z.boolean().default(true),
-});
-
-/**
- * Update File Watcher Config Request Schema
- */
-export const FileWatcherConfigUpdateSchema = z.object({
-  watch_path: SafePathSchema.optional(),
-  processed_path: SafePathSchema.optional().nullable(),
-  error_path: SafePathSchema.optional().nullable(),
-  file_patterns: z
-    .array(FilePatternSchema)
-    .min(1, "At least one file pattern is required")
-    .max(20, "Maximum 20 file patterns allowed")
-    .optional(),
-  poll_interval_seconds: z
-    .number()
-    .int()
-    .min(10, "Poll interval must be at least 10 seconds")
-    .max(3600, "Poll interval must be at most 3600 seconds (1 hour)")
-    .optional(),
-  is_active: z.boolean().optional(),
-});
-
-// ============================================================================
-// Manual File Import Schema
-// ============================================================================
-
-/**
- * Manual file import request schema - supports both file path and content modes
- *
- * Mode 1: File Path Import (server-side file)
- *   - file_path: Path to file on server filesystem
- *   - file_type: Optional document type hint
- *
- * Mode 2: Content Import (uploaded/pasted content)
- *   - content: Base64-encoded or raw XML content
- *   - file_name: Original file name for logging
- *   - file_type: Optional document type hint
- *   - is_base64: Whether content is base64 encoded (default: false)
- */
-export const ManualFileImportSchema = z
-  .object({
-    // File path mode
-    file_path: SafePathSchema.optional(),
-    // Content mode
-    content: z
-      .string()
-      .max(10 * 1024 * 1024, "Content exceeds maximum size of 10MB")
-      .optional(),
-    file_name: z
-      .string()
-      .min(1, "File name cannot be empty")
-      .max(255, "File name too long")
-      .regex(/^[\w\-. ]+\.xml$/i, "File name must be a valid XML file name")
-      .optional(),
-    is_base64: z.boolean().default(false),
-    // Common
-    file_type: NAXMLDocumentTypeSchema.optional(),
-    // Processing options
-    process_sync: z
-      .boolean()
-      .default(true)
-      .describe("Process synchronously and return result"),
-  })
-  .refine(
-    (data) => {
-      // Must have either file_path OR (content AND file_name)
-      const hasFilePath = !!data.file_path;
-      const hasContent = !!data.content && !!data.file_name;
-      return hasFilePath || hasContent;
-    },
-    {
-      message: "Either file_path or (content and file_name) must be provided",
-    },
-  )
-  .refine(
-    (data) => {
-      // Cannot have both file_path AND content
-      return !(data.file_path && data.content);
-    },
-    {
-      message: "Cannot provide both file_path and content. Use one mode only.",
-    },
   );
 
 // ============================================================================
@@ -446,13 +333,6 @@ export type NAXMLDocumentType = z.infer<typeof NAXMLDocumentTypeSchema>;
 export type NAXMLVersion = z.infer<typeof NAXMLVersionSchema>;
 export type ConnectionMode = z.infer<typeof ConnectionModeSchema>;
 export type NAXMLFileLogQuery = z.infer<typeof NAXMLFileLogQuerySchema>;
-export type FileWatcherConfigCreate = z.infer<
-  typeof FileWatcherConfigCreateSchema
->;
-export type FileWatcherConfigUpdate = z.infer<
-  typeof FileWatcherConfigUpdateSchema
->;
-export type ManualFileImport = z.infer<typeof ManualFileImportSchema>;
 export type ExportDepartments = z.infer<typeof ExportDepartmentsSchema>;
 export type ExportTenderTypes = z.infer<typeof ExportTenderTypesSchema>;
 export type ExportTaxRates = z.infer<typeof ExportTaxRatesSchema>;
@@ -480,49 +360,10 @@ export function validateNAXMLFileLogQuery(data: unknown): NAXMLFileLogQuery {
 }
 
 /**
- * Validate file watcher config creation
- */
-export function validateFileWatcherConfigCreate(
-  data: unknown,
-): FileWatcherConfigCreate {
-  return FileWatcherConfigCreateSchema.parse(data);
-}
-
-/**
- * Validate file watcher config update
- */
-export function validateFileWatcherConfigUpdate(
-  data: unknown,
-): FileWatcherConfigUpdate {
-  return FileWatcherConfigUpdateSchema.parse(data);
-}
-
-/**
- * Validate manual file import request
- */
-export function validateManualFileImport(data: unknown): ManualFileImport {
-  return ManualFileImportSchema.parse(data);
-}
-
-/**
  * Safe validation for file log query
  */
 export function safeValidateNAXMLFileLogQuery(data: unknown) {
   return NAXMLFileLogQuerySchema.safeParse(data);
-}
-
-/**
- * Safe validation for file watcher config create
- */
-export function safeValidateFileWatcherConfigCreate(data: unknown) {
-  return FileWatcherConfigCreateSchema.safeParse(data);
-}
-
-/**
- * Safe validation for file watcher config update
- */
-export function safeValidateFileWatcherConfigUpdate(data: unknown) {
-  return FileWatcherConfigUpdateSchema.safeParse(data);
 }
 
 // ============================================================================

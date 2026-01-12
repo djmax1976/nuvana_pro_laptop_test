@@ -1941,4 +1941,262 @@ export async function authRoutes(fastify: FastifyInstance) {
       }
     },
   );
+
+  // ===========================================================================
+  // USER PIN VERIFICATION (Step-Up Authentication for Managers)
+  // ===========================================================================
+  // PIN-based step-up authentication for STORE_MANAGER and SHIFT_MANAGER roles
+  // Returns a 30-minute elevation token for manager operations
+  //
+  // Security Standards:
+  // - SEC-001: PASSWORD_HASHING - bcrypt PIN verification
+  // - SEC-010: AUTHZ - Validates PIN and permission without session modification
+  // - SEC-012: SESSION_TIMEOUT - 30-minute tokens for manager workflow
+  // - SEC-014: INPUT_VALIDATION - Strict Zod schema validation
+  // - API-002: RATE_LIMIT - 5 attempts per 15 minutes per IP
+  // ===========================================================================
+
+  // Validation schema for user PIN verification request
+  const verifyUserPINSchema = z.object({
+    user_id: z.string().uuid("Invalid user ID format"),
+    pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits"),
+    required_permission: z.string().min(1, "Permission is required").max(100),
+    store_id: z.string().uuid("Invalid store ID format"),
+  });
+
+  /**
+   * Verify User PIN - Step-up authentication for manager operations
+   * POST /api/auth/verify-user-pin
+   *
+   * This endpoint:
+   * 1. Validates user PIN (4-digit for STORE_MANAGER/SHIFT_MANAGER)
+   * 2. Verifies user has the required permission at the store
+   * 3. Returns a 30-minute elevation token (NOT session cookies)
+   * 4. Logs all attempts for security audit
+   *
+   * Rate limited: 5 attempts per 15 minutes per IP
+   */
+  fastify.post(
+    "/api/auth/verify-user-pin",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      // Import services here to avoid circular dependencies at module load
+      const { elevatedAccessAuditService } =
+        await import("../services/auth/elevated-access-audit.service");
+      const { elevationTokenService } =
+        await import("../services/auth/elevation-token.service");
+      const { userPINService } = await import("../services/user-pin.service");
+
+      // Extract request metadata for audit logging
+      const ipAddress =
+        (request.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+        request.ip ||
+        request.socket.remoteAddress ||
+        "unknown";
+      const userAgent = (request.headers["user-agent"] as string) || undefined;
+      const requestId =
+        (request.headers["x-request-id"] as string) || undefined;
+
+      try {
+        // SEC-014: INPUT_VALIDATION - Validate request body
+        const parseResult = verifyUserPINSchema.safeParse(request.body);
+
+        if (!parseResult.success) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message:
+                parseResult.error.issues[0]?.message || "Invalid request",
+            },
+          };
+        }
+
+        const { user_id, pin, required_permission, store_id } =
+          parseResult.data;
+
+        // Rate limiting check (5 attempts per 15 minutes per IP)
+        const rateLimitStatus = await elevatedAccessAuditService.checkRateLimit(
+          ipAddress,
+          "ip",
+          15 * 60 * 1000, // 15 minutes
+          5,
+        );
+
+        if (rateLimitStatus.isLimited) {
+          await elevatedAccessAuditService.logElevationDenied({
+            userId: user_id,
+            userEmail: "unknown", // We don't have email yet
+            requestedPermission: required_permission,
+            storeId: store_id,
+            ipAddress,
+            userAgent,
+            requestId,
+            result: "FAILED_RATE_LIMIT",
+            errorCode: "RATE_LIMIT_EXCEEDED",
+            errorMessage: `Rate limit exceeded: ${rateLimitStatus.attemptCount} attempts in window`,
+            attemptCount: rateLimitStatus.attemptCount,
+          });
+
+          reply.code(429);
+          return {
+            success: false,
+            error: {
+              code: "RATE_LIMITED",
+              message: "Too many attempts. Please try again later.",
+            },
+          };
+        }
+
+        // Verify PIN and get user details
+        let pinVerification;
+        try {
+          pinVerification = await userPINService.verifyUserPIN(
+            user_id,
+            pin,
+            store_id,
+          );
+        } catch (pinError) {
+          const errorMessage =
+            pinError instanceof Error
+              ? pinError.message
+              : "Invalid credentials";
+
+          await elevatedAccessAuditService.logElevationDenied({
+            userId: user_id,
+            userEmail: "unknown",
+            requestedPermission: required_permission,
+            storeId: store_id,
+            ipAddress,
+            userAgent,
+            requestId,
+            result: "FAILED_CREDENTIALS",
+            errorCode: "INVALID_PIN",
+            errorMessage,
+            attemptCount: rateLimitStatus.attemptCount + 1,
+          });
+
+          // Return generic error for security (no information leakage)
+          reply.code(401);
+          return {
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid credentials",
+            },
+          };
+        }
+
+        // Check if user has the required permission
+        if (!pinVerification.permissions.includes(required_permission)) {
+          await elevatedAccessAuditService.logElevationDenied({
+            userId: user_id,
+            userEmail: pinVerification.userEmail,
+            requestedPermission: required_permission,
+            storeId: store_id,
+            ipAddress,
+            userAgent,
+            requestId,
+            result: "FAILED_PERMISSION",
+            errorCode: "MISSING_PERMISSION",
+            errorMessage: `User lacks required permission: ${required_permission}`,
+            attemptCount: rateLimitStatus.attemptCount + 1,
+          });
+
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message: "Invalid credentials or insufficient permissions",
+            },
+          };
+        }
+
+        // Get full user info for token generation
+        const userRolesWithPerms = await prisma.userRole.findMany({
+          where: {
+            user_id: user_id,
+            store_id: store_id,
+            status: "ACTIVE",
+          },
+          include: {
+            role: {
+              include: {
+                role_permissions: {
+                  include: {
+                    permission: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        // Collect all permissions and other data for token
+        const allPermissions = new Set<string>(pinVerification.permissions);
+        const storeIds = new Set<string>([store_id]);
+        const companyIds = new Set<string>();
+        const roles = pinVerification.roles;
+
+        for (const ur of userRolesWithPerms) {
+          if (ur.company_id) {
+            companyIds.add(ur.company_id);
+          }
+        }
+
+        // Generate PIN elevation token with 30-minute expiry
+        const tokenResult = elevationTokenService.generatePINElevationToken({
+          userId: user_id,
+          email: pinVerification.userEmail,
+          permission: required_permission,
+          storeId: store_id,
+          roles,
+          permissions: Array.from(allPermissions),
+          is_system_admin: false, // Managers are never system admins
+          company_ids: Array.from(companyIds),
+          store_ids: Array.from(storeIds),
+        });
+
+        // Log successful PIN elevation
+        await elevatedAccessAuditService.logElevationGranted({
+          userId: user_id,
+          userEmail: pinVerification.userEmail,
+          requestedPermission: required_permission,
+          storeId: store_id,
+          tokenJti: tokenResult.jti,
+          tokenIssuedAt: tokenResult.issuedAt,
+          tokenExpiresAt: tokenResult.expiresAt,
+          ipAddress,
+          userAgent,
+          requestId,
+        });
+
+        // Return elevation token
+        reply.code(200);
+        return {
+          success: true,
+          data: {
+            elevation_token: tokenResult.token,
+            expires_in: tokenResult.expiresIn,
+            expires_at: tokenResult.expiresAt.toISOString(),
+            permission: required_permission,
+            store_id: store_id,
+            user_name: pinVerification.userName,
+          },
+        };
+      } catch (error) {
+        fastify.log.error({ error, ipAddress }, "Error in verify-user-pin");
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to verify user PIN",
+          },
+        };
+      }
+    },
+  );
 }

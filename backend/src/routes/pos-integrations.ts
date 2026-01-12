@@ -27,11 +27,6 @@ import {
   POS_SYNC_LOG_READ,
 } from "../constants/permissions";
 import { posSyncService } from "../services/pos/pos-sync.service";
-import {
-  startWatcherForStore,
-  stopWatcherForStore,
-  restartWatcherForStore,
-} from "../services/pos/file-watcher-autostart.service";
 import { prisma } from "../utils/db";
 import {
   StoreIdParamSchema,
@@ -329,35 +324,6 @@ export async function posIntegrationRoutes(
           user.id,
         );
 
-        // Auto-start file watcher for file-based POS integrations (Gilbarco NAXML, etc.)
-        // This ensures transaction data polling begins immediately after setup
-        // File-based POS types that use XMLGateway/file exchange
-        const fileBasedPosTypes = [
-          "GILBARCO_PASSPORT",
-          "GILBARCO_NAXML",
-          "GILBARCO_COMMANDER",
-          "VERIFONE_COMMANDER",
-          "VERIFONE_RUBY2",
-        ];
-        const isFileBasedConnection = fileBasedPosTypes.includes(
-          bodyResult.data.pos_type,
-        );
-
-        if (isFileBasedConnection && integration.sync_enabled) {
-          try {
-            const watcherResult = await startWatcherForStore(storeId);
-            console.log(
-              `[POS Integration] File watcher ${watcherResult.success ? "started" : "failed"} for store ${storeId}: ${watcherResult.message}`,
-            );
-          } catch (watcherError) {
-            // Log error but don't fail the integration creation
-            console.error(
-              `[POS Integration] Failed to start file watcher for store ${storeId}:`,
-              watcherError,
-            );
-          }
-        }
-
         return reply.code(201).send({
           success: true,
           data: sanitizeIntegration(integration),
@@ -488,43 +454,6 @@ export async function posIntegrationRoutes(
           updateData,
         );
 
-        // Restart file watcher if paths or sync settings changed
-        // This ensures the watcher uses updated paths and polling intervals
-        const pathsOrSyncChanged =
-          updateData.xmlGatewayPath !== undefined ||
-          updateData.host !== undefined ||
-          updateData.syncEnabled !== undefined ||
-          updateData.isActive !== undefined;
-
-        if (pathsOrSyncChanged) {
-          try {
-            // Determine if integration should have active watcher
-            const shouldWatch =
-              integration.is_active &&
-              integration.sync_enabled &&
-              (integration.xml_gateway_path || integration.host);
-
-            if (shouldWatch) {
-              const watcherResult = await restartWatcherForStore(storeId);
-              console.log(
-                `[POS Integration] File watcher restarted for store ${storeId}: ${watcherResult.message}`,
-              );
-            } else {
-              // Stop watcher if integration is no longer active or sync disabled
-              await stopWatcherForStore(storeId);
-              console.log(
-                `[POS Integration] File watcher stopped for store ${storeId}`,
-              );
-            }
-          } catch (watcherError) {
-            // Log error but don't fail the update
-            console.error(
-              `[POS Integration] Failed to update file watcher for store ${storeId}:`,
-              watcherError,
-            );
-          }
-        }
-
         return reply.send({
           success: true,
           data: sanitizeIntegration(integration),
@@ -604,20 +533,6 @@ export async function posIntegrationRoutes(
               message: "No POS integration found for this store",
             },
           });
-        }
-
-        // Stop file watcher before deactivating integration
-        try {
-          await stopWatcherForStore(storeId);
-          console.log(
-            `[POS Integration] File watcher stopped for store ${storeId} (integration deleted)`,
-          );
-        } catch (watcherError) {
-          // Log but don't fail deletion
-          console.error(
-            `[POS Integration] Failed to stop file watcher for store ${storeId}:`,
-            watcherError,
-          );
         }
 
         // Soft delete by setting is_active to false and clearing credentials

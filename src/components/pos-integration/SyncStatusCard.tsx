@@ -128,6 +128,18 @@ function EntityCount({
 }: EntityCountProps): JSX.Element {
   const isSuccess = status === "SUCCESS" || status === "PARTIAL_SUCCESS";
 
+  // Determine what text to show
+  let displayText: string;
+  if (!synced) {
+    displayText = `${label} (disabled)`;
+  } else if (count !== null) {
+    displayText = `${count} ${label}`;
+  } else if (isSuccess) {
+    displayText = `${label} (synced)`;
+  } else {
+    displayText = `${label} (pending)`;
+  }
+
   return (
     <div className="flex items-center gap-2">
       {synced ? (
@@ -144,9 +156,7 @@ function EntityCount({
       <span
         className={cn("text-sm", synced ? "text-gray-700" : "text-gray-400")}
       >
-        {synced && count !== null
-          ? `${count} ${label}`
-          : `${label} (not synced)`}
+        {displayText}
       </span>
     </div>
   );
@@ -315,19 +325,19 @@ export function SyncStatusCard({
         <div className="space-y-2">
           <EntityCount
             label="Departments"
-            count={null} // Would need to fetch from separate endpoint or include in integration
+            count={syncResult?.departments?.received ?? null}
             synced={integration.sync_departments}
             status={integration.last_sync_status}
           />
           <EntityCount
             label="Tender Types"
-            count={null}
+            count={syncResult?.tenderTypes?.received ?? null}
             synced={integration.sync_tender_types}
             status={integration.last_sync_status}
           />
           <EntityCount
             label="Tax Rates"
-            count={null}
+            count={syncResult?.taxRates?.received ?? null}
             synced={integration.sync_tax_rates}
             status={integration.last_sync_status}
           />

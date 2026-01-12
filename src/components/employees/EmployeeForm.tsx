@@ -35,36 +35,64 @@ import {
 import { Loader2 } from "lucide-react";
 
 /**
+ * Roles that require PIN authentication (for terminal/desktop access)
+ */
+const PIN_REQUIRED_ROLES = ["STORE_MANAGER", "SHIFT_MANAGER"];
+
+/**
  * Zod schema for employee creation form
  * Password requirements match admin user creation for consistency
+ * PIN is required for STORE_MANAGER and SHIFT_MANAGER roles
  */
-const employeeFormSchema = z.object({
-  email: z
-    .string()
-    .min(1, "Email is required")
-    .email("Invalid email format")
-    .max(255, "Email cannot exceed 255 characters"),
-  name: z
-    .string()
-    .min(1, "Name is required")
-    .max(255, "Name cannot exceed 255 characters")
-    .refine((val) => val.trim().length > 0, {
-      message: "Name cannot be whitespace only",
-    }),
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .max(255, "Password cannot exceed 255 characters")
-    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
-    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
-    .regex(/[0-9]/, "Password must contain at least one number")
-    .regex(
-      /[^A-Za-z0-9]/,
-      "Password must contain at least one special character",
-    ),
-  store_id: z.string().min(1, "Store is required"),
-  role_id: z.string().min(1, "Role is required"),
-});
+const employeeFormSchema = z
+  .object({
+    email: z
+      .string()
+      .min(1, "Email is required")
+      .email("Invalid email format")
+      .max(255, "Email cannot exceed 255 characters"),
+    name: z
+      .string()
+      .min(1, "Name is required")
+      .max(255, "Name cannot exceed 255 characters")
+      .refine((val) => val.trim().length > 0, {
+        message: "Name cannot be whitespace only",
+      }),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .max(255, "Password cannot exceed 255 characters")
+      .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+      .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+      .regex(/[0-9]/, "Password must contain at least one number")
+      .regex(
+        /[^A-Za-z0-9]/,
+        "Password must contain at least one special character",
+      ),
+    store_id: z.string().min(1, "Store is required"),
+    role_id: z.string().min(1, "Role is required"),
+    /** 4-digit PIN for STORE_MANAGER/SHIFT_MANAGER (optional in schema, validated in refine) */
+    pin: z
+      .string()
+      .regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits")
+      .optional()
+      .or(z.literal("")),
+    /** Role code for PIN requirement validation (populated from role selection) */
+    _roleCode: z.string().optional(),
+  })
+  .refine(
+    (data) => {
+      // PIN is required for STORE_MANAGER and SHIFT_MANAGER
+      if (data._roleCode && PIN_REQUIRED_ROLES.includes(data._roleCode)) {
+        return data.pin && /^\d{4}$/.test(data.pin);
+      }
+      return true;
+    },
+    {
+      message: "PIN is required for Store Manager and Shift Manager roles",
+      path: ["pin"],
+    },
+  );
 
 type EmployeeFormValues = z.infer<typeof employeeFormSchema>;
 
@@ -95,6 +123,8 @@ export function EmployeeForm({ onSuccess, onCancel }: EmployeeFormProps) {
       password: "",
       store_id: "",
       role_id: "",
+      pin: "",
+      _roleCode: "",
     },
   });
 
@@ -102,10 +132,25 @@ export function EmployeeForm({ onSuccess, onCancel }: EmployeeFormProps) {
   const stores = dashboardData?.stores || [];
   const roles = rolesData?.data || [];
 
+  // Watch role for PIN requirement
+  const selectedRoleId = form.watch("role_id");
+  const selectedRole = roles.find((r) => r.role_id === selectedRoleId);
+  const showPINField =
+    selectedRole && PIN_REQUIRED_ROLES.includes(selectedRole.code);
+
   // Handle form submission
   async function onSubmit(data: EmployeeFormValues) {
     try {
-      await createEmployeeMutation.mutateAsync(data);
+      // Build payload - include PIN only if required and provided
+      const payload = {
+        email: data.email,
+        name: data.name,
+        password: data.password,
+        store_id: data.store_id,
+        role_id: data.role_id,
+        ...(showPINField && data.pin ? { pin: data.pin } : {}),
+      };
+      await createEmployeeMutation.mutateAsync(payload);
       toast({
         title: "Employee created",
         description: `${data.name} has been added successfully.`,
@@ -243,7 +288,16 @@ export function EmployeeForm({ onSuccess, onCancel }: EmployeeFormProps) {
             <FormItem>
               <FormLabel>Role</FormLabel>
               <Select
-                onValueChange={field.onChange}
+                onValueChange={(value) => {
+                  field.onChange(value);
+                  // Update _roleCode for PIN validation
+                  const role = roles.find((r) => r.role_id === value);
+                  form.setValue("_roleCode", role?.code || "");
+                  // Clear PIN if role doesn't require it
+                  if (role && !PIN_REQUIRED_ROLES.includes(role.code)) {
+                    form.setValue("pin", "");
+                  }
+                }}
                 defaultValue={field.value}
                 disabled={isLoading || isSubmitting}
               >
@@ -272,6 +326,44 @@ export function EmployeeForm({ onSuccess, onCancel }: EmployeeFormProps) {
             </FormItem>
           )}
         />
+
+        {/* PIN Field - Only shown for STORE_MANAGER and SHIFT_MANAGER */}
+        {showPINField && (
+          <FormField
+            control={form.control}
+            name="pin"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>
+                  PIN <span className="text-red-500">*</span>
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    type="password"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={4}
+                    placeholder="Enter 4-digit PIN"
+                    autoComplete="off"
+                    disabled={isSubmitting}
+                    data-testid="employee-pin"
+                    {...field}
+                    onChange={(e) => {
+                      // Only allow numeric input
+                      const value = e.target.value.replace(/\D/g, "");
+                      field.onChange(value);
+                    }}
+                  />
+                </FormControl>
+                <FormDescription>
+                  Required for terminal/desktop authentication.{" "}
+                  <span className="font-medium">Must be exactly 4 digits.</span>
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
 
         {/* Form Actions */}
         <div className="flex justify-end gap-3 pt-4">

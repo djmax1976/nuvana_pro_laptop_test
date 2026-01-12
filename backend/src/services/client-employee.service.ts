@@ -3,6 +3,11 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 import { prisma } from "../utils/db";
+import {
+  userPINService,
+  isPINEnabledRole,
+  type PINAuditContext,
+} from "./user-pin.service";
 
 /**
  * Audit context for logging operations
@@ -24,6 +29,8 @@ export interface CreateClientEmployeeInput {
   store_id: string;
   role_id: string;
   password?: string;
+  /** 4-digit PIN required for STORE_MANAGER and SHIFT_MANAGER roles */
+  pin?: string;
 }
 
 /**
@@ -49,6 +56,8 @@ export interface EmployeeWithRoles {
   store_name: string | null;
   company_id: string | null;
   company_name: string | null;
+  /** Whether this employee has a PIN configured (for STORE_MANAGER/SHIFT_MANAGER roles) */
+  has_pin: boolean;
   roles: Array<{
     user_role_id: string;
     role_code: string;
@@ -216,6 +225,25 @@ export class ClientEmployeeService {
       );
     }
 
+    // Check if PIN is required for this role (STORE_MANAGER, SHIFT_MANAGER)
+    const requiresPIN = isPINEnabledRole(role.code);
+    if (requiresPIN && !data.pin) {
+      throw new Error(
+        `PIN is required for ${role.code} role. Please provide a 4-digit PIN.`,
+      );
+    }
+
+    // Validate PIN format if provided
+    if (data.pin) {
+      userPINService.validatePIN(data.pin);
+      // Validate PIN uniqueness in the store
+      await userPINService.validatePINUniquenessInStore(
+        data.store_id,
+        data.pin,
+        undefined, // No user to exclude since this is a new user
+      );
+    }
+
     // Get store info for response
     const store = await prisma.store.findUnique({
       where: { store_id: data.store_id },
@@ -267,6 +295,14 @@ export class ClientEmployeeService {
 
       const passwordHash = await bcrypt.hash(password, 10);
 
+      // Hash PIN if provided (for STORE_MANAGER/SHIFT_MANAGER)
+      let pinHash: string | null = null;
+      let pinFingerprint: string | null = null;
+      if (data.pin) {
+        pinHash = await userPINService.hashPIN(data.pin);
+        pinFingerprint = userPINService.computePINFingerprint(data.pin);
+      }
+
       // Use transaction to create user and role assignment atomically
       const result = await prisma.$transaction(
         async (tx: Prisma.TransactionClient) => {
@@ -278,6 +314,8 @@ export class ClientEmployeeService {
               email: data.email.toLowerCase().trim(),
               name: data.name.trim(),
               password_hash: passwordHash,
+              pin_hash: pinHash,
+              sha256_pin_fingerprint: pinFingerprint,
               status: "ACTIVE",
               is_client_user: true, // Employees access the client dashboard
             },
@@ -337,6 +375,7 @@ export class ClientEmployeeService {
         store_name: store.name,
         company_id: store.company_id,
         company_name: store.company.name,
+        has_pin: pinHash !== null,
         roles: [
           {
             user_role_id: result.userRole.user_role_id,
@@ -352,7 +391,8 @@ export class ClientEmployeeService {
           error.message.includes("required") ||
           error.message.includes("not found") ||
           error.message.includes("does not belong") ||
-          error.message.includes("STORE scope"))
+          error.message.includes("STORE scope") ||
+          error.message.includes("PIN"))
       ) {
         throw error;
       }
@@ -445,7 +485,13 @@ export class ClientEmployeeService {
           skip,
           take: limit,
           orderBy: { created_at: "desc" },
-          include: {
+          select: {
+            user_id: true,
+            email: true,
+            name: true,
+            status: true,
+            created_at: true,
+            pin_hash: true, // Include for has_pin check
             user_roles: {
               where: {
                 store_id: { in: targetStoreIds },
@@ -484,6 +530,7 @@ export class ClientEmployeeService {
           store_name: primaryRole?.store?.name || null,
           company_id: primaryRole?.company_id || null,
           company_name: primaryRole?.company?.name || null,
+          has_pin: user.pin_hash !== null,
           roles: user.user_roles.map((ur) => ({
             user_role_id: ur.user_role_id,
             role_code: ur.role.code,
@@ -844,6 +891,201 @@ export class ClientEmployeeService {
       }
       console.error("Error resetting employee password:", error);
       throw new Error("Failed to reset employee password");
+    }
+  }
+
+  /**
+   * Set or update PIN for an employee
+   * PIN is required for STORE_MANAGER and SHIFT_MANAGER roles
+   *
+   * @param employeeId - Employee user UUID
+   * @param pin - 4-digit PIN to set
+   * @param storeId - Store UUID for PIN uniqueness validation
+   * @param clientUserId - Client user performing the action
+   * @param auditContext - Audit context for logging
+   * @throws Error if employee doesn't belong to client's stores or PIN validation fails
+   */
+  async setEmployeePIN(
+    employeeId: string,
+    pin: string,
+    storeId: string,
+    clientUserId: string,
+    auditContext: AuditContext,
+  ): Promise<void> {
+    try {
+      // Verify employee belongs to client's stores
+      const employee = await prisma.user.findFirst({
+        where: {
+          user_id: employeeId,
+          user_roles: {
+            some: {
+              role: {
+                scope: "STORE",
+              },
+              store: {
+                company: {
+                  owner_user_id: clientUserId,
+                },
+              },
+            },
+          },
+        },
+        include: {
+          user_roles: {
+            where: {
+              store_id: storeId,
+              status: "ACTIVE",
+            },
+            select: {
+              role: {
+                select: { code: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (!employee) {
+        throw new Error("Employee not found or does not belong to your stores");
+      }
+
+      // Verify store ownership
+      const storeOwned = await this.verifyStoreOwnership(storeId, clientUserId);
+      if (!storeOwned) {
+        throw new Error("Store does not belong to your organization");
+      }
+
+      // Convert AuditContext to PINAuditContext
+      const pinAuditContext: PINAuditContext = {
+        userId: auditContext.userId,
+        userEmail: auditContext.userEmail,
+        userRoles: auditContext.userRoles,
+        ipAddress: auditContext.ipAddress,
+        userAgent: auditContext.userAgent,
+      };
+
+      // Use user PIN service to set PIN (handles validation, hashing, uniqueness)
+      await userPINService.setUserPIN(
+        employeeId,
+        pin,
+        storeId,
+        pinAuditContext,
+      );
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      console.error("Error setting employee PIN:", error);
+      throw new Error("Failed to set employee PIN");
+    }
+  }
+
+  /**
+   * Clear PIN from an employee
+   * Removes PIN authentication capability
+   *
+   * @param employeeId - Employee user UUID
+   * @param clientUserId - Client user performing the action
+   * @param auditContext - Audit context for logging
+   * @throws Error if employee doesn't belong to client's stores
+   */
+  async clearEmployeePIN(
+    employeeId: string,
+    clientUserId: string,
+    auditContext: AuditContext,
+  ): Promise<void> {
+    try {
+      // Verify employee belongs to client's stores
+      const employee = await prisma.user.findFirst({
+        where: {
+          user_id: employeeId,
+          user_roles: {
+            some: {
+              role: {
+                scope: "STORE",
+              },
+              store: {
+                company: {
+                  owner_user_id: clientUserId,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!employee) {
+        throw new Error("Employee not found or does not belong to your stores");
+      }
+
+      // Convert AuditContext to PINAuditContext
+      const pinAuditContext: PINAuditContext = {
+        userId: auditContext.userId,
+        userEmail: auditContext.userEmail,
+        userRoles: auditContext.userRoles,
+        ipAddress: auditContext.ipAddress,
+        userAgent: auditContext.userAgent,
+      };
+
+      // Use user PIN service to clear PIN
+      await userPINService.clearUserPIN(employeeId, pinAuditContext);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      console.error("Error clearing employee PIN:", error);
+      throw new Error("Failed to clear employee PIN");
+    }
+  }
+
+  /**
+   * Get PIN status for an employee
+   *
+   * @param employeeId - Employee user UUID
+   * @param clientUserId - Client user performing the action
+   * @returns Object with has_pin boolean
+   * @throws Error if employee doesn't belong to client's stores
+   */
+  async getEmployeePINStatus(
+    employeeId: string,
+    clientUserId: string,
+  ): Promise<{ has_pin: boolean }> {
+    try {
+      // Verify employee belongs to client's stores
+      const employee = await prisma.user.findFirst({
+        where: {
+          user_id: employeeId,
+          user_roles: {
+            some: {
+              role: {
+                scope: "STORE",
+              },
+              store: {
+                company: {
+                  owner_user_id: clientUserId,
+                },
+              },
+            },
+          },
+        },
+        select: {
+          pin_hash: true,
+        },
+      });
+
+      if (!employee) {
+        throw new Error("Employee not found or does not belong to your stores");
+      }
+
+      return {
+        has_pin: employee.pin_hash !== null,
+      };
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      console.error("Error getting employee PIN status:", error);
+      throw new Error("Failed to get employee PIN status");
     }
   }
 

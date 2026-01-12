@@ -503,6 +503,10 @@ export class NAXMLParser {
     const rootKeys = Object.keys(parsed);
 
     for (const key of rootKeys) {
+      // POSJournal (Gilbarco Passport PJR files) - NAXML-POSJournal root element
+      if (key.includes("NAXML-POSJournal") || key.includes("POSJournal")) {
+        return "POSJournal";
+      }
       // Movement Report types (Gilbarco Passport) - check NAXML-MovementReport first
       if (
         key.includes("NAXML-MovementReport") ||
@@ -560,13 +564,21 @@ export class NAXMLParser {
 
   /**
    * Get the root element key for a document type
-   * SEC-014: Handles MovementReport special case (NAXML-MovementReport root element)
+   * SEC-014: Handles MovementReport and POSJournal special cases
    */
   private getRootKey(
     parsed: Record<string, unknown>,
     documentType: NAXMLDocumentType,
   ): string {
     const keys = Object.keys(parsed);
+
+    // POSJournal uses NAXML-POSJournal as root
+    if (documentType === "POSJournal") {
+      const journalKey = keys.find(
+        (k) => k.includes("NAXML-POSJournal") || k.includes("POSJournal"),
+      );
+      if (journalKey) return journalKey;
+    }
 
     // Movement Report types use NAXML-MovementReport as root
     const movementReportTypes = [

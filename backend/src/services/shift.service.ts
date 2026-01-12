@@ -2439,7 +2439,7 @@ export class ShiftService {
         : null,
       line_items: tx.line_items.map((li) => ({
         product_name: li.name,
-        quantity: li.quantity,
+        quantity: Number(li.quantity),
         price: Number(li.unit_price),
         subtotal: Number(li.line_total),
       })),

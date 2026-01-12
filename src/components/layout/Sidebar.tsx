@@ -16,6 +16,7 @@ import {
   Bot,
   Shield,
   Receipt,
+  Key,
 } from "lucide-react";
 
 interface NavItem {
@@ -45,6 +46,12 @@ const allNavItems: NavItemWithRole[] = [
     href: "/admin/roles",
     icon: Shield,
     roles: ["SUPERADMIN"], // System Admin only - ADMIN_SYSTEM_CONFIG permission
+  },
+  {
+    title: "API Keys",
+    href: "/admin/api-keys",
+    icon: Key,
+    roles: ["SUPERADMIN"], // System Admin only - for desktop app connections
   },
   {
     title: "Companies",

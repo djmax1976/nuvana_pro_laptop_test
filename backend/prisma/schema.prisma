@@ -19,88 +19,96 @@ datasource db {
 }
 
 model User {
-  user_id                     String                  @id @default(uuid()) @db.Uuid
-  email                       String                  @unique @db.VarChar(255)
-  name                        String                  @db.VarChar(255)
-  auth_provider_id            String?                 @unique @db.VarChar(255)
-  status                      String                  @default("ACTIVE") @db.VarChar(50)
-  created_at                  DateTime                @default(now()) @db.Timestamptz(6)
-  updated_at                  DateTime                @default(now()) @updatedAt @db.Timestamptz(6)
-  password_hash               String?                 @db.VarChar(255)
-  public_id                   String                  @unique @db.VarChar(30)
-  is_client_user              Boolean                 @default(false)
-  audit_logs                  AuditLog[]
-  owned_companies             Company[]               @relation("CompanyOwner")
-  shifts_opened               Shift[]                 @relation("ShiftOpener")
-  shifts_approved             Shift[]                 @relation("ShiftApprover")
-  transactions                Transaction[]           @relation("TransactionCashier")
-  assigned_roles              UserRole[]              @relation("UserRoleAssigner")
-  user_roles                  UserRole[]
-  client_role_permissions     ClientRolePermission[]  @relation("ClientRolePermissionOwner")
-  roles_created               Role[]                  @relation("RoleCreator")
-  roles_deleted               Role[]                  @relation("RoleDeleter")
-  company_roles_assigned      CompanyAllowedRole[]    @relation("CompanyAllowedRoleAssigner")
-  bulk_import_jobs            BulkImportJob[]         @relation("BulkImportJobUser")
-  variance_approvals          LotteryVariance[]       @relation("VarianceApprover")
-  cashiers_created            Cashier[]               @relation("CashierCreatedBy")
-  cashiers_updated            Cashier[]               @relation("CashierUpdatedBy")
-  cashier_sessions_auth       CashierSession[]        @relation("CashierSessionAuthenticator")
-  store_logins                Store[]                 @relation("StoreLogin") // Stores where this user is the store login credential
-  ticket_serials              LotteryTicketSerial[]   @relation("TicketCashier")
-  pack_bin_history            LotteryPackBinHistory[] @relation("PackMover")
-  packs_activated             LotteryPack[]           @relation("PackActivatedBy")
-  packs_depleted              LotteryPack[]           @relation("PackDepletedBy")
-  packs_returned              LotteryPack[]           @relation("PackReturnedBy")
-  packs_serial_override_approved LotteryPack[]        @relation("PackSerialOverrideApprovedBy")
-  packs_mark_sold_approved       LotteryPack[]        @relation("PackMarkSoldApprovedBy")
-  manual_entry_authorizations LotteryShiftClosing[]   @relation("ManualEntryAuthorizer")
-  lottery_days_opened         LotteryBusinessDay[]    @relation("LotteryDayOpenedBy")
-  lottery_days_closed         LotteryBusinessDay[]    @relation("LotteryDayClosedBy")
-  lottery_days_pending_close  LotteryBusinessDay[]    @relation("LotteryDayPendingCloseBy")
-  lottery_games_created       LotteryGame[]           @relation("LotteryGameCreator")
-  tender_types_created        TenderType[]            @relation("TenderTypeCreatedBy")
-  departments_created         Department[]            @relation("DepartmentCreatedBy")
-  tax_rates_created           TaxRate[]               @relation("TaxRateCreatedBy")
-  pos_integrations_created    POSIntegration[]        @relation("POSIntegrationCreatedBy")
-  pos_sync_logs_triggered     POSSyncLog[]            @relation("POSSyncLogTriggeredBy")
+  user_id                        String                  @id @default(uuid()) @db.Uuid
+  email                          String                  @unique @db.VarChar(255)
+  name                           String                  @db.VarChar(255)
+  auth_provider_id               String?                 @unique @db.VarChar(255)
+  status                         String                  @default("ACTIVE") @db.VarChar(50)
+  created_at                     DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime                @default(now()) @updatedAt @db.Timestamptz(6)
+  password_hash                  String?                 @db.VarChar(255)
+  // PIN authentication for STORE_MANAGER/SHIFT_MANAGER roles (desktop/terminal access)
+  pin_hash                       String?                 @db.VarChar(255) // bcrypt hashed 4-digit PIN
+  sha256_pin_fingerprint         String?                 @db.VarChar(64)  // SHA-256 hex digest for fast uniqueness checks per-store
+  public_id                      String                  @unique @db.VarChar(30)
+  is_client_user                 Boolean                 @default(false)
+  audit_logs                     AuditLog[]
+  owned_companies                Company[]               @relation("CompanyOwner")
+  shifts_opened                  Shift[]                 @relation("ShiftOpener")
+  shifts_approved                Shift[]                 @relation("ShiftApprover")
+  transactions                   Transaction[]           @relation("TransactionCashier")
+  assigned_roles                 UserRole[]              @relation("UserRoleAssigner")
+  user_roles                     UserRole[]
+  client_role_permissions        ClientRolePermission[]  @relation("ClientRolePermissionOwner")
+  roles_created                  Role[]                  @relation("RoleCreator")
+  roles_deleted                  Role[]                  @relation("RoleDeleter")
+  company_roles_assigned         CompanyAllowedRole[]    @relation("CompanyAllowedRoleAssigner")
+  bulk_import_jobs               BulkImportJob[]         @relation("BulkImportJobUser")
+  variance_approvals             LotteryVariance[]       @relation("VarianceApprover")
+  cashiers_created               Cashier[]               @relation("CashierCreatedBy")
+  cashiers_updated               Cashier[]               @relation("CashierUpdatedBy")
+  cashier_sessions_auth          CashierSession[]        @relation("CashierSessionAuthenticator")
+  store_logins                   Store[]                 @relation("StoreLogin") // Stores where this user is the store login credential
+  ticket_serials                 LotteryTicketSerial[]   @relation("TicketCashier")
+  pack_bin_history               LotteryPackBinHistory[] @relation("PackMover")
+  packs_activated                LotteryPack[]           @relation("PackActivatedBy")
+  packs_depleted                 LotteryPack[]           @relation("PackDepletedBy")
+  packs_returned                 LotteryPack[]           @relation("PackReturnedBy")
+  packs_serial_override_approved LotteryPack[]           @relation("PackSerialOverrideApprovedBy")
+  packs_mark_sold_approved       LotteryPack[]           @relation("PackMarkSoldApprovedBy")
+  manual_entry_authorizations    LotteryShiftClosing[]   @relation("ManualEntryAuthorizer")
+  lottery_days_opened            LotteryBusinessDay[]    @relation("LotteryDayOpenedBy")
+  lottery_days_closed            LotteryBusinessDay[]    @relation("LotteryDayClosedBy")
+  lottery_days_pending_close     LotteryBusinessDay[]    @relation("LotteryDayPendingCloseBy")
+  lottery_games_created          LotteryGame[]           @relation("LotteryGameCreator")
+  tender_types_created           TenderType[]            @relation("TenderTypeCreatedBy")
+  departments_created            Department[]            @relation("DepartmentCreatedBy")
+  tax_rates_created              TaxRate[]               @relation("TaxRateCreatedBy")
+  pos_integrations_created       POSIntegration[]        @relation("POSIntegrationCreatedBy")
+  pos_sync_logs_triggered        POSSyncLog[]            @relation("POSSyncLogTriggeredBy")
   // POS Audit relations (Phase 0)
-  pos_audits_accessed         POSDataExchangeAudit[]  @relation("POSAuditAccessedBy")
+  pos_audits_accessed            POSDataExchangeAudit[]  @relation("POSAuditAccessedBy")
   // NAXML Scheduled Export relations (Phase 2)
-  scheduled_exports_created   NAXMLScheduledExport[]  @relation("ScheduledExportCreatedBy")
+  scheduled_exports_created      NAXMLScheduledExport[]  @relation("ScheduledExportCreatedBy")
   // Shift Summary relations (Phase 2.1)
-  shift_summaries_opened      ShiftSummary[]          @relation("ShiftSummaryOpenedBy")
-  shift_summaries_closed      ShiftSummary[]          @relation("ShiftSummaryClosedBy")
-  shift_summaries_cashier     ShiftSummary[]          @relation("ShiftSummaryCashier")
-  shift_summaries_variance    ShiftSummary[]          @relation("ShiftSummaryVarianceApprover")
+  shift_summaries_opened         ShiftSummary[]          @relation("ShiftSummaryOpenedBy")
+  shift_summaries_closed         ShiftSummary[]          @relation("ShiftSummaryClosedBy")
+  shift_summaries_cashier        ShiftSummary[]          @relation("ShiftSummaryCashier")
+  shift_summaries_variance       ShiftSummary[]          @relation("ShiftSummaryVarianceApprover")
   // Day Summary relations (Phase 3.1)
-  day_summaries_closed        DaySummary[]            @relation("DaySummaryClosedBy")
+  day_summaries_closed           DaySummary[]            @relation("DaySummaryClosedBy")
   // X/Z Report relations (Phase 4)
-  x_reports_generated         XReport[]               @relation("XReportGeneratedBy")
-  z_reports_generated         ZReport[]               @relation("ZReportGeneratedBy")
+  x_reports_generated            XReport[]               @relation("XReportGeneratedBy")
+  z_reports_generated            ZReport[]               @relation("ZReportGeneratedBy")
   // Scanned Documents (OCR Feature)
-  documents_scanned           ScannedDocument[]       @relation("ScannedDocumentScannedBy")
-  documents_verified          ScannedDocument[]       @relation("ScannedDocumentVerifiedBy")
-  documents_rejected          ScannedDocument[]       @relation("ScannedDocumentRejectedBy")
+  documents_scanned              ScannedDocument[]       @relation("ScannedDocumentScannedBy")
+  documents_verified             ScannedDocument[]       @relation("ScannedDocumentVerifiedBy")
+  documents_rejected             ScannedDocument[]       @relation("ScannedDocumentRejectedBy")
   // Lottery Game Import relations
-  lottery_game_imports        LotteryGameImport[]     @relation("LotteryGameImportCreatedBy")
+  lottery_game_imports           LotteryGameImport[]     @relation("LotteryGameImportCreatedBy")
   // Elevated Access Audit (Security Events)
-  elevated_access_audits      ElevatedAccessAudit[]   @relation("ElevatedAccessAuditUser")
+  elevated_access_audits         ElevatedAccessAudit[]   @relation("ElevatedAccessAuditUser")
+  // API Key relations (Desktop POS authentication)
+  api_keys_created               ApiKey[]                @relation("ApiKeyCreator")
+  api_keys_revoked               ApiKey[]                @relation("ApiKeyRevoker")
+  api_key_audit_events           ApiKeyAuditEvent[]      @relation("ApiKeyAuditEventActor")
 
   @@index([email])
   @@index([status])
   @@index([public_id])
   @@index([is_client_user])
+  @@index([sha256_pin_fingerprint]) // For fast PIN uniqueness lookups per-store
   @@map("users")
 }
 
 model Company {
-  company_id    String               @id @default(uuid()) @db.Uuid
-  name          String               @db.VarChar(255)
+  company_id String @id @default(uuid()) @db.Uuid
+  name       String @db.VarChar(255)
 
   // === LEGACY ADDRESS FIELD (DEPRECATED) ===
   // @deprecated Use structured address fields below
   // Will be removed in future migration after data migration complete
-  address       String?              @db.VarChar(500)
+  address String? @db.VarChar(500)
 
   // === STRUCTURED ADDRESS FIELDS ===
   // Enterprise-grade address storage following Square/Shopify patterns
@@ -125,29 +133,31 @@ model Company {
   zip_code String? @db.VarChar(10)
 
   // === EXISTING FIELDS ===
-  status        String               @default("ACTIVE") @db.VarChar(50)
-  created_at    DateTime             @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime             @default(now()) @updatedAt @db.Timestamptz(6)
-  owner_user_id String               @db.Uuid
-  public_id     String               @unique @db.VarChar(30)
+  status        String   @default("ACTIVE") @db.VarChar(50)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  owner_user_id String   @db.Uuid
+  public_id     String   @unique @db.VarChar(30)
 
   // === RELATIONS ===
-  owner         User                 @relation("CompanyOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
-  state         USState?             @relation("CompanyState", fields: [state_id], references: [state_id], onDelete: Restrict)
-  county        USCounty?            @relation("CompanyCounty", fields: [county_id], references: [county_id], onDelete: SetNull)
-  stores        Store[]
-  user_roles    UserRole[]
-  allowed_roles CompanyAllowedRole[] @relation("CompanyAllowedRoleCompany")
-  tender_types  TenderType[]         @relation("TenderTypeClient")
-  departments   Department[]         @relation("DepartmentClient")
-  tax_rates     TaxRate[]            @relation("TaxRateClient")
+  owner             User                   @relation("CompanyOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
+  state             USState?               @relation("CompanyState", fields: [state_id], references: [state_id], onDelete: Restrict)
+  county            USCounty?              @relation("CompanyCounty", fields: [county_id], references: [county_id], onDelete: SetNull)
+  stores            Store[]
+  user_roles        UserRole[]
+  allowed_roles     CompanyAllowedRole[]   @relation("CompanyAllowedRoleCompany")
+  tender_types      TenderType[]           @relation("TenderTypeClient")
+  departments       Department[]           @relation("DepartmentClient")
+  tax_rates         TaxRate[]              @relation("TaxRateClient")
   // POS Audit relations (Phase 0)
-  pos_audits    POSDataExchangeAudit[]
+  pos_audits        POSDataExchangeAudit[]
   // Scanned Documents (OCR Feature)
   scanned_documents ScannedDocument[]
   // Fuel Models (Phase 5: XML Parsing)
-  fuel_grades   FuelGrade[]          @relation("FuelGradeCompany")
-  fuel_positions FuelPosition[]      @relation("FuelPositionCompany")
+  fuel_grades       FuelGrade[]            @relation("FuelGradeCompany")
+  fuel_positions    FuelPosition[]         @relation("FuelPositionCompany")
+  // API Key relations (Desktop POS authentication)
+  api_keys          ApiKey[]               @relation("CompanyApiKeys")
 
   // === INDEXES ===
   @@index([owner_user_id])
@@ -210,47 +220,48 @@ model Store {
   store_login_user_id String?  @db.Uuid // Optional FK to User - the CLIENT_USER login credential for this store's dashboard
 
   // === RELATIONS ===
-  company               Company                  @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
-  state                 USState?                 @relation("StoreState", fields: [state_id], references: [state_id], onDelete: Restrict)
-  county                USCounty?                @relation("StoreCounty", fields: [county_id], references: [county_id], onDelete: SetNull)
-  store_login           User?                    @relation("StoreLogin", fields: [store_login_user_id], references: [user_id], onDelete: SetNull)
-  pos_terminals         POSTerminal[]
-  shifts                Shift[]
-  cashiers              Cashier[]
-  transactions          Transaction[]
-  user_roles            UserRole[]
-  cashier_sessions      CashierSession[]
-  lottery_packs         LotteryPack[]
-  lottery_bins          LotteryBin[]
-  bin_configuration     LotteryBinConfiguration?
-  lottery_business_days LotteryBusinessDay[]
-  lottery_games         LotteryGame[]            @relation("LotteryGameStore")
-  tax_rates             TaxRate[]                @relation("TaxRateStore")
-  pos_integration       POSIntegration?          @relation("StorePOSIntegration")
-  tender_types          TenderType[]             @relation("TenderTypeStore")
-  departments           Department[]             @relation("DepartmentStore")
+  company                Company                   @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  state                  USState?                  @relation("StoreState", fields: [state_id], references: [state_id], onDelete: Restrict)
+  county                 USCounty?                 @relation("StoreCounty", fields: [county_id], references: [county_id], onDelete: SetNull)
+  store_login            User?                     @relation("StoreLogin", fields: [store_login_user_id], references: [user_id], onDelete: SetNull)
+  pos_terminals          POSTerminal[]
+  shifts                 Shift[]
+  cashiers               Cashier[]
+  transactions           Transaction[]
+  user_roles             UserRole[]
+  cashier_sessions       CashierSession[]
+  lottery_packs          LotteryPack[]
+  lottery_bins           LotteryBin[]
+  bin_configuration      LotteryBinConfiguration?
+  lottery_business_days  LotteryBusinessDay[]
+  lottery_games          LotteryGame[]             @relation("LotteryGameStore")
+  tax_rates              TaxRate[]                 @relation("TaxRateStore")
+  pos_integration        POSIntegration?           @relation("StorePOSIntegration")
+  tender_types           TenderType[]              @relation("TenderTypeStore")
+  departments            Department[]              @relation("DepartmentStore")
   // Shift Summary relation (Phase 2.1)
-  shift_summaries       ShiftSummary[]
+  shift_summaries        ShiftSummary[]
   // Day Summary relation (Phase 3.1)
-  day_summaries         DaySummary[]
+  day_summaries          DaySummary[]
   // X/Z Report relations (Phase 4)
-  x_reports             XReport[]
-  z_reports             ZReport[]
+  x_reports              XReport[]
+  z_reports              ZReport[]
   // POS Audit relations (Phase 0)
-  pos_audits            POSDataExchangeAudit[]
+  pos_audits             POSDataExchangeAudit[]
   // NAXML Infrastructure relations (Phase 1)
-  naxml_file_logs       NAXMLFileLog[]
-  file_watcher_config   POSFileWatcherConfig?
+  naxml_file_logs        NAXMLFileLog[]
   // NAXML Scheduled Export relations (Phase 2)
-  scheduled_exports     NAXMLScheduledExport[]
-  scheduled_export_logs NAXMLScheduledExportLog[]
+  scheduled_exports      NAXMLScheduledExport[]
+  scheduled_export_logs  NAXMLScheduledExportLog[]
   // Scanned Documents (OCR Feature)
-  scanned_documents     ScannedDocument[]
+  scanned_documents      ScannedDocument[]
   // Elevated Access Audit (Security Events)
-  elevated_access_audits ElevatedAccessAudit[]   @relation("ElevatedAccessAuditStore")
+  elevated_access_audits ElevatedAccessAudit[]     @relation("ElevatedAccessAuditStore")
+  // API Key relations (Desktop POS authentication)
+  api_keys               ApiKey[]                  @relation("StoreApiKeys")
   // Fuel Models (Phase 5: XML Parsing)
-  fuel_positions        FuelPosition[]          @relation("FuelPositionStore")
-  meter_readings        MeterReading[]          @relation("MeterReadingStore")
+  fuel_positions         FuelPosition[]            @relation("FuelPositionStore")
+  meter_readings         MeterReading[]            @relation("MeterReadingStore")
 
   // === INDEXES ===
   @@index([company_id])
@@ -293,14 +304,14 @@ model Cashier {
   created_by             String    @db.Uuid
   updated_by             String?   @db.Uuid
 
-  store                  Store                  @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  creator                User                   @relation("CashierCreatedBy", fields: [created_by], references: [user_id])
-  updater                User?                  @relation("CashierUpdatedBy", fields: [updated_by], references: [user_id])
-  shifts                 Shift[]
-  sessions               CashierSession[]
-  lotteryShiftClosings   LotteryShiftClosing[]  @relation("LotteryShiftClosingCashier")
+  store                Store                 @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  creator              User                  @relation("CashierCreatedBy", fields: [created_by], references: [user_id])
+  updater              User?                 @relation("CashierUpdatedBy", fields: [updated_by], references: [user_id])
+  shifts               Shift[]
+  sessions             CashierSession[]
+  lotteryShiftClosings LotteryShiftClosing[] @relation("LotteryShiftClosingCashier")
   // Scanned Documents (OCR Feature)
-  scanned_documents      ScannedDocument[]
+  scanned_documents    ScannedDocument[]
 
   @@unique([store_id, employee_id])
   @@unique([store_id, pin_hash])
@@ -468,26 +479,26 @@ model AuditLog {
 
 /// Elevated access event types for security audit
 enum ElevatedAccessEventType {
-  ELEVATION_REQUESTED    // User requested elevated access
-  ELEVATION_GRANTED      // Credentials verified, token issued
-  ELEVATION_DENIED       // Invalid credentials or missing permission
-  ELEVATION_EXPIRED      // Token expired before use
-  ELEVATION_USED         // Token was used for an operation
-  ELEVATION_REVOKED      // Token manually revoked
+  ELEVATION_REQUESTED // User requested elevated access
+  ELEVATION_GRANTED // Credentials verified, token issued
+  ELEVATION_DENIED // Invalid credentials or missing permission
+  ELEVATION_EXPIRED // Token expired before use
+  ELEVATION_USED // Token was used for an operation
+  ELEVATION_REVOKED // Token manually revoked
   ELEVATION_RATE_LIMITED // Request blocked due to rate limiting
 }
 
 /// Result status of elevated access events
 enum ElevatedAccessResult {
   SUCCESS
-  FAILED_CREDENTIALS     // Invalid email or password
-  FAILED_PERMISSION      // User lacks required permission
-  FAILED_RATE_LIMIT      // Too many attempts
-  FAILED_TOKEN_EXPIRED   // Token expired
-  FAILED_TOKEN_INVALID   // Token signature invalid or malformed
-  FAILED_TOKEN_USED      // Token already used (replay attempt)
-  FAILED_SCOPE_MISMATCH  // Token scope doesn't match request
-  FAILED_STORE_ACCESS    // User doesn't have access to store
+  FAILED_CREDENTIALS // Invalid email or password
+  FAILED_PERMISSION // User lacks required permission
+  FAILED_RATE_LIMIT // Too many attempts
+  FAILED_TOKEN_EXPIRED // Token expired
+  FAILED_TOKEN_INVALID // Token signature invalid or malformed
+  FAILED_TOKEN_USED // Token already used (replay attempt)
+  FAILED_SCOPE_MISMATCH // Token scope doesn't match request
+  FAILED_STORE_ACCESS // User doesn't have access to store
 }
 
 /// Elevated Access Audit - Comprehensive security event logging
@@ -500,63 +511,62 @@ enum ElevatedAccessResult {
 /// - SEC-014: INPUT_VALIDATION - Logs validation failures
 /// - API-003: ERROR_HANDLING - Captures error details for investigation
 model ElevatedAccessAudit {
-  audit_id            String                   @id @default(uuid()) @db.Uuid
+  audit_id String @id @default(uuid()) @db.Uuid
 
   // User context
-  user_id             String                   @db.Uuid
-  user_email          String                   @db.VarChar(255)
+  user_id    String @db.Uuid
+  user_email String @db.VarChar(255)
 
   // Session binding - ties elevation to original session
-  session_id          String?                  @db.VarChar(64)
+  session_id String? @db.VarChar(64)
 
   // Event details
-  event_type          ElevatedAccessEventType
-  result              ElevatedAccessResult
+  event_type ElevatedAccessEventType
+  result     ElevatedAccessResult
 
   // Permission and scope
-  requested_permission String                  @db.VarChar(100)
-  store_id            String?                  @db.Uuid
+  requested_permission String  @db.VarChar(100)
+  store_id             String? @db.Uuid
 
   // Token tracking (for GRANTED/USED/EXPIRED events)
-  token_jti           String?                  @unique @db.VarChar(64) // JWT ID for replay protection
-  token_issued_at     DateTime?               @db.Timestamptz(6)
-  token_expires_at    DateTime?               @db.Timestamptz(6)
-  token_used_at       DateTime?               @db.Timestamptz(6)
+  token_jti        String?   @unique @db.VarChar(64) // JWT ID for replay protection
+  token_issued_at  DateTime? @db.Timestamptz(6)
+  token_expires_at DateTime? @db.Timestamptz(6)
+  token_used_at    DateTime? @db.Timestamptz(6)
 
   // Request metadata
-  ip_address          String                   @db.VarChar(45) // IPv4 or IPv6
-  user_agent          String?                  @db.VarChar(500)
-  request_id          String?                  @db.VarChar(64) // Correlation ID
+  ip_address String  @db.VarChar(45) // IPv4 or IPv6
+  user_agent String? @db.VarChar(500)
+  request_id String? @db.VarChar(64) // Correlation ID
 
   // Error details (for failed events)
-  error_code          String?                  @db.VarChar(50)
-  error_message       String?                  @db.VarChar(500)
+  error_code    String? @db.VarChar(50)
+  error_message String? @db.VarChar(500)
 
   // Rate limiting context
-  attempt_count       Int?                     // Number of attempts in window
-  rate_limit_window   DateTime?               @db.Timestamptz(6) // Window start time
+  attempt_count     Int? // Number of attempts in window
+  rate_limit_window DateTime? @db.Timestamptz(6) // Window start time
 
   // Timestamps
-  created_at          DateTime                 @default(now()) @db.Timestamptz(6)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
 
   // Relations
-  user                User                     @relation("ElevatedAccessAuditUser", fields: [user_id], references: [user_id])
-  store               Store?                   @relation("ElevatedAccessAuditStore", fields: [store_id], references: [store_id])
+  user  User   @relation("ElevatedAccessAuditUser", fields: [user_id], references: [user_id])
+  store Store? @relation("ElevatedAccessAuditStore", fields: [store_id], references: [store_id])
 
   // Indexes for common query patterns
-  @@index([user_id])                          // Query by user
-  @@index([user_email])                       // Query by email (for failed attempts with unknown user)
-  @@index([event_type])                       // Filter by event type
-  @@index([result])                           // Filter by result
-  @@index([store_id])                         // Query by store
-  @@index([token_jti])                        // Lookup by token ID
-  @@index([ip_address])                       // Security: detect attack patterns
-  @@index([created_at])                       // Time-based queries
-  @@index([user_id, created_at])             // User activity timeline
+  @@index([user_id]) // Query by user
+  @@index([user_email]) // Query by email (for failed attempts with unknown user)
+  @@index([event_type]) // Filter by event type
+  @@index([result]) // Filter by result
+  @@index([store_id]) // Query by store
+  @@index([token_jti]) // Lookup by token ID
+  @@index([ip_address]) // Security: detect attack patterns
+  @@index([created_at]) // Time-based queries
+  @@index([user_id, created_at]) // User activity timeline
   @@index([user_id, event_type, created_at]) // User event history
-  @@index([ip_address, created_at])          // IP-based rate limiting queries
-  @@index([result, created_at])              // Failed attempt analysis
-
+  @@index([ip_address, created_at]) // IP-based rate limiting queries
+  @@index([result, created_at]) // Failed attempt analysis
   @@map("elevated_access_audit")
 }
 
@@ -720,8 +730,8 @@ enum LotteryPackStatus {
 /// Lottery Pack Depletion Reason - Tracks how a pack became depleted
 /// Used for audit trail and distinguishing manual vs automatic depletion
 enum LotteryPackDepletionReason {
-  SHIFT_CLOSE     // Depleted during shift/day closing (ending serial = serial_end)
-  AUTO_REPLACED   // Auto-depleted when new pack activated in same bin
+  SHIFT_CLOSE // Depleted during shift/day closing (ending serial = serial_end)
+  AUTO_REPLACED // Auto-depleted when new pack activated in same bin
   MANUAL_SOLD_OUT // Manually marked as sold out by user
   POS_LAST_TICKET // Future: POS reported last ticket sold
 }
@@ -729,12 +739,12 @@ enum LotteryPackDepletionReason {
 /// Lottery Pack Return Reason - Tracks why a pack was returned
 /// Used for audit trail, reporting, and supplier reconciliation
 enum LotteryPackReturnReason {
-  SUPPLIER_RECALL       // Supplier recalled the pack
-  DAMAGED               // Pack was damaged
-  EXPIRED               // Pack expired before being sold
-  INVENTORY_ADJUSTMENT  // Inventory correction
-  STORE_CLOSURE         // Store closing/relocating
-  OTHER                 // Other reason (requires notes)
+  SUPPLIER_RECALL // Supplier recalled the pack
+  DAMAGED // Pack was damaged
+  EXPIRED // Pack expired before being sold
+  INVENTORY_ADJUSTMENT // Inventory correction
+  STORE_CLOSURE // Store closing/relocating
+  OTHER // Other reason (requires notes)
 }
 
 enum LotteryConfigType {
@@ -817,10 +827,10 @@ model USState {
   counties             USCounty[]
   zip_codes            USZipCode[]
   cities               USCity[]
-  stores               Store[]              @relation("StoreState")
-  companies            Company[]            @relation("CompanyState")
-  lottery_games        LotteryGame[]        @relation("LotteryGameState")
-  lottery_game_imports LotteryGameImport[]  @relation("LotteryGameImportState")
+  stores               Store[]             @relation("StoreState")
+  companies            Company[]           @relation("CompanyState")
+  lottery_games        LotteryGame[]       @relation("LotteryGameState")
+  lottery_game_imports LotteryGameImport[] @relation("LotteryGameImportState")
 
   // === INDEXES ===
   @@index([code])
@@ -884,7 +894,6 @@ model USCounty {
   // === CONSTRAINTS ===
   // County name must be unique within a state
   @@unique([state_id, name], name: "us_counties_state_name_unique")
-
   // === INDEXES ===
   @@index([state_id])
   @@index([name])
@@ -941,7 +950,6 @@ model USCity {
   // === CONSTRAINTS ===
   // City name should be unique within a county (not state - same city name can exist in different counties)
   @@unique([county_id, name], name: "us_cities_county_name_unique")
-
   // === INDEXES ===
   @@index([county_id])
   @@index([state_id])
@@ -1264,35 +1272,35 @@ enum TaxJurisdictionLevel {
 }
 
 model Shift {
-  shift_id          String                @id @default(uuid()) @db.Uuid
-  store_id          String                @db.Uuid
-  opened_by         String                @db.Uuid
-  cashier_id        String                @db.Uuid
-  pos_terminal_id   String?               @db.Uuid
-  opened_at         DateTime              @default(now()) @db.Timestamptz(6)
-  closed_at         DateTime?             @db.Timestamptz(6)
-  opening_cash      Decimal               @default(0) @db.Decimal(10, 2)
-  expected_cash     Decimal?              @db.Decimal(10, 2)
-  closing_cash      Decimal?              @db.Decimal(10, 2)
-  variance          Decimal?              @db.Decimal(10, 2)
-  variance_reason   String?               @db.VarChar(500)
-  status            ShiftStatus           @default(NOT_STARTED)
+  shift_id          String      @id @default(uuid()) @db.Uuid
+  store_id          String      @db.Uuid
+  opened_by         String      @db.Uuid
+  cashier_id        String      @db.Uuid
+  pos_terminal_id   String?     @db.Uuid
+  opened_at         DateTime    @default(now()) @db.Timestamptz(6)
+  closed_at         DateTime?   @db.Timestamptz(6)
+  opening_cash      Decimal     @default(0) @db.Decimal(10, 2)
+  expected_cash     Decimal?    @db.Decimal(10, 2)
+  closing_cash      Decimal?    @db.Decimal(10, 2)
+  variance          Decimal?    @db.Decimal(10, 2)
+  variance_reason   String?     @db.VarChar(500)
+  status            ShiftStatus @default(NOT_STARTED)
   shift_number      Int?
-  approved_by       String?               @db.Uuid
-  approved_at       DateTime?             @db.Timestamptz(6)
-  created_at        DateTime              @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime              @default(now()) @updatedAt @db.Timestamptz(6)
-  public_id         String?               @unique @db.VarChar(30)
-  external_shift_id String?               @db.VarChar(255)
+  approved_by       String?     @db.Uuid
+  approved_at       DateTime?   @db.Timestamptz(6)
+  created_at        DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime    @default(now()) @updatedAt @db.Timestamptz(6)
+  public_id         String?     @unique @db.VarChar(30)
+  external_shift_id String?     @db.VarChar(255)
   external_data     Json?
-  synced_at         DateTime?             @db.Timestamptz(6)
+  synced_at         DateTime?   @db.Timestamptz(6)
 
   // === BUSINESS DAY ASSOCIATION ===
   // Links shift to the business day (DaySummary) that was active when shift opened.
   // This is the authoritative source for shift-to-day grouping.
   // Nullable to handle edge cases where day summary doesn't exist yet.
   // DB-006: TENANT_ISOLATION - Day summary is always within same store scope
-  day_summary_id    String?               @db.Uuid
+  day_summary_id String? @db.Uuid
 
   opener            User                  @relation("ShiftOpener", fields: [opened_by], references: [user_id])
   cashier           Cashier               @relation(fields: [cashier_id], references: [cashier_id])
@@ -1318,7 +1326,7 @@ model Shift {
   // Scanned Documents (OCR Feature)
   scanned_documents ScannedDocument[]
   // Fuel Models (Phase 5: XML Parsing)
-  meter_readings    MeterReading[]    @relation("MeterReadingShift")
+  meter_readings    MeterReading[]        @relation("MeterReadingShift")
 
   @@index([store_id])
   @@index([opened_by])
@@ -1370,28 +1378,70 @@ model POSTerminal {
 /// Transaction - Partitioned by month on timestamp for efficient querying
 /// Primary key is composite (transaction_id, timestamp) for partitioning support
 /// Note: transaction_id is marked @unique for Prisma relations (UUID guarantees uniqueness)
+/// Captures all fields from POS PJR (POSJournal) files for complete audit trail
 model Transaction {
-  transaction_id  String                @unique @default(uuid()) @db.Uuid
-  store_id        String                @db.Uuid
-  shift_id        String                @db.Uuid
-  cashier_id      String                @db.Uuid
-  pos_terminal_id String?               @db.Uuid
-  timestamp       DateTime              @default(now()) @db.Timestamptz(6)
-  subtotal        Decimal               @db.Decimal(10, 2)
-  tax             Decimal               @default(0) @db.Decimal(10, 2)
-  discount        Decimal               @default(0) @db.Decimal(10, 2)
-  total           Decimal               @db.Decimal(10, 2)
-  created_at      DateTime              @default(now()) @db.Timestamptz(6)
-  public_id       String                @db.VarChar(30)
-  line_items      TransactionLineItem[]
-  payments        TransactionPayment[]
-  cashier         User                  @relation("TransactionCashier", fields: [cashier_id], references: [user_id])
-  pos_terminal    POSTerminal?          @relation(fields: [pos_terminal_id], references: [pos_terminal_id])
-  shift           Shift                 @relation(fields: [shift_id], references: [shift_id])
-  store           Store                 @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  transaction_id  String   @unique @default(uuid()) @db.Uuid
+  store_id        String   @db.Uuid
+  shift_id        String   @db.Uuid
+  cashier_id      String   @db.Uuid
+  pos_terminal_id String?  @db.Uuid
+  timestamp       DateTime @default(now()) @db.Timestamptz(6)
+  subtotal        Decimal  @db.Decimal(10, 2)
+  tax             Decimal  @default(0) @db.Decimal(10, 2)
+  discount        Decimal  @default(0) @db.Decimal(10, 2)
+  total           Decimal  @db.Decimal(10, 2)
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  public_id       String   @db.VarChar(30)
+
+  // === POS TRANSACTION IDENTIFICATION (Phase 5.6) ===
+  // Original transaction ID from POS system (e.g., TransactionID from PJR file)
+  pos_transaction_id String?   @db.VarChar(50)
+  // Store location ID from POS (e.g., StoreLocationID "299" from Gilbarco)
+  // This is the POS's identifier, different from our internal store_id UUID
+  pos_store_id       String?   @db.VarChar(50)
+  // Business date from POS (may differ from transaction timestamp date)
+  business_date      DateTime? @db.Date
+  // Register/terminal ID from POS (e.g., RegisterID)
+  pos_register_id    String?   @db.VarChar(20)
+  // Till/drawer ID from POS (e.g., TillID)
+  pos_till_id        String?   @db.VarChar(20)
+  // POS cashier code (denormalized from POS, may differ from cashier_id user)
+  pos_cashier_code   String?   @db.VarChar(20)
+
+  // === POS TRANSACTION FLAGS (Phase 5.6) ===
+  // Training mode flag - transactions for training purposes
+  is_training_mode Boolean @default(false)
+  // Outside sales flag - sale initiated at pump (not inside store)
+  is_outside_sale  Boolean @default(false)
+  // Offline flag - transaction captured while POS was offline
+  is_offline       Boolean @default(false)
+  // Suspended/voided transaction
+  is_suspended     Boolean @default(false)
+
+  // === LINKED TRANSACTION (Phase 5.6) ===
+  // For prepay transactions, links to the original prepay transaction
+  linked_transaction_id String? @db.VarChar(50)
+  // Link reason (e.g., "fuelPrepay", "return", "void")
+  link_reason           String? @db.VarChar(50)
+
+  // === POS FILE TRACKING (Phase 5.6) ===
+  // Source file name for audit trail
+  source_file      String? @db.VarChar(255)
+  // File hash for deduplication
+  source_file_hash String? @db.VarChar(64)
+
+  // === RELATIONS ===
+  line_items   TransactionLineItem[]
+  payments     TransactionPayment[]
+  cashier      User                  @relation("TransactionCashier", fields: [cashier_id], references: [user_id])
+  pos_terminal POSTerminal?          @relation(fields: [pos_terminal_id], references: [pos_terminal_id])
+  shift        Shift                 @relation(fields: [shift_id], references: [shift_id])
+  store        Store                 @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
 
   @@id([transaction_id, timestamp])
   @@unique([public_id, timestamp])
+  // Unique constraint on POS transaction ID + store to prevent duplicate imports
+  @@unique([store_id, pos_transaction_id, business_date])
   @@index([store_id])
   @@index([shift_id])
   @@index([cashier_id])
@@ -1399,35 +1449,69 @@ model Transaction {
   @@index([timestamp])
   @@index([public_id])
   @@index([store_id, timestamp])
+  @@index([business_date])
+  @@index([pos_transaction_id])
+  @@index([source_file_hash])
   @@map("transactions")
 }
 
+/// TransactionLineItem - Individual items within a transaction
+/// Supports both merchandise and fuel line items with proper store relationships
+/// Fuel items link to FuelGrade and FuelPosition for filtering and reporting
 model TransactionLineItem {
   line_item_id   String   @id @default(uuid()) @db.Uuid
   transaction_id String   @db.Uuid
   product_id     String?  @db.Uuid
   sku            String?  @db.VarChar(100)
   name           String   @db.VarChar(255)
-  quantity       Int
-  unit_price     Decimal  @db.Decimal(10, 2)
+  quantity       Decimal  @db.Decimal(12, 3) // Changed to Decimal for fuel gallons precision
+  unit_price     Decimal  @db.Decimal(10, 4) // Changed to 4 decimals for fuel price precision (e.g., 2.519)
   discount       Decimal  @default(0) @db.Decimal(10, 2)
   tax_amount     Decimal  @default(0) @db.Decimal(10, 2) // Per-item tax amount (Phase 1.5)
   line_total     Decimal  @db.Decimal(10, 2)
   created_at     DateTime @default(now()) @db.Timestamptz(6)
 
-  // === NEW: Foreign key to lookup table (Phase 1.5) ===
-  department_id   String? @db.Uuid // Optional for backward compatibility
-  department_code String? @db.VarChar(50) // Denormalized: Copy of department.code at txn time
+  // === ITEM TYPE (Phase 5.6) ===
+  // Categorizes the line item for filtering and reporting
+  item_type TransactionItemType @default(MERCHANDISE)
 
-  // === NEW: Tax rate tracking (Phase 2.4) ===
+  // === DEPARTMENT/MERCHANDISE FIELDS (Phase 1.5) ===
+  department_id        String? @db.Uuid // Optional for backward compatibility
+  department_code      String? @db.VarChar(50) // Denormalized: Copy of department.code at txn time
+  // Merchandise code from POS (e.g., MerchandiseCode from PJR)
+  pos_merchandise_code String? @db.VarChar(50)
+
+  // === TAX RATE TRACKING (Phase 2.4) ===
   tax_rate_id    String?  @db.Uuid // Optional - FK to TaxRate used for this line item
   tax_rate_code  String?  @db.VarChar(50) // Denormalized: Copy of tax_rate.code at txn time
   tax_rate_value Decimal? @db.Decimal(6, 5) // Denormalized: Tax rate percentage at txn time (e.g., 0.0825)
 
+  // === FUEL-SPECIFIC FIELDS (Phase 5.6) ===
+  // Links to store's FuelGrade for grade-level reporting
+  fuel_grade_id        String?  @db.Uuid
+  // Denormalized grade ID from POS (e.g., "001" for Regular)
+  pos_fuel_grade_id    String?  @db.VarChar(10)
+  // Links to store's FuelPosition for pump-level reporting
+  fuel_position_id     String?  @db.Uuid
+  // Denormalized position ID from POS (e.g., "3" for Pump 3)
+  pos_fuel_position_id String?  @db.VarChar(10)
+  // Service level (self, full)
+  fuel_service_level   String?  @db.VarChar(20)
+  // Price tier code from POS
+  fuel_price_tier      String?  @db.VarChar(20)
+  // Regular sell price (before any discounts)
+  fuel_regular_price   Decimal? @db.Decimal(10, 4)
+
+  // === LINE STATUS (Phase 5.6) ===
+  // Status from POS (normal, cancel, void)
+  line_status String @default("normal") @db.VarChar(20)
+
   // === RELATIONS ===
-  transaction Transaction @relation(fields: [transaction_id], references: [transaction_id], onDelete: Cascade)
-  department  Department? @relation(fields: [department_id], references: [department_id], onDelete: SetNull)
-  tax_rate    TaxRate?    @relation(fields: [tax_rate_id], references: [tax_rate_id], onDelete: SetNull)
+  transaction   Transaction   @relation(fields: [transaction_id], references: [transaction_id], onDelete: Cascade)
+  department    Department?   @relation(fields: [department_id], references: [department_id], onDelete: SetNull)
+  tax_rate      TaxRate?      @relation(fields: [tax_rate_id], references: [tax_rate_id], onDelete: SetNull)
+  fuel_grade    FuelGrade?    @relation(fields: [fuel_grade_id], references: [fuel_grade_id], onDelete: SetNull)
+  fuel_position FuelPosition? @relation(fields: [fuel_position_id], references: [fuel_position_id], onDelete: SetNull)
 
   @@index([transaction_id])
   @@index([product_id])
@@ -1435,6 +1519,10 @@ model TransactionLineItem {
   @@index([department_code])
   @@index([tax_rate_id])
   @@index([tax_rate_code])
+  @@index([item_type])
+  @@index([fuel_grade_id])
+  @@index([fuel_position_id])
+  @@index([line_status])
   @@map("transaction_line_items")
 }
 
@@ -1512,11 +1600,11 @@ model CashierSession {
   is_active          Boolean   @default(true)
 
   // Relations
-  cashier       Cashier     @relation(fields: [cashier_id], references: [cashier_id], onDelete: Cascade)
-  terminal      POSTerminal @relation(fields: [terminal_id], references: [pos_terminal_id], onDelete: Cascade)
-  store         Store       @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  authenticated User        @relation("CashierSessionAuthenticator", fields: [authenticated_by], references: [user_id])
-  shift         Shift?      @relation(fields: [shift_id], references: [shift_id])
+  cashier           Cashier           @relation(fields: [cashier_id], references: [cashier_id], onDelete: Cascade)
+  terminal          POSTerminal       @relation(fields: [terminal_id], references: [pos_terminal_id], onDelete: Cascade)
+  store             Store             @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  authenticated     User              @relation("CashierSessionAuthenticator", fields: [authenticated_by], references: [user_id])
+  shift             Shift?            @relation(fields: [shift_id], references: [shift_id])
   // Scanned Documents (OCR Feature)
   scanned_documents ScannedDocument[]
 
@@ -1588,7 +1676,6 @@ model LotteryGame {
   @@unique([game_code, state_id], name: "lottery_games_game_code_state_unique")
   // Game code must be unique within a store (for store-scoped games)
   @@unique([game_code, store_id], name: "lottery_games_game_code_store_unique")
-
   // === INDEXES ===
   @@index([name])
   @@index([game_code])
@@ -1649,19 +1736,19 @@ model LotteryPack {
   activated_shift_id String? @db.Uuid
 
   // Pack depletion context (Story 10.2)
-  depleted_by        String?                      @db.Uuid
-  depleted_shift_id  String?                      @db.Uuid
-  depletion_reason   LotteryPackDepletionReason?
+  depleted_by       String?                     @db.Uuid
+  depleted_shift_id String?                     @db.Uuid
+  depletion_reason  LotteryPackDepletionReason?
 
   // Pack return context (tracks when pack is returned to supplier mid-pack)
-  returned_by            String?                    @db.Uuid
-  returned_shift_id      String?                    @db.Uuid
-  returned_day_id        String?                    @db.Uuid
+  returned_by            String?                  @db.Uuid
+  returned_shift_id      String?                  @db.Uuid
+  returned_day_id        String?                  @db.Uuid
   return_reason          LotteryPackReturnReason?
-  return_notes           String?                    @db.VarChar(500)
-  last_sold_serial       String?                    @db.VarChar(100)
+  return_notes           String?                  @db.VarChar(500)
+  last_sold_serial       String?                  @db.VarChar(100)
   tickets_sold_on_return Int?
-  return_sales_amount    Decimal?                   @db.Decimal(10, 2)
+  return_sales_amount    Decimal?                 @db.Decimal(10, 2)
 
   // Serial override approval (dual-auth when cashier needs manager to approve serial change)
   serial_override_approved_by String?   @db.Uuid
@@ -1673,24 +1760,24 @@ model LotteryPack {
   mark_sold_approved_at DateTime? @db.Timestamptz(6)
   mark_sold_reason      String?   @db.VarChar(500)
 
-  game            LotteryGame             @relation(fields: [game_id], references: [game_id], onDelete: Cascade)
-  store           Store                   @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  bin             LotteryBin?             @relation(fields: [current_bin_id], references: [bin_id], onDelete: SetNull)
-  shift_openings  LotteryShiftOpening[]
-  shift_closings  LotteryShiftClosing[]
-  variances       LotteryVariance[]
-  ticket_serials  LotteryTicketSerial[]
-  bin_history     LotteryPackBinHistory[]
-  day_packs       LotteryDayPack[]
-  activatedByUser              User?  @relation("PackActivatedBy", fields: [activated_by], references: [user_id])
-  activatedShift               Shift? @relation("PackActivatedInShift", fields: [activated_shift_id], references: [shift_id])
-  depletedByUser               User?  @relation("PackDepletedBy", fields: [depleted_by], references: [user_id])
-  depletedShift                Shift? @relation("PackDepletedInShift", fields: [depleted_shift_id], references: [shift_id])
-  serialOverrideApprovedByUser User?  @relation("PackSerialOverrideApprovedBy", fields: [serial_override_approved_by], references: [user_id])
-  markSoldApprovedByUser       User?  @relation("PackMarkSoldApprovedBy", fields: [mark_sold_approved_by], references: [user_id])
-  returnedByUser               User?              @relation("PackReturnedBy", fields: [returned_by], references: [user_id])
-  returnedShift                Shift?             @relation("PackReturnedInShift", fields: [returned_shift_id], references: [shift_id])
-  returnedDay                  LotteryBusinessDay? @relation("PackReturnedOnDay", fields: [returned_day_id], references: [day_id])
+  game                         LotteryGame             @relation(fields: [game_id], references: [game_id], onDelete: Cascade)
+  store                        Store                   @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  bin                          LotteryBin?             @relation(fields: [current_bin_id], references: [bin_id], onDelete: SetNull)
+  shift_openings               LotteryShiftOpening[]
+  shift_closings               LotteryShiftClosing[]
+  variances                    LotteryVariance[]
+  ticket_serials               LotteryTicketSerial[]
+  bin_history                  LotteryPackBinHistory[]
+  day_packs                    LotteryDayPack[]
+  activatedByUser              User?                   @relation("PackActivatedBy", fields: [activated_by], references: [user_id])
+  activatedShift               Shift?                  @relation("PackActivatedInShift", fields: [activated_shift_id], references: [shift_id])
+  depletedByUser               User?                   @relation("PackDepletedBy", fields: [depleted_by], references: [user_id])
+  depletedShift                Shift?                  @relation("PackDepletedInShift", fields: [depleted_shift_id], references: [shift_id])
+  serialOverrideApprovedByUser User?                   @relation("PackSerialOverrideApprovedBy", fields: [serial_override_approved_by], references: [user_id])
+  markSoldApprovedByUser       User?                   @relation("PackMarkSoldApprovedBy", fields: [mark_sold_approved_by], references: [user_id])
+  returnedByUser               User?                   @relation("PackReturnedBy", fields: [returned_by], references: [user_id])
+  returnedShift                Shift?                  @relation("PackReturnedInShift", fields: [returned_shift_id], references: [shift_id])
+  returnedDay                  LotteryBusinessDay?     @relation("PackReturnedOnDay", fields: [returned_day_id], references: [day_id])
 
   @@unique([store_id, pack_number])
   @@index([game_id])
@@ -1921,17 +2008,17 @@ model LotteryBusinessDay {
   /// Nullable to support backfill of existing records and orphan recovery scenarios
   day_summary_id String? @db.Uuid
 
-  created_at    DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  store              Store            @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  store              Store             @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
   /// Relation to day_summary for coordinated day close operations
-  day_summary        DaySummary?      @relation(fields: [day_summary_id], references: [day_summary_id], onDelete: SetNull)
-  openedByUser       User?            @relation("LotteryDayOpenedBy", fields: [opened_by], references: [user_id], onDelete: SetNull)
-  closedByUser       User?            @relation("LotteryDayClosedBy", fields: [closed_by], references: [user_id], onDelete: SetNull)
-  pendingCloseByUser User?            @relation("LotteryDayPendingCloseBy", fields: [pending_close_by], references: [user_id], onDelete: SetNull)
+  day_summary        DaySummary?       @relation(fields: [day_summary_id], references: [day_summary_id], onDelete: SetNull)
+  openedByUser       User?             @relation("LotteryDayOpenedBy", fields: [opened_by], references: [user_id], onDelete: SetNull)
+  closedByUser       User?             @relation("LotteryDayClosedBy", fields: [closed_by], references: [user_id], onDelete: SetNull)
+  pendingCloseByUser User?             @relation("LotteryDayPendingCloseBy", fields: [pending_close_by], references: [user_id], onDelete: SetNull)
   day_packs          LotteryDayPack[]
-  packs_returned     LotteryPack[]    @relation("PackReturnedOnDay")
+  packs_returned     LotteryPack[]     @relation("PackReturnedOnDay")
   // Scanned Documents (OCR Feature)
   scanned_documents  ScannedDocument[]
 
@@ -2024,7 +2111,7 @@ model POSIntegration {
 
   // === SYNC CONFIGURATION ===
   sync_enabled       Boolean        @default(true) // Enable/disable auto-sync
-  sync_interval_mins Int            @default(60) // How often to sync (default: 1 hour)
+  sync_interval_mins Int            @default(1) // How often to sync (default: 1 minute for real-time)
   last_sync_at       DateTime?      @db.Timestamptz(6) // When last synced
   last_sync_status   POSSyncStatus? // Status of last sync
   last_sync_error    String?        @db.Text // Error message from last sync
@@ -2044,25 +2131,24 @@ model POSIntegration {
   created_by String?  @db.Uuid // User who created this integration
 
   // === NAXML-SPECIFIC FIELDS (Phase 1) ===
-  naxml_version             String?  @db.VarChar(10) @default("3.4")
-  xml_gateway_path          String?  @db.VarChar(500)
-  generate_acknowledgments  Boolean  @default(true)
-  connection_mode           String   @default("API") @db.VarChar(20) // 'API', 'FILE_EXCHANGE', 'HYBRID'
+  naxml_version            String? @default("3.4") @db.VarChar(10)
+  xml_gateway_path         String? @db.VarChar(500)
+  generate_acknowledgments Boolean @default(true)
+  connection_mode          String  @default("API") @db.VarChar(20) // 'API', 'FILE_EXCHANGE', 'HYBRID'
 
   // === RELATIONS ===
-  store           Store        @relation("StorePOSIntegration", fields: [store_id], references: [store_id], onDelete: Cascade)
-  created_by_user User?        @relation("POSIntegrationCreatedBy", fields: [created_by], references: [user_id], onDelete: SetNull)
-  sync_logs       POSSyncLog[]
+  store                Store                  @relation("StorePOSIntegration", fields: [store_id], references: [store_id], onDelete: Cascade)
+  created_by_user      User?                  @relation("POSIntegrationCreatedBy", fields: [created_by], references: [user_id], onDelete: SetNull)
+  sync_logs            POSSyncLog[]
   // POS Audit relations (Phase 0)
-  audit_records   POSDataExchangeAudit[]
+  audit_records        POSDataExchangeAudit[]
   // NAXML Infrastructure relations (Phase 1)
-  naxml_file_logs       NAXMLFileLog[]
-  file_watcher_configs  POSFileWatcherConfig[]
+  naxml_file_logs      NAXMLFileLog[]
   // NAXML Scheduled Export relations (Phase 2)
-  scheduled_exports     NAXMLScheduledExport[]
+  scheduled_exports    NAXMLScheduledExport[]
   // Fuel Models (Phase 5: XML Parsing)
-  fuel_grades           FuelGrade[]            @relation("FuelGradePOSIntegration")
-  fuel_positions        FuelPosition[]         @relation("FuelPositionPOSIntegration")
+  fuel_grades          FuelGrade[]            @relation("FuelGradePOSIntegration")
+  fuel_positions       FuelPosition[]         @relation("FuelPositionPOSIntegration")
 
   // === INDEXES ===
   @@index([store_id])
@@ -2168,9 +2254,9 @@ model POSDataExchangeAudit {
   jurisdiction         String?            @default("US") @db.VarChar(50) // Regulatory jurisdiction
 
   // === CONSENT AND ACCESS TRACKING ===
-  data_subject_consent  Boolean? // For PII: was consent obtained?
-  accessed_by_user_id   String?  @db.Uuid // Who initiated this exchange
-  access_reason         String?  @db.VarChar(255) // Why was this data accessed/exchanged
+  data_subject_consent Boolean? // For PII: was consent obtained?
+  accessed_by_user_id  String?  @db.Uuid // Who initiated this exchange
+  access_reason        String?  @db.VarChar(255) // Why was this data accessed/exchanged
 
   // === TIMESTAMPS ===
   initiated_at DateTime  @default(now()) @db.Timestamptz(6)
@@ -2243,15 +2329,15 @@ model NAXMLFileLog {
   pos_integration_id String @db.Uuid
 
   // === FILE INFORMATION ===
-  file_name   String             @db.VarChar(255)
-  file_type   NAXMLDocumentType
-  direction   NAXMLFileDirection
-  status      NAXMLFileStatus    @default(PENDING)
+  file_name String             @db.VarChar(255)
+  file_type NAXMLDocumentType
+  direction NAXMLFileDirection
+  status    NAXMLFileStatus    @default(PENDING)
 
   // === PROCESSING METRICS ===
-  record_count        Int?
-  file_size_bytes     BigInt
-  processing_time_ms  Int?
+  record_count       Int?
+  file_size_bytes    BigInt
+  processing_time_ms Int?
 
   // === ERROR TRACKING ===
   error_code    String? @db.VarChar(50)
@@ -2283,51 +2369,6 @@ model NAXMLFileLog {
   @@index([file_hash])
   @@index([file_type, created_at])
   @@map("naxml_file_log")
-}
-
-/// POS File Watcher Config - Configuration for file watchers
-/// Each store can have one active file watcher configuration.
-model POSFileWatcherConfig {
-  config_id String @id @default(uuid()) @db.Uuid
-
-  // === FOREIGN KEYS ===
-  store_id           String @unique @db.Uuid // One watcher per store
-  pos_integration_id String @db.Uuid
-
-  // === PATH CONFIGURATION ===
-  watch_path     String  @db.VarChar(500)
-  processed_path String? @db.VarChar(500)
-  error_path     String? @db.VarChar(500)
-
-  // === FILE PATTERNS ===
-  file_patterns Json @default("[\"*.xml\", \"TLog*.xml\", \"Dept*.xml\"]") @db.JsonB
-
-  // === POLLING CONFIGURATION ===
-  poll_interval_seconds Int @default(60)
-
-  // === STATUS ===
-  is_active     Boolean   @default(true)
-  last_poll_at  DateTime? @db.Timestamptz(6)
-  last_error    String?   @db.Text
-  last_error_at DateTime? @db.Timestamptz(6)
-
-  // === STATISTICS ===
-  files_processed          Int       @default(0)
-  files_errored            Int       @default(0)
-  last_file_processed_at   DateTime? @db.Timestamptz(6)
-
-  // === TIMESTAMPS ===
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  // === RELATIONS ===
-  store           Store          @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  pos_integration POSIntegration @relation(fields: [pos_integration_id], references: [pos_integration_id], onDelete: Cascade)
-
-  // === INDEXES ===
-  @@index([is_active])
-  @@index([pos_integration_id])
-  @@map("pos_file_watcher_config")
 }
 
 // ============================================================================
@@ -2374,22 +2415,22 @@ model NAXMLScheduledExport {
   timezone        String @default("America/New_York") @db.VarChar(50)
 
   // === OUTPUT CONFIGURATION ===
-  output_path     String? @db.VarChar(500) // Path to write file (if null, uses POS integration default)
-  file_name_pattern String @default("{type}_{date}_{time}.xml") @db.VarChar(255) // Supports: {type}, {date}, {time}, {store_id}
+  output_path       String? @db.VarChar(500) // Path to write file (if null, uses POS integration default)
+  file_name_pattern String  @default("{type}_{date}_{time}.xml") @db.VarChar(255) // Supports: {type}, {date}, {time}, {store_id}
 
   // === STATUS ===
-  status            ScheduledExportStatus @default(ACTIVE)
-  last_run_at       DateTime?             @db.Timestamptz(6)
-  last_run_status   NAXMLFileStatus?
-  last_run_error    String?               @db.Text
-  next_run_at       DateTime?             @db.Timestamptz(6)
+  status          ScheduledExportStatus @default(ACTIVE)
+  last_run_at     DateTime?             @db.Timestamptz(6)
+  last_run_status NAXMLFileStatus?
+  last_run_error  String?               @db.Text
+  next_run_at     DateTime?             @db.Timestamptz(6)
 
   // === STATISTICS ===
-  total_runs          Int @default(0)
-  successful_runs     Int @default(0)
-  failed_runs         Int @default(0)
-  last_record_count   Int?
-  last_file_size      BigInt?
+  total_runs        Int     @default(0)
+  successful_runs   Int     @default(0)
+  failed_runs       Int     @default(0)
+  last_record_count Int?
+  last_file_size    BigInt?
 
   // === NOTIFICATIONS ===
   notify_on_failure Boolean @default(true)
@@ -2397,18 +2438,18 @@ model NAXMLScheduledExport {
   notify_emails     Json?   @default("[]") @db.JsonB // Array of email addresses
 
   // === METADATA ===
-  created_by String?  @db.Uuid
-  metadata   Json?    @default("{}") @db.JsonB
+  created_by String? @db.Uuid
+  metadata   Json?   @default("{}") @db.JsonB
 
   // === TIMESTAMPS ===
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   // === RELATIONS ===
-  store             Store          @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  pos_integration   POSIntegration @relation(fields: [pos_integration_id], references: [pos_integration_id], onDelete: Cascade)
-  created_by_user   User?          @relation("ScheduledExportCreatedBy", fields: [created_by], references: [user_id], onDelete: SetNull)
-  export_logs       NAXMLScheduledExportLog[]
+  store           Store                     @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  pos_integration POSIntegration            @relation(fields: [pos_integration_id], references: [pos_integration_id], onDelete: Cascade)
+  created_by_user User?                     @relation("ScheduledExportCreatedBy", fields: [created_by], references: [user_id], onDelete: SetNull)
+  export_logs     NAXMLScheduledExportLog[]
 
   // === INDEXES ===
   @@index([store_id])
@@ -2825,15 +2866,15 @@ model DaySummary {
   closed_by_user User? @relation("DaySummaryClosedBy", fields: [closed_by], references: [user_id])
 
   // Child summary tables
-  tender_summaries     DayTenderSummary[]
-  department_summaries DayDepartmentSummary[]
-  tax_summaries        DayTaxSummary[]
-  hourly_summaries     DayHourlySummary[]
+  tender_summaries      DayTenderSummary[]
+  department_summaries  DayDepartmentSummary[]
+  tax_summaries         DayTaxSummary[]
+  hourly_summaries      DayHourlySummary[]
   // Scanned Documents (OCR Feature)
-  scanned_documents    ScannedDocument[]
+  scanned_documents     ScannedDocument[]
   // Shifts that belong to this business day
   // These are shifts opened while this day was active (OPEN status)
-  shifts               Shift[]
+  shifts                Shift[]
   // Lottery business days linked to this day summary
   // Typically one-to-one, but supports multiple during day transitions
   lottery_business_days LotteryBusinessDay[]
@@ -3042,6 +3083,18 @@ enum FuelTenderType {
   OTHER // Other payment methods
 }
 
+/// TransactionItemType - Classification of transaction line items
+/// Used for filtering, reporting, and aggregation
+enum TransactionItemType {
+  FUEL // Fuel sale (gas, diesel, etc.)
+  MERCHANDISE // General merchandise
+  LOTTERY // Lottery tickets
+  TOBACCO // Tobacco products
+  ALCOHOL // Alcoholic beverages
+  PREPAY // Fuel prepay (before pump)
+  OTHER // Other item types
+}
+
 /// MeterReadingType - Type of pump meter reading
 enum MeterReadingType {
   OPEN // Reading at shift/day open
@@ -3085,21 +3138,21 @@ model FuelGrade {
   is_active     Boolean @default(true) // Soft delete flag
 
   // === AUDIT FIELDS ===
-  created_at DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
-  created_by String?   @db.Uuid
-  updated_by String?   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  created_by String?  @db.Uuid
+  updated_by String?  @db.Uuid
 
   // === RELATIONS ===
-  company            Company            @relation("FuelGradeCompany", fields: [company_id], references: [company_id], onDelete: Cascade)
-  pos_integration    POSIntegration?    @relation("FuelGradePOSIntegration", fields: [pos_integration_id], references: [pos_integration_id], onDelete: SetNull)
-  shift_fuel_summaries ShiftFuelSummary[]
-  day_fuel_summaries   DayFuelSummary[]
+  company                Company               @relation("FuelGradeCompany", fields: [company_id], references: [company_id], onDelete: Cascade)
+  pos_integration        POSIntegration?       @relation("FuelGradePOSIntegration", fields: [pos_integration_id], references: [pos_integration_id], onDelete: SetNull)
+  shift_fuel_summaries   ShiftFuelSummary[]
+  day_fuel_summaries     DayFuelSummary[]
+  transaction_line_items TransactionLineItem[]
 
   // === CONSTRAINTS ===
   // Grade ID must be unique within a company
   @@unique([company_id, grade_id])
-
   // === INDEXES ===
   @@index([company_id])
   @@index([pos_integration_id])
@@ -3146,15 +3199,15 @@ model FuelPosition {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   // === RELATIONS ===
-  company         Company         @relation("FuelPositionCompany", fields: [company_id], references: [company_id], onDelete: Cascade)
-  store           Store           @relation("FuelPositionStore", fields: [store_id], references: [store_id], onDelete: Cascade)
-  pos_integration POSIntegration? @relation("FuelPositionPOSIntegration", fields: [pos_integration_id], references: [pos_integration_id], onDelete: SetNull)
-  meter_readings  MeterReading[]
+  company                Company               @relation("FuelPositionCompany", fields: [company_id], references: [company_id], onDelete: Cascade)
+  store                  Store                 @relation("FuelPositionStore", fields: [store_id], references: [store_id], onDelete: Cascade)
+  pos_integration        POSIntegration?       @relation("FuelPositionPOSIntegration", fields: [pos_integration_id], references: [pos_integration_id], onDelete: SetNull)
+  meter_readings         MeterReading[]
+  transaction_line_items TransactionLineItem[]
 
   // === CONSTRAINTS ===
   // Position ID must be unique within a store
   @@unique([store_id, position_id])
-
   // === INDEXES ===
   @@index([store_id])
   @@index([company_id])
@@ -3212,7 +3265,6 @@ model ShiftFuelSummary {
   // === CONSTRAINTS ===
   // Only one row per (shift, grade, tender) combination
   @@unique([shift_summary_id, fuel_grade_id, tender_type])
-
   // === INDEXES ===
   @@index([shift_summary_id])
   @@index([fuel_grade_id])
@@ -3309,20 +3361,20 @@ model DayFuelSummary {
 
   // === TENDER BREAKDOWN ===
   // Cash sales volume and amount
-  cash_volume Decimal @default(0) @db.Decimal(12, 3)
-  cash_sales  Decimal @default(0) @db.Decimal(12, 2)
+  cash_volume   Decimal @default(0) @db.Decimal(12, 3)
+  cash_sales    Decimal @default(0) @db.Decimal(12, 2)
   // Credit sales (outside + inside)
   credit_volume Decimal @default(0) @db.Decimal(12, 3)
   credit_sales  Decimal @default(0) @db.Decimal(12, 2)
   // Debit sales (outside + inside)
-  debit_volume Decimal @default(0) @db.Decimal(12, 3)
-  debit_sales  Decimal @default(0) @db.Decimal(12, 2)
+  debit_volume  Decimal @default(0) @db.Decimal(12, 3)
+  debit_sales   Decimal @default(0) @db.Decimal(12, 2)
 
   // === RECONCILIATION ===
   // Volume from FPM meter readings (physical)
-  meter_volume Decimal? @db.Decimal(12, 3)
+  meter_volume    Decimal? @db.Decimal(12, 3)
   // Volume from FGM sales data (book)
-  book_volume  Decimal? @db.Decimal(12, 3)
+  book_volume     Decimal? @db.Decimal(12, 3)
   // Variance: meter - book (negative = over-dispense/shortage)
   variance_volume Decimal? @db.Decimal(12, 3)
   // Variance in currency
@@ -3339,7 +3391,6 @@ model DayFuelSummary {
   // === CONSTRAINTS ===
   // Only one row per (day, grade) combination
   @@unique([day_summary_id, fuel_grade_id])
-
   // === INDEXES ===
   @@index([day_summary_id])
   @@index([fuel_grade_id])
@@ -3540,21 +3591,21 @@ model ScannedDocument {
   cashier_id         String? @db.Uuid
 
   // === PROCESSING STATUS ===
-  status                      OCRStatus       @default(PENDING)
-  entry_method                ScanEntryMethod @default(SCAN)
-  preprocessing_started_at    DateTime?       @db.Timestamptz(6)
-  preprocessing_completed_at  DateTime?       @db.Timestamptz(6)
-  extraction_started_at       DateTime?       @db.Timestamptz(6)
-  extraction_completed_at     DateTime?       @db.Timestamptz(6)
-  total_processing_time_ms    Int?
+  status                     OCRStatus       @default(PENDING)
+  entry_method               ScanEntryMethod @default(SCAN)
+  preprocessing_started_at   DateTime?       @db.Timestamptz(6)
+  preprocessing_completed_at DateTime?       @db.Timestamptz(6)
+  extraction_started_at      DateTime?       @db.Timestamptz(6)
+  extraction_completed_at    DateTime?       @db.Timestamptz(6)
+  total_processing_time_ms   Int?
 
   // === STORAGE INFORMATION ===
-  storage_provider                 StorageProviderType
-  storage_bucket                   String              @db.VarChar(255)
-  storage_path                     String              @db.VarChar(1000)
-  storage_region                   String?             @db.VarChar(50)
-  cached_presigned_url             String?             @db.Text
-  cached_presigned_url_expires_at  DateTime?           @db.Timestamptz(6)
+  storage_provider                StorageProviderType
+  storage_bucket                  String              @db.VarChar(255)
+  storage_path                    String              @db.VarChar(1000)
+  storage_region                  String?             @db.VarChar(50)
+  cached_presigned_url            String?             @db.Text
+  cached_presigned_url_expires_at DateTime?           @db.Timestamptz(6)
 
   // === FILE METADATA ===
   original_filename        String  @db.VarChar(255)
@@ -3611,19 +3662,19 @@ model ScannedDocument {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   // === RELATIONS ===
-  store                 Store            @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  company               Company          @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
-  day_summary           DaySummary?      @relation(fields: [day_summary_id], references: [day_summary_id], onDelete: SetNull)
+  store                 Store               @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  company               Company             @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  day_summary           DaySummary?         @relation(fields: [day_summary_id], references: [day_summary_id], onDelete: SetNull)
   lottery_day           LotteryBusinessDay? @relation(fields: [lottery_day_id], references: [day_id], onDelete: SetNull)
-  shift                 Shift?           @relation(fields: [shift_id], references: [shift_id], onDelete: SetNull)
-  cashier_session       CashierSession?  @relation(fields: [cashier_session_id], references: [session_id], onDelete: SetNull)
-  terminal              POSTerminal?     @relation(fields: [terminal_id], references: [pos_terminal_id], onDelete: SetNull)
-  cashier               Cashier?         @relation(fields: [cashier_id], references: [cashier_id], onDelete: SetNull)
-  scanned_by_user       User             @relation("ScannedDocumentScannedBy", fields: [scanned_by_user_id], references: [user_id], onDelete: Restrict)
-  verified_by_user      User?            @relation("ScannedDocumentVerifiedBy", fields: [verified_by_user_id], references: [user_id], onDelete: SetNull)
-  rejected_by_user      User?            @relation("ScannedDocumentRejectedBy", fields: [rejected_by_user_id], references: [user_id], onDelete: SetNull)
-  reprocessed_from      ScannedDocument? @relation("ReprocessedDocuments", fields: [reprocessed_from_document_id], references: [document_id], onDelete: SetNull)
-  reprocessed_documents ScannedDocument[] @relation("ReprocessedDocuments")
+  shift                 Shift?              @relation(fields: [shift_id], references: [shift_id], onDelete: SetNull)
+  cashier_session       CashierSession?     @relation(fields: [cashier_session_id], references: [session_id], onDelete: SetNull)
+  terminal              POSTerminal?        @relation(fields: [terminal_id], references: [pos_terminal_id], onDelete: SetNull)
+  cashier               Cashier?            @relation(fields: [cashier_id], references: [cashier_id], onDelete: SetNull)
+  scanned_by_user       User                @relation("ScannedDocumentScannedBy", fields: [scanned_by_user_id], references: [user_id], onDelete: Restrict)
+  verified_by_user      User?               @relation("ScannedDocumentVerifiedBy", fields: [verified_by_user_id], references: [user_id], onDelete: SetNull)
+  rejected_by_user      User?               @relation("ScannedDocumentRejectedBy", fields: [rejected_by_user_id], references: [user_id], onDelete: SetNull)
+  reprocessed_from      ScannedDocument?    @relation("ReprocessedDocuments", fields: [reprocessed_from_document_id], references: [document_id], onDelete: SetNull)
+  reprocessed_documents ScannedDocument[]   @relation("ReprocessedDocuments")
 
   // === INDEXES ===
   @@index([store_id])
@@ -3655,8 +3706,8 @@ model ScannedDocument {
 /// Two-phase commit pattern enables preview/review before committing changes
 /// Tokens expire after 15 minutes to prevent stale imports
 model LotteryGameImport {
-  import_id        String   @id @default(uuid()) @db.Uuid
-  validation_token String   @unique @db.Uuid @default(uuid())
+  import_id        String @id @default(uuid()) @db.Uuid
+  validation_token String @unique @default(uuid()) @db.Uuid
 
   // === SCOPING ===
   state_id String @db.Uuid // Target state for imported games
@@ -3699,4 +3750,305 @@ model LotteryGameImport {
   @@index([expires_at])
   @@index([committed_at])
   @@map("lottery_game_imports")
+}
+
+// ============================================================================
+// API KEYS - Enterprise Desktop POS Authentication System
+// ============================================================================
+// Store-bound API keys for Electron desktop POS applications
+// Supports offline authentication, key rotation, IP allowlisting, and quotas
+// Keys are managed exclusively by SUPERADMIN users
+// ============================================================================
+
+/// API Key Status - Lifecycle states for API keys
+enum ApiKeyStatus {
+  PENDING // Key created but not yet activated on device
+  ACTIVE // Key is active and can be used
+  SUSPENDED // Temporarily suspended (quota exceeded, admin action)
+  REVOKED // Key was revoked (compromised or replaced)
+  EXPIRED // Key reached expiration date
+}
+
+/// API Key Revocation Reason - Categorization for audit purposes
+enum ApiKeyRevocationReason {
+  ROTATION // Replaced by new key during rotation
+  COMPROMISED // Key was potentially compromised
+  STORE_CLOSED // Store is no longer active
+  ADMIN_ACTION // Manually revoked by admin
+  QUOTA_ABUSE // Excessive usage beyond quotas
+}
+
+/// API Key Audit Event Type - All lifecycle and usage events
+enum ApiKeyAuditEventType {
+  CREATED // Key was created
+  ACTIVATED // Key was first used/activated on device
+  ROTATED // Key was rotated (new key created)
+  REVOKED // Key was revoked
+  SUSPENDED // Key was suspended
+  REACTIVATED // Suspended key was reactivated
+  EXPIRED // Key expired
+  IP_BLOCKED // Request blocked due to IP allowlist
+  RATE_LIMITED // Request blocked due to rate limit
+  QUOTA_EXCEEDED // Daily/monthly quota exceeded
+  HEARTBEAT // Periodic heartbeat check
+  SYNC_STARTED // Sync session started
+  SYNC_COMPLETED // Sync session completed
+  METADATA_UPDATED // Key metadata was updated
+  SETTINGS_UPDATED // Key settings (quotas, IP) were updated
+}
+
+/// API Key - Store-bound authentication for desktop POS applications
+///
+/// DESIGN PRINCIPLES:
+/// - One active key per store (multiple keys allowed, but only one ACTIVE)
+/// - Self-contained identity payload for offline validation
+/// - Key rotation support with configurable grace period
+/// - Real-time revocation via Redis + sync protocol
+///
+/// SECURITY:
+/// - Raw key NEVER stored - only SHA-256 hash after creation
+/// - IP allowlisting for additional security layer
+/// - Per-key rate limiting and usage quotas
+/// - Comprehensive audit trail for all operations
+model ApiKey {
+  api_key_id String @id @default(uuid()) @db.Uuid
+
+  // === STORE BINDING (Required) ===
+  // Each API key is bound to exactly one store
+  store_id   String @db.Uuid
+  company_id String @db.Uuid
+
+  // === KEY IDENTIFICATION ===
+  // Format: nuvpos_sk_{store_public_id}_{random_32_chars}
+  // Example: nuvpos_sk_ST1A2B3C_xK9mN2pQ4rS5tU6vW7xY8zA1bC2dE3fG
+
+  // Key prefix for identification (e.g., "nuvpos_sk_ST1A2B3C")
+  key_prefix String @db.VarChar(50)
+
+  // SHA-256 hash of the full key (for server-side validation)
+  // CRITICAL: Raw key is NEVER stored, only returned once at creation
+  key_hash String @unique @db.VarChar(64)
+
+  // Last 4 characters for display/identification in UI
+  key_suffix String @db.VarChar(4)
+
+  // Human-readable label (e.g., "Main Terminal", "Backup Key")
+  label String? @db.VarChar(100)
+
+  // === OFFLINE IDENTITY PAYLOAD ===
+  // Signed JWT containing store identity for offline validation
+  // Contains: store_id, store_name, company_id, company_name, timezone,
+  //           offline_permissions[], metadata, signature fields
+  // Encrypted with server secret, validated by desktop app
+  identity_payload String @db.Text
+
+  // Version of identity payload format (for future migrations)
+  payload_version Int @default(1)
+
+  // === EXTENSIBLE METADATA ===
+  // JSON object for additional store-specific configuration
+  // Examples: { "terminal_id": "T001", "pos_vendor": "GILBARCO", "features": [...] }
+  // This can be updated without rotating the key
+  metadata Json? @db.JsonB
+
+  // === SECURITY SETTINGS ===
+
+  // IP allowlist (CIDR notation supported)
+  // Examples: ["192.168.1.0/24", "10.0.0.5"]
+  // Empty array = no IP restriction (not recommended for production)
+  ip_allowlist String[] @default([])
+
+  // Whether to enforce IP allowlist (false = log-only mode for migration)
+  ip_enforcement_enabled Boolean @default(false)
+
+  // === USAGE QUOTAS ===
+
+  // Requests per minute limit (0 = unlimited)
+  rate_limit_rpm Int @default(100)
+
+  // Daily sync operations limit (0 = unlimited)
+  daily_sync_quota Int @default(1000)
+
+  // Monthly data transfer limit in MB (0 = unlimited)
+  monthly_data_quota_mb Int @default(10000)
+
+  // === LIFECYCLE ===
+
+  status ApiKeyStatus @default(PENDING)
+
+  // Timestamp when key was first activated on device
+  activated_at DateTime? @db.Timestamptz(6)
+
+  // Optional expiration date (NULL = no expiration, use rotation instead)
+  expires_at DateTime? @db.Timestamptz(6)
+
+  // Last successful API request using this key
+  last_used_at DateTime? @db.Timestamptz(6)
+
+  // Last successful sync session completion
+  last_sync_at DateTime? @db.Timestamptz(6)
+
+  // Device fingerprint hash (optional binding to specific device)
+  // SHA-256 of device identifiers for device locking
+  device_fingerprint String? @db.VarChar(64)
+
+  // === REVOCATION ===
+
+  revoked_at        DateTime?              @db.Timestamptz(6)
+  revoked_by        String?                @db.Uuid
+  revocation_reason ApiKeyRevocationReason?
+  revocation_notes  String?                @db.VarChar(500)
+
+  // === ROTATION TRACKING ===
+
+  // Reference to the previous key that was rotated to create this one
+  rotated_from_key_id String? @db.Uuid
+
+  // End of rotation grace period (old key remains valid until this time)
+  // Allows seamless transition without requiring immediate device update
+  rotation_grace_ends_at DateTime? @db.Timestamptz(6)
+
+  // === AUDIT ===
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // User who created this key (must be SUPERADMIN)
+  created_by String @db.Uuid
+
+  // === RELATIONS ===
+  store        Store               @relation("StoreApiKeys", fields: [store_id], references: [store_id], onDelete: Cascade)
+  company      Company             @relation("CompanyApiKeys", fields: [company_id], references: [company_id], onDelete: Cascade)
+  creator      User                @relation("ApiKeyCreator", fields: [created_by], references: [user_id], onDelete: Restrict)
+  revoker      User?               @relation("ApiKeyRevoker", fields: [revoked_by], references: [user_id], onDelete: SetNull)
+  rotated_from ApiKey?             @relation("ApiKeyRotation", fields: [rotated_from_key_id], references: [api_key_id], onDelete: SetNull)
+  rotated_to   ApiKey[]            @relation("ApiKeyRotation")
+  audit_events ApiKeyAuditEvent[]
+  sync_sessions ApiKeySyncSession[]
+
+  // === INDEXES ===
+  @@index([store_id])
+  @@index([company_id])
+  @@index([status])
+  @@index([key_hash])
+  @@index([store_id, status])
+  @@index([expires_at])
+  @@index([last_used_at])
+  @@index([created_by])
+  @@index([created_at])
+  @@map("api_keys")
+}
+
+/// API Key Audit Event - Comprehensive lifecycle and usage event logging
+///
+/// Records all significant events for security auditing:
+/// - Lifecycle: creation, activation, rotation, revocation, expiration
+/// - Security: IP blocks, rate limits, quota exceeded
+/// - Operations: sync sessions, heartbeats
+model ApiKeyAuditEvent {
+  audit_event_id String @id @default(uuid()) @db.Uuid
+  api_key_id     String @db.Uuid
+
+  // === EVENT ===
+  event_type ApiKeyAuditEventType
+
+  // === ACTOR ===
+  // Who performed this action
+  actor_user_id String? @db.Uuid       // NULL for SYSTEM/DEVICE actions
+  actor_type    String  @db.VarChar(20) // ADMIN, SYSTEM, DEVICE
+
+  // === CONTEXT ===
+  ip_address String? @db.VarChar(45) // IPv4 or IPv6
+  user_agent String? @db.VarChar(500)
+
+  // === EVENT DETAILS ===
+  // Additional context specific to event type (JSON)
+  // Examples:
+  // - IP_BLOCKED: { "blocked_ip": "1.2.3.4", "allowlist": [...] }
+  // - ROTATED: { "old_key_suffix": "xY8z", "grace_period_days": 7 }
+  // - RATE_LIMITED: { "current_count": 150, "limit": 100 }
+  event_details Json? @db.JsonB
+
+  // === TIMESTAMP ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  api_key    ApiKey @relation(fields: [api_key_id], references: [api_key_id], onDelete: Cascade)
+  actor_user User?  @relation("ApiKeyAuditEventActor", fields: [actor_user_id], references: [user_id], onDelete: SetNull)
+
+  // === INDEXES ===
+  @@index([api_key_id])
+  @@index([event_type])
+  @@index([created_at])
+  @@index([api_key_id, created_at])
+  @@index([actor_user_id])
+  @@index([ip_address])
+  @@map("api_key_audit_events")
+}
+
+/// API Key Sync Session - Tracks online sync sessions for offline-capable devices
+///
+/// Critical for:
+/// - Detecting and handling revoked keys when device comes back online
+/// - Tracking offline duration and data sync statistics
+/// - Conflict resolution during bidirectional sync
+/// - Audit trail of all sync operations
+model ApiKeySyncSession {
+  sync_session_id String @id @default(uuid()) @db.Uuid
+  api_key_id      String @db.Uuid
+
+  // === SESSION TIMING ===
+  session_started_at DateTime  @default(now()) @db.Timestamptz(6)
+  session_ended_at   DateTime? @db.Timestamptz(6)
+
+  // === DEVICE INFO ===
+  // Device fingerprint for session binding
+  device_fingerprint String @db.VarChar(64)
+
+  // Desktop app version (for compatibility tracking)
+  app_version String @db.VarChar(50)
+
+  // Operating system info
+  os_info String? @db.VarChar(100)
+
+  // === SYNC CONTEXT ===
+  // Server timestamp when session started (for conflict detection)
+  server_time_at_start DateTime @db.Timestamptz(6)
+
+  // Sequence number tracking for incremental sync
+  last_sync_sequence BigInt @default(0)
+
+  // === SYNC STATISTICS ===
+  records_pulled       Int @default(0)
+  records_pushed       Int @default(0)
+  conflicts_detected   Int @default(0)
+  conflicts_resolved   Int @default(0)
+
+  // === OFFLINE PERIOD ===
+  // Duration device was offline before this sync (calculated on session end)
+  offline_duration_seconds Int? @db.Integer
+
+  // Number of transactions created offline and synced
+  offline_transactions_synced Int @default(0)
+
+  // === STATUS ===
+  // ACTIVE: Sync in progress
+  // COMPLETED: Sync finished successfully
+  // FAILED: Sync failed (error stored in session_error)
+  // INTERRUPTED: Connection lost during sync
+  sync_status String @default("ACTIVE") @db.VarChar(50)
+
+  // Error message if sync failed
+  session_error String? @db.VarChar(1000)
+
+  // === RELATIONS ===
+  api_key ApiKey @relation(fields: [api_key_id], references: [api_key_id], onDelete: Cascade)
+
+  // === INDEXES ===
+  @@index([api_key_id])
+  @@index([session_started_at])
+  @@index([device_fingerprint])
+  @@index([sync_status])
+  @@index([api_key_id, session_started_at])
+  @@map("api_key_sync_sessions")
 }

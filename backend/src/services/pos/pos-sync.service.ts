@@ -29,7 +29,11 @@ import type {
   UpdatePOSIntegrationInput,
   POSConnectionTestResult,
   POSCredentials,
+  POSFuelSalesSummary,
+  POSPJRTransaction,
+  POSPJRLineItem,
 } from "../../types/pos-integration.types";
+import { Decimal } from "@prisma/client/runtime/library";
 import type {
   POSIntegration,
   POSSystemType,
@@ -38,6 +42,7 @@ import type {
   POSAuthType,
   TenderType,
   Department,
+  TransactionItemType,
 } from "@prisma/client";
 
 /**
@@ -113,7 +118,7 @@ export class POSSyncService {
         auth_type: input.authType,
         auth_credentials: encryptedCredentials as any,
         sync_enabled: input.syncEnabled ?? true,
-        sync_interval_mins: input.syncIntervalMins ?? 60,
+        sync_interval_mins: input.syncIntervalMins ?? 1, // Default: 1 minute for near real-time sync
         sync_departments: input.syncDepartments ?? true,
         sync_tender_types: input.syncTenderTypes ?? true,
         sync_cashiers: input.syncCashiers ?? true,
@@ -255,8 +260,12 @@ export class POSSyncService {
     ];
 
     if (fileBased.includes(posType)) {
-      // For file-based systems, host contains the XMLGateway or exchange folder path
-      config.xmlGatewayPath = host;
+      // For file-based systems:
+      // - host contains the export path (BOOutbox - POS writes, Nuvana reads)
+      // The adapter needs exportPath set directly for proper operation
+      config.exportPath = host;
+      config.importPath = host; // Will be overridden with proper import path on save
+      config.xmlGatewayPath = host; // Kept for backwards compatibility
       // Also set NAXML-specific defaults for Gilbarco
       if (
         posType === "GILBARCO_PASSPORT" ||
@@ -429,6 +438,94 @@ export class POSSyncService {
       // Note: Cashier sync is handled separately due to PIN complexity
       // POS cashiers don't map directly to our cashier model
 
+      // Sync fuel sales (FGM files) for Gilbarco systems
+      // Both GILBARCO_PASSPORT and GILBARCO_NAXML use FGM files for fuel data
+      if (
+        integration.pos_type === "GILBARCO_PASSPORT" ||
+        integration.pos_type === "GILBARCO_NAXML"
+      ) {
+        try {
+          // Check if adapter has syncFuelSales method
+          const gilbarcoAdapter = adapter as {
+            syncFuelSales?: (
+              config: POSConnectionConfig,
+            ) => Promise<POSFuelSalesSummary[]>;
+          };
+          if (gilbarcoAdapter.syncFuelSales) {
+            const fuelSales = await gilbarcoAdapter.syncFuelSales(config);
+            if (fuelSales.length > 0) {
+              await this.syncFuelSalesToDaySummary(
+                fuelSales,
+                integration.store_id,
+              );
+              console.log(
+                `[POSSyncService] Synced fuel sales for ${fuelSales.length} business dates`,
+              );
+            }
+          }
+        } catch (error) {
+          console.error(
+            "[POSSyncService] Error syncing fuel sales:",
+            error instanceof Error ? error.message : "Unknown error",
+          );
+          errors.push({
+            entityType: "department", // No fuel entity type, use department
+            posCode: "FGM",
+            error: error instanceof Error ? error.message : "Unknown error",
+            errorCode: "FUEL_SYNC_FAILED",
+          });
+        }
+
+        // Sync PJR transactions for real-time data (Phase 5.6)
+        try {
+          const gilbarcoAdapter = adapter as {
+            extractPJRTransactions?: (
+              config: POSConnectionConfig,
+              businessDateFilter?: string,
+            ) => Promise<POSPJRTransaction[]>;
+          };
+          if (gilbarcoAdapter.extractPJRTransactions) {
+            const transactions = await gilbarcoAdapter.extractPJRTransactions(
+              config,
+              undefined, // Process all dates, not just today
+            );
+
+            if (transactions.length > 0) {
+              const txResult = await this.syncTransactions(
+                transactions,
+                integration.store_id,
+                integration.pos_integration_id,
+              );
+
+              console.log(
+                `[POSSyncService] Synced transactions: ${txResult.inserted} inserted, ${txResult.skipped} skipped, ${txResult.errors} errors`,
+              );
+
+              // Add errors if any
+              if (txResult.errors > 0) {
+                errors.push({
+                  entityType: "department", // No transaction entity type
+                  posCode: "PJR",
+                  error: `Transaction sync errors: ${txResult.errorDetails.slice(0, 3).join("; ")}`,
+                  errorCode: "TRANSACTION_SYNC_PARTIAL",
+                });
+              }
+            }
+          }
+        } catch (error) {
+          console.error(
+            "[POSSyncService] Error syncing transactions:",
+            error instanceof Error ? error.message : "Unknown error",
+          );
+          errors.push({
+            entityType: "department",
+            posCode: "PJR",
+            error: error instanceof Error ? error.message : "Unknown error",
+            errorCode: "TRANSACTION_SYNC_FAILED",
+          });
+        }
+      }
+
       // Determine final status
       let status: POSSyncStatus = "SUCCESS";
       if (errors.length > 0) {
@@ -552,7 +649,53 @@ export class POSSyncService {
         });
 
         if (existing) {
-          // Update existing
+          // Check if any data actually changed
+          // Handle null/undefined comparison carefully
+          const existingMinAge = existing.minimum_age ?? null;
+          const posMinAge = posDept.minimumAge ?? null;
+
+          const hasChanges =
+            existing.display_name !== posDept.displayName ||
+            existing.is_taxable !== posDept.isTaxable ||
+            existingMinAge !== posMinAge ||
+            existing.is_lottery !== posDept.isLottery ||
+            existing.is_active !== posDept.isActive ||
+            existing.pos_source !== posType;
+
+          // Debug: log what's being compared
+          if (hasChanges) {
+            console.log(
+              `[POSSyncService] Department ${posDept.posCode} has changes:`,
+              {
+                display_name:
+                  existing.display_name !== posDept.displayName
+                    ? `"${existing.display_name}" -> "${posDept.displayName}"`
+                    : "same",
+                is_taxable:
+                  existing.is_taxable !== posDept.isTaxable
+                    ? `${existing.is_taxable} -> ${posDept.isTaxable}`
+                    : "same",
+                minimum_age:
+                  existingMinAge !== posMinAge
+                    ? `${existingMinAge} -> ${posMinAge}`
+                    : "same",
+                is_lottery:
+                  existing.is_lottery !== posDept.isLottery
+                    ? `${existing.is_lottery} -> ${posDept.isLottery}`
+                    : "same",
+                is_active:
+                  existing.is_active !== posDept.isActive
+                    ? `${existing.is_active} -> ${posDept.isActive}`
+                    : "same",
+                pos_source:
+                  existing.pos_source !== posType
+                    ? `"${existing.pos_source}" -> "${posType}"`
+                    : "same",
+              },
+            );
+          }
+
+          // Always update last_synced_at, but only count as "updated" if data changed
           await prisma.department.update({
             where: { department_id: existing.department_id },
             data: {
@@ -566,7 +709,9 @@ export class POSSyncService {
               last_synced_at: new Date(),
             },
           });
-          updated++;
+          if (hasChanges) {
+            updated++;
+          }
         } else {
           // Create new
           await prisma.department.create({
@@ -652,7 +797,17 @@ export class POSSyncService {
         });
 
         if (existing) {
-          // Update existing
+          // Check if any data actually changed
+          const hasChanges =
+            existing.display_name !== posTender.displayName ||
+            existing.is_cash_equivalent !== posTender.isCashEquivalent ||
+            existing.is_electronic !== posTender.isElectronic ||
+            existing.affects_cash_drawer !== posTender.affectsCashDrawer ||
+            existing.requires_reference !== posTender.requiresReference ||
+            existing.is_active !== posTender.isActive ||
+            existing.pos_source !== posType;
+
+          // Always update last_synced_at, but only count as "updated" if data changed
           await prisma.tenderType.update({
             where: { tender_type_id: existing.tender_type_id },
             data: {
@@ -667,7 +822,9 @@ export class POSSyncService {
               last_synced_at: new Date(),
             },
           });
-          updated++;
+          if (hasChanges) {
+            updated++;
+          }
         } else {
           // Create new
           await prisma.tenderType.create({
@@ -760,7 +917,14 @@ export class POSSyncService {
         });
 
         if (existing) {
-          // Update existing
+          // Check if any data actually changed
+          const hasChanges =
+            existing.display_name !== posTax.displayName ||
+            existing.rate.toNumber() !== posTax.rate ||
+            existing.is_active !== posTax.isActive ||
+            existing.pos_source !== posType;
+
+          // Always update last_synced_at, but only count as "updated" if data changed
           await prisma.taxRate.update({
             where: { tax_rate_id: existing.tax_rate_id },
             data: {
@@ -771,7 +935,9 @@ export class POSSyncService {
               last_synced_at: new Date(),
             },
           });
-          updated++;
+          if (hasChanges) {
+            updated++;
+          }
         } else {
           // Create new
           await prisma.taxRate.create({
@@ -979,16 +1145,24 @@ export class POSSyncService {
     ];
 
     if (fileBased.includes(integration.pos_type)) {
-      // For file-based systems, host contains the XMLGateway or exchange folder path
-      baseConfig.xmlGatewayPath = integration.host;
+      // For file-based systems:
+      // - xml_gateway_path contains the export path (BOOutbox - POS writes, Nuvana reads)
+      // - host contains the import path (BOInbox - Nuvana writes, POS reads)
+      // The adapter needs both paths directly for proper operation
+      baseConfig.exportPath = integration.xml_gateway_path || integration.host;
+      baseConfig.importPath = integration.host;
+      // xmlGatewayPath is kept for backwards compatibility
+      baseConfig.xmlGatewayPath =
+        integration.xml_gateway_path || integration.host;
       // Also set NAXML-specific defaults for Gilbarco
       if (
         integration.pos_type === "GILBARCO_PASSPORT" ||
         integration.pos_type === "GILBARCO_NAXML" ||
         integration.pos_type === "GILBARCO_COMMANDER"
       ) {
-        baseConfig.naxmlVersion = "3.4";
-        baseConfig.generateAcknowledgments = true;
+        baseConfig.naxmlVersion = integration.naxml_version || "3.4";
+        baseConfig.generateAcknowledgments =
+          integration.generate_acknowledgments ?? true;
         baseConfig.storeLocationId = integration.store_id;
         baseConfig.archiveProcessedFiles = true; // Enable archiving for sync operations
       }
@@ -1116,6 +1290,411 @@ export class POSSyncService {
 
     // Use SHA-256 to derive a 32-byte key from the secret
     return crypto.createHash("sha256").update(ENCRYPTION_KEY).digest();
+  }
+
+  // ============================================================================
+  // Fuel Sales Sync
+  // ============================================================================
+
+  /**
+   * Sync fuel sales data to DaySummary table
+   *
+   * Updates or creates DaySummary records with fuel sales and gallons data
+   * from FGM (Fuel Grade Movement) files. Uses upsert pattern for idempotency.
+   *
+   * @param fuelSales - Array of fuel sales summaries by business date
+   * @param storeId - Store UUID to sync fuel sales for
+   *
+   * @security Uses parameterized queries via Prisma ORM
+   * @performance Batches operations using Promise.all for concurrent execution
+   */
+  private async syncFuelSalesToDaySummary(
+    fuelSales: POSFuelSalesSummary[],
+    storeId: string,
+  ): Promise<void> {
+    if (fuelSales.length === 0) {
+      return;
+    }
+
+    // Get store to validate it exists
+    const store = await prisma.store.findUnique({
+      where: { store_id: storeId },
+      select: { store_id: true, company_id: true },
+    });
+
+    if (!store) {
+      throw new Error(`Store not found: ${storeId}`);
+    }
+
+    // Process each business date's fuel sales
+    const upsertOperations = fuelSales.map(async (sales) => {
+      const businessDate = new Date(sales.businessDate);
+
+      // Find existing DaySummary for this store and date
+      const existing = await prisma.daySummary.findFirst({
+        where: {
+          store_id: storeId,
+          business_date: businessDate,
+        },
+      });
+
+      if (existing) {
+        // Update existing record with fuel data
+        await prisma.daySummary.update({
+          where: { day_summary_id: existing.day_summary_id },
+          data: {
+            fuel_sales: new Decimal(sales.totalSalesAmount.toFixed(2)),
+            fuel_gallons: new Decimal(sales.totalVolume.toFixed(3)),
+            updated_at: new Date(),
+          },
+        });
+
+        console.log(
+          `[POSSyncService] Updated DaySummary fuel data for ${sales.businessDate}: ` +
+            `$${sales.totalSalesAmount.toFixed(2)}, ${sales.totalVolume.toFixed(3)} gal`,
+        );
+      } else {
+        // Create new DaySummary with fuel data
+        // Initialize other fields to zero - they'll be updated by other sync processes
+        await prisma.daySummary.create({
+          data: {
+            store_id: storeId,
+            business_date: businessDate,
+            fuel_sales: new Decimal(sales.totalSalesAmount.toFixed(2)),
+            fuel_gallons: new Decimal(sales.totalVolume.toFixed(3)),
+            net_sales: new Decimal(0),
+            gross_sales: new Decimal(0),
+            tax_collected: new Decimal(0),
+            transaction_count: 0,
+          },
+        });
+
+        console.log(
+          `[POSSyncService] Created DaySummary with fuel data for ${sales.businessDate}: ` +
+            `$${sales.totalSalesAmount.toFixed(2)}, ${sales.totalVolume.toFixed(3)} gal`,
+        );
+      }
+    });
+
+    // Execute all upserts concurrently
+    await Promise.all(upsertOperations);
+
+    console.log(
+      `[POSSyncService] Fuel sales sync complete: ${fuelSales.length} business dates processed`,
+    );
+  }
+
+  // ============================================================================
+  // Transaction Sync (Phase 5.6)
+  // ============================================================================
+
+  /**
+   * Sync PJR transactions to database
+   *
+   * Stores complete transaction data from PJR files into the Transaction table
+   * with full line item and payment details for reporting.
+   *
+   * Uses upsert pattern with source_file_hash for idempotent deduplication.
+   * Transactions are linked to store via pos_store_id for tenant isolation.
+   *
+   * @param transactions - Array of POSPJRTransaction objects from adapter
+   * @param storeId - Internal store UUID for tenant scoping
+   * @param integrationId - POS integration UUID for tracking
+   * @returns Sync result with counts
+   *
+   * @security Uses Prisma ORM for parameterized queries (DB-001)
+   * @security Enforces tenant isolation via store_id (DB-006)
+   * @enterprise Batch processing with Prisma transactions for atomicity
+   */
+  async syncTransactions(
+    transactions: POSPJRTransaction[],
+    storeId: string,
+    _integrationId: string,
+  ): Promise<{
+    inserted: number;
+    skipped: number;
+    errors: number;
+    errorDetails: string[];
+  }> {
+    console.log(
+      `[POSSyncService] Starting transaction sync: ${transactions.length} transactions for store ${storeId}`,
+    );
+
+    if (transactions.length === 0) {
+      return { inserted: 0, skipped: 0, errors: 0, errorDetails: [] };
+    }
+
+    // Get store context for validation
+    const store = await prisma.store.findUnique({
+      where: { store_id: storeId },
+      select: {
+        store_id: true,
+        company_id: true,
+      },
+    });
+
+    if (!store) {
+      throw new Error(`Store not found: ${storeId}`);
+    }
+
+    // Get or find default shift for transactions
+    // In real implementation, we'd match transactions to shifts by time
+    // For now, get the most recent open shift or create a placeholder
+    const defaultShift = await this.getOrCreateDefaultShift(storeId);
+
+    // Get default cashier (system user for POS imports)
+    const defaultCashier = await this.getOrCreateSystemUser(store.company_id);
+
+    // Check existing file hashes for deduplication
+    const fileHashes = transactions.map((t) => t.sourceFileHash);
+    const existingHashes = await prisma.transaction.findMany({
+      where: {
+        store_id: storeId,
+        source_file_hash: { in: fileHashes },
+      },
+      select: { source_file_hash: true },
+    });
+    const existingHashSet = new Set(
+      existingHashes.map((t) => t.source_file_hash),
+    );
+
+    let inserted = 0;
+    let skipped = 0;
+    let errors = 0;
+    const errorDetails: string[] = [];
+
+    // Process transactions in batches for memory efficiency
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
+      const batch = transactions.slice(i, i + BATCH_SIZE);
+
+      for (const pjrTx of batch) {
+        // Skip if already imported (dedupe by file hash)
+        if (existingHashSet.has(pjrTx.sourceFileHash)) {
+          skipped++;
+          continue;
+        }
+
+        try {
+          // Create transaction with line items and payments in a single transaction
+          await prisma.$transaction(async (tx) => {
+            // Generate unique public ID for transaction
+            const publicId = this.generatePublicId(pjrTx.posTransactionId);
+
+            // Map item types to Prisma enum
+            const mapItemType = (
+              itemType: POSPJRLineItem["itemType"],
+            ): TransactionItemType => {
+              switch (itemType) {
+                case "fuel":
+                  return "FUEL";
+                case "lottery":
+                  return "LOTTERY";
+                case "prepay":
+                  return "PREPAY";
+                case "merchandise":
+                default:
+                  return "MERCHANDISE";
+              }
+            };
+
+            // Create the transaction
+            const transaction = await tx.transaction.create({
+              data: {
+                store_id: storeId,
+                shift_id: defaultShift.shift_id,
+                cashier_id: defaultCashier.user_id,
+                timestamp: pjrTx.timestamp,
+                subtotal: new Decimal(pjrTx.netAmount.toFixed(2)),
+                tax: new Decimal(pjrTx.taxAmount.toFixed(2)),
+                discount: new Decimal(0),
+                total: new Decimal(pjrTx.grandTotal.toFixed(2)),
+                public_id: publicId,
+
+                // POS identification fields
+                pos_transaction_id: pjrTx.posTransactionId,
+                pos_store_id: pjrTx.posStoreId,
+                business_date: new Date(pjrTx.businessDate),
+                pos_register_id: pjrTx.registerId,
+                pos_till_id: pjrTx.tillId,
+                pos_cashier_code: pjrTx.cashierId,
+
+                // POS flags
+                is_training_mode: pjrTx.isTrainingMode,
+                is_outside_sale: pjrTx.isOutsideSale,
+                is_offline: pjrTx.isOffline,
+                is_suspended: pjrTx.isSuspended,
+
+                // Linked transaction
+                linked_transaction_id: pjrTx.linkedTransactionId || null,
+                link_reason: pjrTx.linkReason || null,
+
+                // File tracking
+                source_file: pjrTx.sourceFile,
+                source_file_hash: pjrTx.sourceFileHash,
+              },
+            });
+
+            // Create line items (filter out tax and tender lines)
+            const productLines = pjrTx.lineItems.filter(
+              (li) => li.itemType !== "tax" && li.itemType !== "tender",
+            );
+
+            if (productLines.length > 0) {
+              await tx.transactionLineItem.createMany({
+                data: productLines.map((li) => ({
+                  transaction_id: transaction.transaction_id,
+                  name: li.description || li.itemType.toUpperCase(),
+                  sku: li.merchandiseCode || null,
+                  quantity: new Decimal((li.quantity || 1).toFixed(3)),
+                  unit_price: new Decimal((li.unitPrice || 0).toFixed(4)),
+                  discount: new Decimal(0),
+                  tax_amount: new Decimal(0),
+                  line_total: new Decimal((li.salesAmount || 0).toFixed(2)),
+                  item_type: mapItemType(li.itemType),
+                  pos_merchandise_code: li.merchandiseCode || null,
+                  pos_fuel_grade_id: li.fuelGradeId || null,
+                  pos_fuel_position_id: li.fuelPositionId || null,
+                  fuel_service_level: li.fuelServiceLevel || null,
+                  fuel_price_tier: li.fuelPriceTier || null,
+                  fuel_regular_price: li.regularPrice
+                    ? new Decimal(li.regularPrice.toFixed(4))
+                    : null,
+                  line_status: li.status,
+                })),
+              });
+            }
+
+            // Create payments
+            if (pjrTx.payments.length > 0) {
+              await tx.transactionPayment.createMany({
+                data: pjrTx.payments
+                  .filter((p) => !p.isChange) // Exclude change lines
+                  .map((p) => ({
+                    transaction_id: transaction.transaction_id,
+                    method: p.tenderCode,
+                    tender_code: p.tenderCode,
+                    amount: new Decimal(p.amount.toFixed(2)),
+                    reference: p.reference || null,
+                  })),
+              });
+            }
+          });
+
+          inserted++;
+          existingHashSet.add(pjrTx.sourceFileHash); // Mark as processed
+        } catch (error) {
+          errors++;
+          const errMsg =
+            error instanceof Error ? error.message : "Unknown error";
+          errorDetails.push(`Transaction ${pjrTx.posTransactionId}: ${errMsg}`);
+          console.error(
+            `[POSSyncService] Error inserting transaction ${pjrTx.posTransactionId}:`,
+            error,
+          );
+        }
+      }
+    }
+
+    console.log(
+      `[POSSyncService] Transaction sync complete: ${inserted} inserted, ${skipped} skipped, ${errors} errors`,
+    );
+
+    return { inserted, skipped, errors, errorDetails };
+  }
+
+  /**
+   * Get or create a default shift for POS imports
+   * @enterprise Uses store context for tenant isolation
+   */
+  private async getOrCreateDefaultShift(
+    storeId: string,
+  ): Promise<{ shift_id: string }> {
+    // Try to find an open shift
+    const openShift = await prisma.shift.findFirst({
+      where: {
+        store_id: storeId,
+        closed_at: null,
+      },
+      select: { shift_id: true },
+      orderBy: { opened_at: "desc" },
+    });
+
+    if (openShift) {
+      return openShift;
+    }
+
+    // Find the most recent shift
+    const recentShift = await prisma.shift.findFirst({
+      where: { store_id: storeId },
+      select: { shift_id: true },
+      orderBy: { opened_at: "desc" },
+    });
+
+    if (recentShift) {
+      return recentShift;
+    }
+
+    // No shifts exist - need to handle this edge case
+    throw new Error(
+      `No shifts found for store ${storeId}. Please create a shift before importing transactions.`,
+    );
+  }
+
+  /**
+   * Get or create system user for POS imports
+   * @enterprise Uses company scope for tenant isolation
+   */
+  private async getOrCreateSystemUser(
+    companyId: string,
+  ): Promise<{ user_id: string }> {
+    // Try to find an existing system user for POS imports
+    const systemUser = await prisma.user.findFirst({
+      where: {
+        email: `pos-import@system.internal`,
+        is_client_user: true,
+      },
+      select: { user_id: true },
+    });
+
+    if (systemUser) {
+      return systemUser;
+    }
+
+    // Find the company owner as fallback
+    const company = await prisma.company.findUnique({
+      where: { company_id: companyId },
+      select: { owner_user_id: true },
+    });
+
+    if (company?.owner_user_id) {
+      return { user_id: company.owner_user_id };
+    }
+
+    // Find any client user with a role in this company as last resort
+    const userWithRole = await prisma.userRole.findFirst({
+      where: {
+        company_id: companyId,
+      },
+      select: { user_id: true },
+    });
+
+    if (userWithRole) {
+      return { user_id: userWithRole.user_id };
+    }
+
+    throw new Error(
+      `No users found for company ${companyId}. Please create a user before importing transactions.`,
+    );
+  }
+
+  /**
+   * Generate a unique public ID for transactions
+   */
+  private generatePublicId(posTransactionId: string): string {
+    const timestamp = Date.now().toString(36);
+    const posIdPart = posTransactionId.slice(-4).padStart(4, "0");
+    return `POS-${posIdPart}-${timestamp}`.toUpperCase();
   }
 }
 

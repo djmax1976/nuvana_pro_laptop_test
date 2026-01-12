@@ -107,11 +107,14 @@ export interface ValidateElevationTokenResult {
 /** Default elevation token lifetime in seconds (5 minutes) */
 const DEFAULT_ELEVATION_TOKEN_EXPIRY_SECONDS = 5 * 60;
 
+/** Default PIN elevation token lifetime in seconds (30 minutes) */
+const DEFAULT_PIN_ELEVATION_TOKEN_EXPIRY_SECONDS = 30 * 60;
+
 /** Minimum allowed token lifetime (1 minute) */
 const MIN_TOKEN_EXPIRY_SECONDS = 60;
 
-/** Maximum allowed token lifetime (15 minutes) */
-const MAX_TOKEN_EXPIRY_SECONDS = 15 * 60;
+/** Maximum allowed token lifetime (30 minutes - extended for PIN auth) */
+const MAX_TOKEN_EXPIRY_SECONDS = 30 * 60;
 
 // ============================================================================
 // Service Class
@@ -201,6 +204,57 @@ class ElevationTokenService {
       issuedAt: new Date(now * 1000),
       expiresAt: new Date(exp * 1000),
       expiresIn: this.tokenExpirySeconds,
+    };
+  }
+
+  /**
+   * Generate a PIN elevation token (for STORE_MANAGER/SHIFT_MANAGER PIN auth)
+   *
+   * Uses a longer expiry (30 minutes) since managers need more time for operations
+   * compared to sensitive admin operations.
+   *
+   * The token is:
+   * - Longer-lived (30 minutes) for manager workflow needs
+   * - Scoped to a specific permission
+   * - Bound to a specific store
+   * - Has a unique JTI for replay protection
+   */
+  generatePINElevationToken(
+    input: GenerateElevationTokenInput,
+  ): ElevationTokenResult {
+    const jti = randomUUID();
+    const now = Math.floor(Date.now() / 1000);
+    const expirySeconds = DEFAULT_PIN_ELEVATION_TOKEN_EXPIRY_SECONDS;
+    const exp = now + expirySeconds;
+
+    const payload: ElevationTokenPayload = {
+      type: "elevation",
+      sub: input.userId,
+      email: input.email,
+      permission: input.permission,
+      storeId: input.storeId,
+      sessionId: input.sessionId,
+      jti,
+      iat: now,
+      exp,
+      // Include user identity for authorization override
+      roles: input.roles,
+      permissions: input.permissions,
+      is_system_admin: input.is_system_admin,
+      company_ids: input.company_ids,
+      store_ids: input.store_ids,
+    };
+
+    const token = jwt.sign(payload, this.jwtSecret, {
+      algorithm: "HS256",
+    });
+
+    return {
+      token,
+      jti,
+      issuedAt: new Date(now * 1000),
+      expiresAt: new Date(exp * 1000),
+      expiresIn: expirySeconds,
     };
   }
 

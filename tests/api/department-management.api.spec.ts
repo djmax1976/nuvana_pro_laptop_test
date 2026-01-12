@@ -24,15 +24,27 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
   // LIST DEPARTMENTS TESTS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  test("1.2-API-001: [P0] GET /api/config/departments - should list system departments for authenticated user", async ({
+  test("1.2-API-001: [P0] GET /api/config/departments - should list departments for authenticated user", async ({
     clientUserApiRequest,
   }) => {
     // GIVEN: I am authenticated as a Client User with DEPARTMENT_READ permission
+    // AND: I create a test department first (departments are NOT seeded - they come from POS sync)
+    const createResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "TEST_GROCERY",
+        display_name: "Test Grocery",
+        description: "Test grocery department",
+        is_taxable: true,
+      },
+    );
+    expect(createResponse.status()).toBe(201);
+    const createdDept = await createResponse.json();
 
     // WHEN: Fetching departments via API
     const response = await clientUserApiRequest.get("/api/config/departments");
 
-    // THEN: Request succeeds with system departments
+    // THEN: Request succeeds with departments
     expect(response.status(), "Expected 200 OK status").toBe(200);
     const body = await response.json();
     expect(body.success, "Response should indicate success").toBe(true);
@@ -40,26 +52,23 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
       true,
     );
 
-    // AND: System departments are present (seeded data)
-    const codes = body.data.map((d: { code: string }) => d.code);
-    expect(codes, "Should include GROCERY department").toContain("GROCERY");
-    expect(codes, "Should include TOBACCO department").toContain("TOBACCO");
-    expect(codes, "Should include LOTTERY department").toContain("LOTTERY");
-
-    // AND: Each department has required fields
-    const groceryDept = body.data.find(
-      (d: { code: string }) => d.code === "GROCERY",
+    // AND: Our created department is present
+    const testDept = body.data.find(
+      (d: { code: string }) => d.code === "TEST_GROCERY",
     );
-    expect(groceryDept, "GROCERY department should exist").toBeDefined();
-    expect(groceryDept.department_id, "Should have ID").toBeDefined();
-    expect(groceryDept.display_name, "Should have display name").toBe(
-      "Grocery",
+    expect(testDept, "TEST_GROCERY department should exist").toBeDefined();
+    expect(testDept.department_id, "Should have ID").toBe(
+      createdDept.data.department_id,
     );
-    expect(groceryDept.is_taxable, "Should have taxable flag").toBeDefined();
+    expect(testDept.display_name, "Should have display name").toBe(
+      "Test Grocery",
+    );
+    expect(testDept.is_taxable, "Should have taxable flag").toBe(true);
     expect(
-      groceryDept.is_system,
-      "System types should be marked as system",
-    ).toBe(true);
+      testDept.is_system,
+      "Client-created types should NOT be marked as system",
+    ).toBe(false);
+    expect(testDept.is_active, "Should be active").toBe(true);
   });
 
   test("1.2-API-002: [P0] GET /api/config/departments - should return ordered by level, sort_order, display_name", async ({
@@ -104,7 +113,31 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
   test("1.2-API-003: [P1] GET /api/config/departments - should filter by is_lottery", async ({
     clientUserApiRequest,
   }) => {
-    // GIVEN: I am authenticated
+    // GIVEN: I am authenticated and create both lottery and non-lottery departments
+    // Create a lottery department
+    const lotteryResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "LOTTERY_TEST",
+        display_name: "Lottery Test Department",
+        is_taxable: false,
+        is_lottery: true,
+        minimum_age: 18,
+      },
+    );
+    expect(lotteryResponse.status()).toBe(201);
+
+    // Create a non-lottery department
+    const nonLotteryResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "NON_LOTTERY_TEST",
+        display_name: "Non-Lottery Test",
+        is_taxable: true,
+        is_lottery: false,
+      },
+    );
+    expect(nonLotteryResponse.status()).toBe(201);
 
     // WHEN: Filtering for lottery departments only
     const response = await clientUserApiRequest.get(
@@ -119,9 +152,25 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
       "Should have at least one lottery department",
     ).toBeGreaterThan(0);
 
+    // Verify all returned departments are lottery
     for (const dept of body.data) {
       expect(dept.is_lottery, `${dept.code} should be lottery`).toBe(true);
     }
+
+    // Verify our lottery department is in results
+    const lotteryDept = body.data.find(
+      (d: { code: string }) => d.code === "LOTTERY_TEST",
+    );
+    expect(lotteryDept, "LOTTERY_TEST should be in results").toBeDefined();
+
+    // Verify non-lottery department is NOT in results
+    const nonLotteryDept = body.data.find(
+      (d: { code: string }) => d.code === "NON_LOTTERY_TEST",
+    );
+    expect(
+      nonLotteryDept,
+      "NON_LOTTERY_TEST should NOT be in results",
+    ).toBeUndefined();
   });
 
   test("1.2-API-004: [P1] GET /api/config/departments - should filter inactive when include_inactive=false", async ({
@@ -192,7 +241,30 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
   test("1.2-API-010: [P1] GET /api/config/departments/tree - should get hierarchical department tree", async ({
     clientUserApiRequest,
   }) => {
-    // GIVEN: I am authenticated as a Client User
+    // GIVEN: I am authenticated as a Client User and create a hierarchy
+    // Create a parent department
+    const parentResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "TREE_PARENT",
+        display_name: "Tree Parent",
+        is_taxable: true,
+      },
+    );
+    expect(parentResponse.status()).toBe(201);
+    const parent = await parentResponse.json();
+
+    // Create a child department under the parent
+    const childResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "TREE_CHILD",
+        display_name: "Tree Child",
+        is_taxable: true,
+        parent_id: parent.data.department_id,
+      },
+    );
+    expect(childResponse.status()).toBe(201);
 
     // WHEN: Fetching department tree
     const response = await clientUserApiRequest.get(
@@ -207,9 +279,30 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
       true,
     );
 
-    // AND: Tree contains top-level departments
+    // AND: Tree contains our created top-level parent
     const topLevelCodes = body.data.map((d: { code: string }) => d.code);
-    expect(topLevelCodes, "Should include GROCERY").toContain("GROCERY");
+    expect(topLevelCodes, "Should include TREE_PARENT").toContain(
+      "TREE_PARENT",
+    );
+
+    // AND: Parent has children array with our child
+    const parentInTree = body.data.find(
+      (d: { code: string }) => d.code === "TREE_PARENT",
+    );
+    expect(parentInTree, "TREE_PARENT should exist").toBeDefined();
+    expect(
+      Array.isArray(parentInTree.children),
+      "Parent should have children array",
+    ).toBe(true);
+    expect(
+      parentInTree.children.length,
+      "Parent should have child",
+    ).toBeGreaterThan(0);
+
+    const childInTree = parentInTree.children.find(
+      (c: { code: string }) => c.code === "TREE_CHILD",
+    );
+    expect(childInTree, "TREE_CHILD should be in children").toBeDefined();
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -219,30 +312,32 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
   test("1.2-API-020: [P0] GET /api/config/departments/:id - should get department by ID", async ({
     clientUserApiRequest,
   }) => {
-    // GIVEN: I get the list to find a valid ID
-    const listResponse = await clientUserApiRequest.get(
+    // GIVEN: I create a department first
+    const createResponse = await clientUserApiRequest.post(
       "/api/config/departments",
+      {
+        code: "GETBYID_TEST",
+        display_name: "Get By ID Test",
+        description: "Testing get by ID",
+        is_taxable: true,
+      },
     );
-    const list = await listResponse.json();
-    const groceryDept = list.data.find(
-      (d: { code: string }) => d.code === "GROCERY",
-    );
-    expect(
-      groceryDept,
-      "Should have GROCERY department to test with",
-    ).toBeDefined();
+    expect(createResponse.status()).toBe(201);
+    const created = await createResponse.json();
+    const deptId = created.data.department_id;
 
     // WHEN: Fetching by ID
     const response = await clientUserApiRequest.get(
-      `/api/config/departments/${groceryDept.department_id}`,
+      `/api/config/departments/${deptId}`,
     );
 
     // THEN: Returns the department
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data.code).toBe("GROCERY");
-    expect(body.data.department_id).toBe(groceryDept.department_id);
+    expect(body.data.code).toBe("GETBYID_TEST");
+    expect(body.data.department_id).toBe(deptId);
+    expect(body.data.display_name).toBe("Get By ID Test");
   });
 
   test("1.2-API-021: [P1] GET /api/config/departments/:id - should return 404 for non-existent ID", async ({
@@ -506,23 +601,26 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
 
   test("1.2-API-042: [P0] PATCH /api/config/departments/:id - should not allow modifying system department behavior flags", async ({
     clientUserApiRequest,
+    prismaClient,
   }) => {
-    // GIVEN: Get a system department (GROCERY)
-    const listResponse = await clientUserApiRequest.get(
-      "/api/config/departments",
-    );
-    const list = await listResponse.json();
-    const groceryDept = list.data.find(
-      (d: { code: string; is_system: boolean }) =>
-        d.code === "GROCERY" && d.is_system,
-    );
-    expect(groceryDept, "Should have system GROCERY department").toBeDefined();
+    // GIVEN: Create a system department directly in the database
+    // (System departments can only be created via DB, not API)
+    const systemDept = await prismaClient.department.create({
+      data: {
+        code: "SYS_BEHAVIOR_TEST",
+        display_name: "System Behavior Test",
+        is_taxable: true,
+        is_system: true, // This is a SYSTEM department
+        is_active: true,
+        client_id: null, // System departments have no client
+      },
+    });
 
     // WHEN: Attempting to modify behavior flags of system department
     // Note: Display fields (display_name, description, sort_order, icon_name, color_code)
     // ARE allowed on system types. Behavior flags are NOT allowed.
     const response = await clientUserApiRequest.patch(
-      `/api/config/departments/${groceryDept.department_id}`,
+      `/api/config/departments/${systemDept.department_id}`,
       {
         is_taxable: false, // This is a behavior flag, not allowed on system types
       },
@@ -533,27 +631,36 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body.error.code).toBe("FORBIDDEN");
+
+    // Cleanup
+    await prismaClient.department.delete({
+      where: { department_id: systemDept.department_id },
+    });
   });
 
   test("1.2-API-043: [P1] PATCH /api/config/departments/:id - should allow updating display fields on system departments", async ({
     clientUserApiRequest,
+    prismaClient,
   }) => {
-    // GIVEN: Get a system department (GROCERY)
-    const listResponse = await clientUserApiRequest.get(
-      "/api/config/departments",
-    );
-    const list = await listResponse.json();
-    const groceryDept = list.data.find(
-      (d: { code: string; is_system: boolean }) =>
-        d.code === "GROCERY" && d.is_system,
-    );
-    expect(groceryDept, "Should have system GROCERY department").toBeDefined();
+    // GIVEN: Create a system department directly in the database
+    const systemDept = await prismaClient.department.create({
+      data: {
+        code: "SYS_DISPLAY_TEST",
+        display_name: "System Display Test",
+        description: "Original description",
+        is_taxable: true,
+        is_system: true, // This is a SYSTEM department
+        is_active: true,
+        client_id: null, // System departments have no client
+        sort_order: 10,
+      },
+    });
 
     // WHEN: Updating only display fields (allowed on system types)
     const response = await clientUserApiRequest.patch(
-      `/api/config/departments/${groceryDept.department_id}`,
+      `/api/config/departments/${systemDept.department_id}`,
       {
-        description: "Updated system grocery description",
+        description: "Updated system display description",
         sort_order: 99,
       },
     );
@@ -562,17 +669,13 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data.description).toBe("Updated system grocery description");
+    expect(body.data.description).toBe("Updated system display description");
     expect(body.data.sort_order).toBe(99);
 
-    // Cleanup: Restore original values
-    await clientUserApiRequest.patch(
-      `/api/config/departments/${groceryDept.department_id}`,
-      {
-        description: groceryDept.description,
-        sort_order: groceryDept.sort_order,
-      },
-    );
+    // Cleanup: Delete the test department
+    await prismaClient.department.delete({
+      where: { department_id: systemDept.department_id },
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -617,21 +720,23 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
 
   test("1.2-API-051: [P0] DELETE /api/config/departments/:id - should not allow deleting system departments", async ({
     clientUserApiRequest,
+    prismaClient,
   }) => {
-    // GIVEN: Get a system department (TOBACCO)
-    const listResponse = await clientUserApiRequest.get(
-      "/api/config/departments",
-    );
-    const list = await listResponse.json();
-    const tobaccoDept = list.data.find(
-      (d: { code: string; is_system: boolean }) =>
-        d.code === "TOBACCO" && d.is_system,
-    );
-    expect(tobaccoDept, "Should have system TOBACCO department").toBeDefined();
+    // GIVEN: Create a system department directly in the database
+    const systemDept = await prismaClient.department.create({
+      data: {
+        code: "SYS_DELETE_TEST",
+        display_name: "System Delete Test",
+        is_taxable: true,
+        is_system: true, // This is a SYSTEM department
+        is_active: true,
+        client_id: null, // System departments have no client
+      },
+    });
 
     // WHEN: Attempting to delete system department
     const response = await clientUserApiRequest.delete(
-      `/api/config/departments/${tobaccoDept.department_id}`,
+      `/api/config/departments/${systemDept.department_id}`,
     );
 
     // THEN: Returns 403 Forbidden
@@ -639,6 +744,18 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body.error.code).toBe("FORBIDDEN");
+
+    // Verify the department was NOT deleted
+    const stillExists = await prismaClient.department.findUnique({
+      where: { department_id: systemDept.department_id },
+    });
+    expect(stillExists, "System department should still exist").not.toBeNull();
+    expect(stillExists?.is_active, "Should still be active").toBe(true);
+
+    // Cleanup: Delete the test department directly
+    await prismaClient.department.delete({
+      where: { department_id: systemDept.department_id },
+    });
   });
 
   test("1.2-API-052: [P1] DELETE /api/config/departments/:id - should return 404 for non-existent ID", async ({

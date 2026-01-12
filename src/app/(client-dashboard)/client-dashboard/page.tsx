@@ -3,7 +3,11 @@
 import * as React from "react";
 import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { Loader2 } from "lucide-react";
-import { useClientDashboard } from "@/lib/api/client-dashboard";
+import {
+  useClientDashboard,
+  useDashboardSales,
+  type SalesDataResponse,
+} from "@/lib/api/client-dashboard";
 import { usePageTitleEffect } from "@/contexts/PageTitleContext";
 
 // Import all dashboard components
@@ -26,8 +30,192 @@ import {
 } from "@/components/client-dashboard";
 
 /**
- * KPI Stat Cards configuration
- * Matches the sample HTML design exactly
+ * Format currency value for display
+ */
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+/**
+ * Calculate percentage trend between two values
+ */
+function calculateTrend(
+  current: number,
+  previous: number,
+): { value: string; isPositive: boolean } {
+  if (previous === 0) {
+    return { value: current > 0 ? "+100%" : "0%", isPositive: current >= 0 };
+  }
+  const change = ((current - previous) / previous) * 100;
+  const sign = change >= 0 ? "+" : "";
+  return {
+    value: `${sign}${change.toFixed(1)}%`,
+    isPositive: change >= 0,
+  };
+}
+
+/**
+ * Build KPI cards with real sales data
+ */
+function buildKpiCardsRow1(salesData: SalesDataResponse | undefined) {
+  // Get week data for trend calculation
+  const weekData = salesData?.week || [];
+  const today = salesData?.today;
+
+  // Calculate previous period totals (first 6 days vs today)
+  const fuelSalesWeek = weekData.map((d) => ({ value: d.fuel_sales }));
+  const netSalesWeek = weekData.map((d) => ({ value: d.net_sales }));
+  const lotterySalesWeek = weekData.map((d) => ({
+    value: d.lottery_sales ?? 0,
+  }));
+
+  // Calculate trend (compare today vs average of previous days)
+  const prevFuelAvg =
+    weekData.length > 1
+      ? weekData.slice(0, -1).reduce((sum, d) => sum + d.fuel_sales, 0) /
+        (weekData.length - 1)
+      : 0;
+  const prevNetAvg =
+    weekData.length > 1
+      ? weekData.slice(0, -1).reduce((sum, d) => sum + d.net_sales, 0) /
+        (weekData.length - 1)
+      : 0;
+  const prevLotteryAvg =
+    weekData.length > 1
+      ? weekData
+          .slice(0, -1)
+          .reduce((sum, d) => sum + (d.lottery_sales ?? 0), 0) /
+        (weekData.length - 1)
+      : 0;
+
+  const todayFuel = today?.fuel_sales ?? 0;
+  const todayNet = today?.net_sales ?? 0;
+  const todayLottery = today?.lottery_sales ?? 0;
+  const todayTax = today?.tax_collected ?? 0;
+
+  return [
+    {
+      id: "taxable-sales",
+      label: "Taxable Sales (includes Food Sales)",
+      value: formatCurrency(todayNet),
+      trend: calculateTrend(todayNet, prevNetAvg),
+      icon: "receipt" as const,
+      iconVariant: "primary" as const,
+      chartType: "weekly" as const,
+      chartData: netSalesWeek.length > 0 ? netSalesWeek : [{ value: 0 }],
+    },
+    {
+      id: "food-sales",
+      label: "Food Sales",
+      value: formatCurrency(todayTax), // Using tax as proxy for food until we have dept breakdown
+      trend: { value: "--", isPositive: true },
+      icon: "utensils" as const,
+      iconVariant: "secondary" as const,
+      chartType: "weekly" as const,
+      chartData: [{ value: 0 }], // No food breakdown yet
+    },
+    {
+      id: "lottery-sales",
+      label: "Lottery Sales",
+      value: formatCurrency(todayLottery),
+      trend: calculateTrend(todayLottery, prevLotteryAvg),
+      icon: "ticket" as const,
+      iconVariant: "warning" as const,
+      chartType: "weekly" as const,
+      chartData:
+        lotterySalesWeek.length > 0 ? lotterySalesWeek : [{ value: 0 }],
+    },
+    {
+      id: "fuel-sales",
+      label: "Fuel Sales",
+      value: formatCurrency(todayFuel),
+      trend: calculateTrend(todayFuel, prevFuelAvg),
+      icon: "fuel" as const,
+      iconVariant: "secondary" as const,
+      chartType: "weekly" as const,
+      chartData: fuelSalesWeek.length > 0 ? fuelSalesWeek : [{ value: 0 }],
+    },
+  ];
+}
+
+/**
+ * Static KPI cards for row 2 (these need different data sources)
+ */
+const KPI_CARDS_ROW_2_STATIC = [
+  {
+    id: "average-ticket",
+    label: "Average Ticket",
+    icon: "receipt" as const,
+    iconVariant: "primary" as const,
+    chartType: "weekly" as const,
+  },
+  {
+    id: "sales-by-hour",
+    label: "Sales by Hour",
+    icon: "clock" as const,
+    iconVariant: "primary" as const,
+    chartType: "hourly" as const,
+    showOnlyExtremes: true,
+  },
+  {
+    id: "lottery-variance",
+    label: "Lottery Variance",
+    icon: "scale" as const,
+    iconVariant: "error" as const,
+    chartType: "variance" as const,
+  },
+  {
+    id: "cash-variance",
+    label: "Cash Variance",
+    icon: "wallet" as const,
+    iconVariant: "error" as const,
+    chartType: "variance" as const,
+  },
+];
+
+/**
+ * Build KPI cards row 2 with real data
+ */
+function buildKpiCardsRow2(salesData: SalesDataResponse | undefined) {
+  const today = salesData?.today;
+  const avgTicket = today?.avg_transaction ?? 0;
+
+  return [
+    {
+      ...KPI_CARDS_ROW_2_STATIC[0],
+      value: formatCurrency(avgTicket),
+      trend: { value: "--", isPositive: true },
+      chartData: [{ value: avgTicket }],
+    },
+    {
+      ...KPI_CARDS_ROW_2_STATIC[1],
+      value: "$0", // Need hourly data
+      trend: { value: "--", isPositive: true, label: "--" },
+      chartData: [{ value: 0 }],
+    },
+    {
+      ...KPI_CARDS_ROW_2_STATIC[2],
+      value: "$0", // Need lottery variance data
+      trend: { value: "balanced", isPositive: true, label: "balanced" },
+      chartData: [{ value: 0 }],
+    },
+    {
+      ...KPI_CARDS_ROW_2_STATIC[3],
+      value: "$0", // Need cash variance data
+      trend: { value: "--", isPositive: true },
+      chartData: [{ value: 0 }],
+    },
+  ];
+}
+
+/**
+ * Fallback static KPI Stat Cards configuration
+ * Used when no real data is available
  */
 const KPI_CARDS_ROW_1 = [
   {
@@ -267,6 +455,7 @@ function DashboardSkeleton() {
 export default function ClientDashboardPage() {
   const { user } = useClientAuth();
   const { data, isLoading, isError, error } = useClientDashboard();
+  const { data: salesData, isLoading: salesLoading } = useDashboardSales();
 
   // Set page title in header (FE-001: STATE_MANAGEMENT)
   usePageTitleEffect("Dashboard");
@@ -292,6 +481,14 @@ export default function ClientDashboardPage() {
   // Get user name from data or context
   const userName = data?.user?.name || user?.name;
 
+  // Build KPI cards with real data (falls back to static when no data)
+  const kpiCardsRow1 = salesData
+    ? buildKpiCardsRow1(salesData)
+    : KPI_CARDS_ROW_1;
+  const kpiCardsRow2 = salesData
+    ? buildKpiCardsRow2(salesData)
+    : KPI_CARDS_ROW_2;
+
   return (
     <div className="space-y-6" data-testid="client-dashboard-page">
       {/* ============================================
@@ -303,13 +500,13 @@ export default function ClientDashboardPage() {
           Key Performance Indicators
         </h2>
 
-        {/* Stats Grid Row 1 */}
+        {/* Stats Grid Row 1 - Real-time sales data */}
         <div
           className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-4"
           role="list"
           aria-label="Primary metrics"
         >
-          {KPI_CARDS_ROW_1.map((card) => (
+          {kpiCardsRow1.map((card) => (
             <StatCard
               key={card.id}
               id={card.id}
@@ -330,7 +527,7 @@ export default function ClientDashboardPage() {
           role="list"
           aria-label="Secondary metrics"
         >
-          {KPI_CARDS_ROW_2.map((card) => (
+          {kpiCardsRow2.map((card) => (
             <StatCard
               key={card.id}
               id={card.id}

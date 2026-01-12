@@ -1029,35 +1029,6 @@ export interface NAXMLFileLogEntry {
   createdAt: Date;
 }
 
-/**
- * File watcher configuration
- */
-export interface NAXMLFileWatcherConfig {
-  /** Configuration identifier (auto-generated if not provided) */
-  configId?: string;
-  /** Store identifier */
-  storeId: string;
-  /** POS integration identifier */
-  posIntegrationId: string;
-  /** Path to watch for files */
-  watchPath: string;
-  /** Path to move processed files */
-  processedPath?: string;
-  /** Path to move error files */
-  errorPath?: string;
-  /** Poll interval in seconds */
-  pollIntervalSeconds: number;
-  /** Whether watcher is active */
-  isActive: boolean;
-  /** File patterns to watch (glob) */
-  filePatterns: string[];
-  /** Last poll timestamp */
-  lastPollAt?: Date;
-  /** Record timestamps (auto-set if not provided) */
-  createdAt?: Date;
-  updatedAt?: Date;
-}
-
 // ============================================================================
 // Import/Export Result Types
 // ============================================================================
