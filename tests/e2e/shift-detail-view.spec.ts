@@ -426,8 +426,19 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
 
     // WHEN: Navigating directly to the shift detail page
     await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
-      waitUntil: "domcontentloaded",
+      waitUntil: "networkidle",
     });
+
+    // Wait for page to fully load - either success or error state
+    // This ensures we don't race against loading state
+    await expect(
+      clientOwnerPage.locator('[data-testid="shift-detail-page"]'),
+    ).toBeVisible({ timeout: 20000 });
+
+    // Verify no error state is displayed
+    await expect(
+      clientOwnerPage.locator('[data-testid="shift-detail-error"]'),
+    ).not.toBeVisible();
 
     // THEN: The closed shift summary view should be displayed
     await expect(
