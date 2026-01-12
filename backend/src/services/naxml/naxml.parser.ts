@@ -1044,7 +1044,7 @@ export class NAXMLParser {
   ): NAXMLEmployee[] {
     const employees = this.ensureArray(container?.Employee);
     return employees.map((emp: Record<string, unknown>) => ({
-      employeeId: String(emp?.EmployeeID || emp?.ID || ""),
+      employeeId: String(emp?.EmployeeID || emp?.["@_ID"] || emp?.ID || ""),
       firstName: String(emp?.FirstName || ""),
       lastName: String(emp?.LastName || ""),
       isActive: this.parseBoolean(emp?.IsActive, true),

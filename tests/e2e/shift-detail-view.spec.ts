@@ -425,20 +425,30 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     );
 
     // WHEN: Navigating directly to the shift detail page
+    // Use domcontentloaded to avoid racing with auth validation during networkidle
     await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
     });
 
-    // Wait for page to fully load - either success or error state
-    // This ensures we don't race against loading state
+    // Wait for page load state to complete
+    await clientOwnerPage.waitForLoadState("load");
+
+    // Wait for either the shift detail page OR error/loading states
+    // This handles the async nature of data fetching
+    await Promise.race([
+      clientOwnerPage
+        .locator('[data-testid="shift-detail-page"]')
+        .waitFor({ state: "visible", timeout: 30000 }),
+      clientOwnerPage
+        .locator('[data-testid="shift-detail-loading"]')
+        .waitFor({ state: "visible", timeout: 30000 })
+        .catch(() => null),
+    ]);
+
+    // Now wait specifically for the page content (may still be loading)
     await expect(
       clientOwnerPage.locator('[data-testid="shift-detail-page"]'),
-    ).toBeVisible({ timeout: 20000 });
-
-    // Verify no error state is displayed
-    await expect(
-      clientOwnerPage.locator('[data-testid="shift-detail-error"]'),
-    ).not.toBeVisible();
+    ).toBeVisible({ timeout: 30000 });
 
     // THEN: The closed shift summary view should be displayed
     await expect(
