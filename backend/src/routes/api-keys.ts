@@ -501,6 +501,23 @@ export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
         const message =
           error instanceof Error ? error.message : "Unknown error";
         console.error("[ApiKeyRoutes] Update error:", message);
+
+        // Handle Prisma P2025 "Record to update not found" error
+        if (
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === "P2025"
+        ) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "API key not found",
+            },
+          });
+        }
+
         return reply.code(500).send({
           success: false,
           error: {
@@ -763,6 +780,23 @@ export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
         const message =
           error instanceof Error ? error.message : "Unknown error";
         console.error("[ApiKeyRoutes] Suspend error:", message);
+
+        // Handle Prisma P2025 "Record to update not found" error
+        if (
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === "P2025"
+        ) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "API key not found",
+            },
+          });
+        }
+
         return reply.code(500).send({
           success: false,
           error: {
@@ -808,10 +842,34 @@ export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
           error instanceof Error ? error.message : "Unknown error";
         console.error("[ApiKeyRoutes] Reactivate error:", message);
 
+        // Handle "API key not found" error
+        if (message.includes("not found")) {
+          return reply.code(404).send({
+            success: false,
+            error: { code: "NOT_FOUND", message: "API key not found" },
+          });
+        }
+
         if (message.includes("Cannot reactivate")) {
           return reply.code(400).send({
             success: false,
             error: { code: "INVALID_STATE", message },
+          });
+        }
+
+        // Handle Prisma P2025 "Record to update not found" error
+        if (
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === "P2025"
+        ) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "API key not found",
+            },
           });
         }
 

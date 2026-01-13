@@ -563,8 +563,18 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
       );
 
       // THEN: Response is successful
-      expect(response.status(), "Expected 200 OK status").toBe(200);
       const body = await response.json();
+      // Log error details for CI debugging if status is not 200
+      if (response.status() !== 200) {
+        console.error(
+          `[APIKEY-API-030] Update failed with status ${response.status()}:`,
+          JSON.stringify(body, null, 2),
+        );
+      }
+      expect(
+        response.status(),
+        `Expected 200 OK status, got: ${JSON.stringify(body)}`,
+      ).toBe(200);
       expect(body.success, "Response should indicate success").toBe(true);
 
       // AND: Verify the update by fetching details
@@ -930,10 +940,19 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
       const createdKey = (await createResponse.json()).data;
 
       // Suspend first
-      await superadminApiRequest.post(
+      const suspendResponse = await superadminApiRequest.post(
         `/api/v1/admin/api-keys/${createdKey.api_key_id}/suspend`,
         { reason: "Pre-reactivation suspension" },
       );
+      // Log suspend response for debugging if it fails
+      if (suspendResponse.status() !== 200) {
+        const suspendBody = await suspendResponse.json();
+        console.error(
+          `[APIKEY-API-061] Suspend failed with status ${suspendResponse.status()}:`,
+          JSON.stringify(suspendBody, null, 2),
+        );
+      }
+      expect(suspendResponse.status(), "Suspend should succeed").toBe(200);
 
       // WHEN: Reactivating the key
       const response = await superadminApiRequest.post(
@@ -942,8 +961,18 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
       );
 
       // THEN: Response is successful
-      expect(response.status(), "Expected 200 OK status").toBe(200);
       const body = await response.json();
+      // Log error details for CI debugging if status is not 200
+      if (response.status() !== 200) {
+        console.error(
+          `[APIKEY-API-061] Reactivate failed with status ${response.status()}:`,
+          JSON.stringify(body, null, 2),
+        );
+      }
+      expect(
+        response.status(),
+        `Expected 200 OK status, got: ${JSON.stringify(body)}`,
+      ).toBe(200);
       expect(body.success, "Response should indicate success").toBe(true);
 
       // AND: Key is now active again
