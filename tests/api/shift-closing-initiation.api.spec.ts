@@ -60,17 +60,20 @@ async function createTestCashier(
 
 /**
  * Creates a POS terminal for testing
+ * Uses crypto.randomUUID() for unique device_id to prevent collisions in parallel tests
  */
 async function createPOSTerminal(
   prismaClient: any,
   storeId: string,
   name?: string,
 ): Promise<{ pos_terminal_id: string; store_id: string; name: string }> {
+  // Use crypto.randomUUID() for guaranteed uniqueness across parallel test runs
+  const uniqueId = crypto.randomUUID();
   const terminal = await prismaClient.pOSTerminal.create({
     data: {
       store_id: storeId,
-      name: name || `Terminal ${Date.now()}`,
-      device_id: `device-${Date.now()}`,
+      name: name || `Terminal-${uniqueId.slice(0, 8)}`,
+      device_id: `device-${uniqueId}`,
       deleted_at: null, // Active terminal (not soft-deleted)
     },
   });
@@ -159,8 +162,9 @@ async function createCashTransaction(
   userId: string,
   amount: number,
 ): Promise<{ transaction_id: string }> {
-  // Generate a unique public_id for the transaction
-  const publicId = `TST-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+  // Generate a unique public_id (max 30 chars) using crypto.randomUUID() for guaranteed uniqueness
+  // Use first 25 chars of UUID + "TST-" prefix = 29 chars (within 30 char limit)
+  const publicId = `TST-${crypto.randomUUID().replace(/-/g, "").slice(0, 25)}`;
 
   // Create transaction with required fields
   // Note: transaction.cashier_id references users.user_id (not cashiers.cashier_id)

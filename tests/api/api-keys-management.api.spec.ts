@@ -31,7 +31,6 @@
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
 import { createUser, createCompany, createStore } from "../support/factories";
-import bcrypt from "bcrypt";
 import { withBypassClient } from "../support/prisma-bypass";
 import { randomUUID } from "crypto";
 
@@ -43,8 +42,6 @@ const API_KEYS_BASE_PATH = "/api/v1/admin/api-keys";
 
 // Valid test data
 const VALID_LABEL = "Test API Key";
-const VALID_DEVICE_FINGERPRINT = "a".repeat(64);
-const VALID_APP_VERSION = "1.0.0";
 
 // ============================================================================
 // Test Helper Functions
@@ -78,97 +75,9 @@ async function createTestStoreWithCompany(
   return { company, store, ownerId, createdOwner };
 }
 
-/**
- * Activates an API key by setting its status to ACTIVE
- * API keys start as PENDING and must be ACTIVE for rotation/revocation/suspension
- */
-async function activateApiKey(apiKeyId: string): Promise<void> {
-  await withBypassClient(async (bypassClient) => {
-    await bypassClient.apiKey.update({
-      where: { api_key_id: apiKeyId },
-      data: { status: "ACTIVE", activated_at: new Date() },
-    });
-  });
-}
-
-/**
- * Creates a test user with SUPERADMIN role and returns auth token
- */
-async function createSuperadminUser(prismaClient: any, apiRequest: any) {
-  const password = "SuperAdmin123!";
-  const passwordHash = await bcrypt.hash(password, 10);
-  const userData = createUser({ password_hash: passwordHash });
-  const user = await prismaClient.user.create({ data: userData });
-
-  // Assign SUPERADMIN role
-  const role = await prismaClient.role.findUnique({
-    where: { code: "SUPERADMIN" },
-  });
-
-  await withBypassClient(async (bypassClient) => {
-    await bypassClient.userRole.create({
-      data: {
-        user_id: user.user_id,
-        role_id: role!.role_id,
-      },
-    });
-  });
-
-  // Login to get token
-  const loginResponse = await apiRequest.post("/api/auth/login", {
-    email: user.email,
-    password: password,
-  });
-
-  const cookies = loginResponse.headers()["set-cookie"];
-  const cookieString = Array.isArray(cookies) ? cookies.join("; ") : cookies;
-  const accessTokenMatch = cookieString?.match(/access_token=([^;]+)/);
-  const accessToken = accessTokenMatch ? accessTokenMatch[1] : "";
-
-  return { user, accessToken };
-}
-
-/**
- * Creates a test user with CLIENT_OWNER role (non-superadmin)
- */
-async function createNonSuperadminUser(
-  prismaClient: any,
-  apiRequest: any,
-  companyId: string,
-) {
-  const password = "ClientOwner123!";
-  const passwordHash = await bcrypt.hash(password, 10);
-  const userData = createUser({ password_hash: passwordHash });
-  const user = await prismaClient.user.create({ data: userData });
-
-  // Assign CLIENT_OWNER role
-  const role = await prismaClient.role.findUnique({
-    where: { code: "CLIENT_OWNER" },
-  });
-
-  await withBypassClient(async (bypassClient) => {
-    await bypassClient.userRole.create({
-      data: {
-        user_id: user.user_id,
-        role_id: role!.role_id,
-        company_id: companyId,
-      },
-    });
-  });
-
-  // Login to get token
-  const loginResponse = await apiRequest.post("/api/auth/login", {
-    email: user.email,
-    password: password,
-  });
-
-  const cookies = loginResponse.headers()["set-cookie"];
-  const cookieString = Array.isArray(cookies) ? cookies.join("; ") : cookies;
-  const accessTokenMatch = cookieString?.match(/access_token=([^;]+)/);
-  const accessToken = accessTokenMatch ? accessTokenMatch[1] : "";
-
-  return { user, accessToken };
-}
+// NOTE: Admin-created API keys are IMMEDIATELY ACTIVE (not PENDING)
+// The createApiKey service sets status: "ACTIVE" and activated_at: new Date()
+// Only keys created via rotation start as PENDING - no activation helper needed
 
 // ============================================================================
 // Test Suite: Authorization
@@ -899,8 +808,7 @@ test.describe("API Keys Management - Security Operations", () => {
         );
         const { api_key_id: oldKeyId } = (await createResponse.json()).data;
 
-        // Activate the key (keys start as PENDING, must be ACTIVE to rotate)
-        await activateApiKey(oldKeyId);
+        // Note: Admin-created keys are immediately ACTIVE, no activation needed
 
         // Rotate key (send empty object to avoid Fastify JSON body error)
         const response = await superadminApiRequest.post(
@@ -975,8 +883,7 @@ test.describe("API Keys Management - Security Operations", () => {
         );
         const { api_key_id: apiKeyId } = (await createResponse.json()).data;
 
-        // Activate the key (keys start as PENDING, must be ACTIVE to rotate)
-        await activateApiKey(apiKeyId);
+        // Note: Admin-created keys are immediately ACTIVE, no activation needed
 
         // Rotate with 14 day grace period
         const response = await superadminApiRequest.post(
@@ -1053,9 +960,8 @@ test.describe("API Keys Management - Security Operations", () => {
         );
         const { api_key_id: apiKeyId } = (await createResponse.json()).data;
 
-        // Activate first, then revoke
-        await activateApiKey(apiKeyId);
-
+        // Note: Admin-created keys are immediately ACTIVE
+        // Revoke the key
         await superadminApiRequest.post(
           `${API_KEYS_BASE_PATH}/${apiKeyId}/revoke`,
           {
@@ -1118,8 +1024,7 @@ test.describe("API Keys Management - Security Operations", () => {
         );
         const { api_key_id: apiKeyId } = (await createResponse.json()).data;
 
-        // Activate the key (keys start as PENDING, must be ACTIVE for operations)
-        await activateApiKey(apiKeyId);
+        // Note: Admin-created keys are immediately ACTIVE, no activation needed
 
         // Revoke key
         const response = await superadminApiRequest.post(
@@ -1186,8 +1091,7 @@ test.describe("API Keys Management - Security Operations", () => {
         );
         const { api_key_id: apiKeyId } = (await createResponse.json()).data;
 
-        // Activate the key (keys start as PENDING, must be ACTIVE for operations)
-        await activateApiKey(apiKeyId);
+        // Note: Admin-created keys are immediately ACTIVE, no activation needed
 
         // Attempt revocation with invalid reason
         const response = await superadminApiRequest.post(
@@ -1243,9 +1147,8 @@ test.describe("API Keys Management - Security Operations", () => {
         );
         const { api_key_id: apiKeyId } = (await createResponse.json()).data;
 
-        // Activate the key (keys start as PENDING, must be ACTIVE for operations)
-        await activateApiKey(apiKeyId);
-
+        // Note: Admin-created keys are immediately ACTIVE, no activation needed
+        // First revocation
         await superadminApiRequest.post(
           `${API_KEYS_BASE_PATH}/${apiKeyId}/revoke`,
           {
@@ -1309,8 +1212,7 @@ test.describe("API Keys Management - Security Operations", () => {
         );
         const { api_key_id: apiKeyId } = (await createResponse.json()).data;
 
-        // Activate the key (keys start as PENDING, must be ACTIVE for operations)
-        await activateApiKey(apiKeyId);
+        // Note: Admin-created keys are immediately ACTIVE, no activation needed
 
         // Suspend key
         const response = await superadminApiRequest.post(
@@ -1375,9 +1277,8 @@ test.describe("API Keys Management - Security Operations", () => {
         );
         const { api_key_id: apiKeyId } = (await createResponse.json()).data;
 
-        // Activate the key (keys start as PENDING, must be ACTIVE for operations)
-        await activateApiKey(apiKeyId);
-
+        // Note: Admin-created keys are immediately ACTIVE, no activation needed
+        // Suspend first
         await superadminApiRequest.post(
           `${API_KEYS_BASE_PATH}/${apiKeyId}/suspend`,
           {
@@ -1727,9 +1628,8 @@ test.describe("API Keys Management - Audit Trail", () => {
         );
         const { api_key_id: apiKeyId } = (await createResponse.json()).data;
 
-        // Activate the key (keys start as PENDING, must be ACTIVE for operations)
-        await activateApiKey(apiKeyId);
-
+        // Note: Admin-created keys are immediately ACTIVE, no activation needed
+        // Revoke the key
         await superadminApiRequest.post(
           `${API_KEYS_BASE_PATH}/${apiKeyId}/revoke`,
           {

@@ -47,6 +47,10 @@ import { withBypassClient } from "../support/prisma-bypass";
 // IMPORTANT: Run with --workers=1 to avoid rate limiting across parallel describe blocks
 const bulkImportEnabled = process.env.BULK_IMPORT_TESTS === "true";
 
+// CI environments are slower - use longer timeouts
+const isCI = process.env.CI === "true";
+const CI_TIMEOUT_MULTIPLIER = isCI ? 2 : 1;
+
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
@@ -228,7 +232,7 @@ async function waitForJobCompletion(
   apiRequest: any,
   jobId: string,
   expectedStatus: string | string[] = ["COMPLETED", "FAILED"],
-  maxWaitMs: number = 30000,
+  maxWaitMs: number = 30000 * CI_TIMEOUT_MULTIPLIER,
   pollIntervalMs: number = 500,
 ): Promise<{ status: string; job: any; errors: any[] } | null> {
   const startTime = Date.now();

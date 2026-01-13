@@ -44,6 +44,10 @@ import { PrismaClient } from "@prisma/client";
 // Set BULK_IMPORT_TESTS=true to run these tests
 const bulkImportEnabled = process.env.BULK_IMPORT_TESTS === "true";
 
+// CI environments are slower - use longer timeouts
+const isCI = process.env.CI === "true";
+const CI_TIMEOUT_MULTIPLIER = isCI ? 2 : 1;
+
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
@@ -189,12 +193,13 @@ function createJSONContent(transactions: any[]): string {
  * Wait for job to reach a specific status with optional total_rows check.
  * For integration tests, we need to wait for the async processing to populate total_rows.
  * @param requireTotalRows - If true, also waits for total_rows > 0
+ * @note Timeouts are automatically extended in CI environments
  */
 async function waitForJobStatus(
   apiRequest: any,
   jobId: string,
   targetStatus: string | string[],
-  maxWaitMs: number = 15000,
+  maxWaitMs: number = 15000 * CI_TIMEOUT_MULTIPLIER,
   pollIntervalMs: number = 500,
   requireTotalRows: boolean = false,
 ): Promise<any> {
@@ -232,11 +237,12 @@ async function waitForJobStatus(
 /**
  * Wait for job to complete (COMPLETED or FAILED status)
  * Optimized poll intervals for faster test execution.
+ * @note Timeouts are automatically extended in CI environments
  */
 async function waitForJobCompletion(
   apiRequest: any,
   jobId: string,
-  maxWaitMs: number = 20000,
+  maxWaitMs: number = 20000 * CI_TIMEOUT_MULTIPLIER,
   pollIntervalMs: number = 300,
 ): Promise<{ status: string; job: any; errors: any[] } | null> {
   const startTime = Date.now();
@@ -882,20 +888,41 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     ).toBe("PENDING");
 
     // Wait for job to complete (with extended timeout for RabbitMQ operations)
+    // CI environments need longer timeouts due to slower infrastructure
     const completionResult = await waitForJobCompletion(
       superadminApiRequest,
       jobId,
-      30000, // 30 seconds - allow time for RabbitMQ operations
+      30000 * CI_TIMEOUT_MULTIPLIER, // 30-60 seconds - allow time for RabbitMQ operations
     );
 
     // THEN: Job should be COMPLETED (not FAILED)
     expect(
       completionResult,
-      "Job should complete within timeout. If this fails, check RabbitMQ connectivity and worker status.",
+      `Job should complete within timeout (${30 * CI_TIMEOUT_MULTIPLIER}s). ` +
+        `If this fails, check RabbitMQ connectivity and worker status. ` +
+        `CI=${isCI}, jobId=${jobId}`,
     ).not.toBeNull();
+
+    // Log job details for CI debugging
+    if (completionResult && completionResult.status !== "COMPLETED") {
+      console.log(
+        `[DEBUG] Job did not complete successfully:`,
+        JSON.stringify(
+          {
+            status: completionResult.status,
+            job: completionResult.job,
+            errors: completionResult.errors?.slice(0, 5), // First 5 errors
+          },
+          null,
+          2,
+        ),
+      );
+    }
+
     expect(
       completionResult!.status,
-      "Job should be COMPLETED (not FAILED). If FAILED, check error_summary for details.",
+      `Job should be COMPLETED (not ${completionResult?.status}). ` +
+        `If FAILED, check error_summary: ${JSON.stringify(completionResult?.errors?.slice(0, 3))}`,
     ).toBe("COMPLETED");
 
     const job = completionResult!.job;
@@ -949,8 +976,9 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     // THEN: Verify RabbitMQ enqueueing by checking if worker processed transactions
     // This is optional - if worker is not running, enqueueing is still verified above
     // Poll with reasonable timeout to allow worker processing
+    // CI environments need longer timeouts due to slower infrastructure
     let dbTransactions: any[] = [];
-    const maxWorkerAttempts = 10; // 10 attempts = 5 seconds total
+    const maxWorkerAttempts = isCI ? 20 : 10; // 10-20 attempts = 5-10 seconds total
     const workerPollInterval = 500;
 
     for (let i = 0; i < maxWorkerAttempts; i++) {

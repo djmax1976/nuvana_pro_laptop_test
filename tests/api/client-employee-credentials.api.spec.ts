@@ -1054,7 +1054,14 @@ test.describe("Employee Password Reset API", () => {
           password: "TestPass123!",
         },
       );
-      const employeeId = (await createResponse.json()).data.user_id;
+
+      const createBody = await createResponse.json();
+      if (createResponse.status() !== 201) {
+        throw new Error(
+          `Employee creation failed: ${JSON.stringify(createBody)}`,
+        );
+      }
+      const employeeId = createBody.data.user_id;
 
       // WHEN: Resetting with password without number
       const response = await clientUserApiRequest.put(

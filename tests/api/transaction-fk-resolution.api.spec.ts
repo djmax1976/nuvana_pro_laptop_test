@@ -92,8 +92,10 @@ async function waitForTransaction(
   pollIntervalMs: number = 500,
 ): Promise<any | null> {
   const startTime = Date.now();
+  let pollCount = 0;
 
   while (Date.now() - startTime < maxWaitMs) {
+    pollCount++;
     try {
       const transaction = await prismaClient.transaction.findUnique({
         where: { transaction_id: transactionId },
@@ -104,15 +106,26 @@ async function waitForTransaction(
       });
 
       if (transaction) {
+        console.log(
+          `[waitForTransaction] Found transaction ${transactionId} after ${pollCount} polls (${Date.now() - startTime}ms)`,
+        );
         return transaction;
       }
-    } catch {
-      // Continue polling on error
+    } catch (error) {
+      // Log error but continue polling
+      console.warn(
+        `[waitForTransaction] Poll ${pollCount} error:`,
+        error instanceof Error ? error.message : "Unknown error",
+      );
     }
 
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 
+  console.warn(
+    `[waitForTransaction] Timeout waiting for transaction ${transactionId} after ${pollCount} polls (${maxWaitMs}ms). ` +
+      `Ensure the transaction worker is running: npm run worker:transaction`,
+  );
   return null;
 }
 
@@ -199,6 +212,28 @@ async function ensureSystemDepartment(
 // Skip tests if worker is not running - set WORKER_RUNNING=true to enable
 const workerRunning = process.env.WORKER_RUNNING === "true";
 
+/**
+ * Enterprise-grade assertion helper for transaction existence.
+ * Provides detailed diagnostic message when assertion fails.
+ *
+ * @param transaction - Transaction object from waitForTransaction
+ * @param correlationId - The correlation ID used for lookup
+ */
+function assertTransactionExists(
+  transaction: any,
+  correlationId: string,
+): asserts transaction is NonNullable<typeof transaction> {
+  if (transaction === null || transaction === undefined) {
+    throw new Error(
+      `Transaction not found for correlation_id ${correlationId}. ` +
+        `This typically means the transaction worker is not running. ` +
+        `Ensure you start the worker process: npm run worker:transaction\n` +
+        `The API returned 202 Accepted, meaning the message was queued for async processing, ` +
+        `but without a running worker, the transaction record is never created.`,
+    );
+  }
+}
+
 // =============================================================================
 // TEST SUITES
 // =============================================================================
@@ -275,7 +310,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
       // Enterprise-grade: Comprehensive verification
-      expect(transaction).not.toBeNull();
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.payments).toHaveLength(1);
 
       const payment = transaction?.payments[0];
@@ -359,7 +394,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
       // Enterprise-grade: Comprehensive verification
-      expect(transaction).not.toBeNull();
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.payments).toHaveLength(1);
 
       const payment = transaction?.payments[0];
@@ -439,7 +474,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
       // Enterprise-grade: Comprehensive verification of graceful degradation
-      expect(transaction).not.toBeNull();
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.payments).toHaveLength(1);
 
       const payment = transaction?.payments[0];
@@ -518,7 +553,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
       // Enterprise-grade: Comprehensive verification
-      expect(transaction).not.toBeNull();
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.line_items).toHaveLength(1);
 
       const lineItem = transaction?.line_items[0];
@@ -593,7 +628,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
       // Enterprise-grade: Comprehensive verification of optional department handling
-      expect(transaction).not.toBeNull();
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.line_items).toHaveLength(1);
 
       transaction?.line_items.forEach((li: any) => {
@@ -672,7 +707,11 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const correlationId = responseBody.data.correlation_id;
 
       // Wait for worker to process transaction using correlation_id
-      await waitForTransaction(prismaClient, correlationId);
+      const processedTransaction = await waitForTransaction(
+        prismaClient,
+        correlationId,
+      );
+      assertTransactionExists(processedTransaction, correlationId);
 
       // Query transactions with include_payments=true
       const queryResponse = await corporateAdminApiRequest.get(
@@ -682,7 +721,11 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       expect(queryResponse.status()).toBe(200);
 
       const data = await queryResponse.json();
-      expect(data.data.transactions).toHaveLength(1);
+      expect(
+        data.data.transactions,
+        `Expected 1 transaction but got ${data.data.transactions?.length || 0}. ` +
+          `Worker may not have processed the transaction.`,
+      ).toHaveLength(1);
 
       const transaction = data.data.transactions[0];
       const payments = transaction.payments;
@@ -766,7 +809,11 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const correlationId = responseBody.data.correlation_id;
 
       // Wait for worker to process transaction using correlation_id
-      await waitForTransaction(prismaClient, correlationId);
+      const processedTransaction = await waitForTransaction(
+        prismaClient,
+        correlationId,
+      );
+      assertTransactionExists(processedTransaction, correlationId);
 
       // Query with include_line_items=true
       const queryResponse = await corporateAdminApiRequest.get(
@@ -776,7 +823,11 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       expect(queryResponse.status()).toBe(200);
 
       const data = await queryResponse.json();
-      expect(data.data.transactions).toHaveLength(1);
+      expect(
+        data.data.transactions,
+        `Expected 1 transaction but got ${data.data.transactions?.length || 0}. ` +
+          `Worker may not have processed the transaction.`,
+      ).toHaveLength(1);
 
       const transaction = data.data.transactions[0];
       const lineItems = transaction.line_items;
@@ -868,7 +919,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
       // Enterprise-grade: Comprehensive verification
-      expect(transaction).not.toBeNull();
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.line_items).toHaveLength(2);
 
       // Sort line items by SKU for predictable order
@@ -947,7 +998,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
       // Enterprise-grade: Verify graceful degradation
-      expect(transaction).not.toBeNull();
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.line_items).toHaveLength(1);
 
       const lineItem = transaction?.line_items[0];
@@ -1034,7 +1085,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
       // Enterprise-grade: Verify tender_code takes precedence
-      expect(transaction).not.toBeNull();
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.payments).toHaveLength(1);
 
       const payment = transaction?.payments[0];
@@ -1119,7 +1170,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
       // Enterprise-grade: Verify both payments have correct FK resolution
-      expect(transaction).not.toBeNull();
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.payments).toHaveLength(2);
 
       // Sort payments by method for predictable order

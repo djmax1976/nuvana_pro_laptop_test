@@ -473,14 +473,21 @@ test.describe("SHIFT-SUMMARY-API: Authorization", () => {
     // GIVEN: A shift in a DIFFERENT company than the regularUser's company
     // Note: This tests RLS enforcement - users cannot access shifts in other companies
     // The regularUser has SHIFT_READ permission but for their OWN company only
+    // NOTE: Use "Test " prefix for cleanup compatibility in CI
     const owner = await prismaClient.user.create({
-      data: createUser({ name: "Shift Owner" }),
+      data: createUser({ name: "Test Shift Owner" }),
     });
     const company = await prismaClient.company.create({
-      data: createCompany({ owner_user_id: owner.user_id }),
+      data: createCompany({
+        name: `Test RLS Company ${Date.now()}`,
+        owner_user_id: owner.user_id,
+      }),
     });
     const store = await prismaClient.store.create({
-      data: createStore({ company_id: company.company_id }),
+      data: createStore({
+        company_id: company.company_id,
+        name: `Test RLS Store ${Date.now()}`,
+      }),
     });
     const terminal = await createPOSTerminal(prismaClient, store.store_id);
     const cashier = await createTestCashier(
@@ -809,19 +816,20 @@ test.describe("SHIFT-SUMMARY-API: Multi-tenant Isolation", () => {
     prismaClient,
   }) => {
     // GIVEN: A shift from a different company
+    // NOTE: Use "Test " prefix for cleanup compatibility in CI
     const otherOwner = await prismaClient.user.create({
-      data: createUser({ name: `Other Owner ${Date.now()}` }),
+      data: createUser({ name: `Test Other Owner ${Date.now()}` }),
     });
     const otherCompany = await prismaClient.company.create({
       data: createCompany({
-        name: `Other Company ${Date.now()}`,
+        name: `Test Other Company ${Date.now()}`,
         owner_user_id: otherOwner.user_id,
       }),
     });
     const otherStore = await prismaClient.store.create({
       data: createStore({
         company_id: otherCompany.company_id,
-        name: `Other Store ${Date.now()}`,
+        name: `Test Other Store ${Date.now()}`,
       }),
     });
     const otherTerminal = await createPOSTerminal(
@@ -2287,14 +2295,21 @@ test.describe("SHIFT-SUMMARY-API: Security & Injection Prevention", () => {
     prismaClient,
   }) => {
     // GIVEN: A shift belonging to a DIFFERENT company/store
+    // NOTE: Use "Test " prefix for cleanup compatibility in CI
     const otherOwner = await prismaClient.user.create({
-      data: createUser({ name: "Other Company Owner" }),
+      data: createUser({ name: "Test Other Company Owner" }),
     });
     const otherCompany = await prismaClient.company.create({
-      data: createCompany({ owner_user_id: otherOwner.user_id }),
+      data: createCompany({
+        name: `Test Cross-Tenant Company ${Date.now()}`,
+        owner_user_id: otherOwner.user_id,
+      }),
     });
     const otherStore = await prismaClient.store.create({
-      data: createStore({ company_id: otherCompany.company_id }),
+      data: createStore({
+        company_id: otherCompany.company_id,
+        name: `Test Cross-Tenant Store ${Date.now()}`,
+      }),
     });
     const otherTerminal = await createPOSTerminal(
       prismaClient,

@@ -920,8 +920,8 @@ export const test = base.extend<RBACFixture>({
         where: { company_id: company.company_id },
       });
 
-      // 7. Delete company last
-      await bypassClient.company.delete({
+      // 7. Delete company last (use deleteMany for idempotent cleanup in parallel test runs)
+      await bypassClient.company.deleteMany({
         where: { company_id: company.company_id },
       });
     });

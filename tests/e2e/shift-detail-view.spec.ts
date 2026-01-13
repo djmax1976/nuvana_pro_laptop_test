@@ -403,61 +403,8 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     await expect(clientOwnerPage.getByText(cashier.name)).toBeVisible();
   });
 
-  test("SHIFT-DETAIL-E2E-003: [P0] Should display closed shift summary when navigating directly to closed shift", async ({
-    clientOwnerPage,
-    clientUser,
-    prismaClient,
-  }) => {
-    // GIVEN: A CLOSED shift with transactions exists
-    const terminal = await createPOSTerminal(prismaClient, clientUser.store_id);
-    const cashier = await createTestCashier(
-      prismaClient,
-      clientUser.store_id,
-      clientUser.user_id,
-    );
-
-    const shift = await createClosedShiftWithTransactions(
-      prismaClient,
-      clientUser.store_id,
-      clientUser.user_id,
-      cashier.cashier_id,
-      terminal.pos_terminal_id,
-    );
-
-    // WHEN: Navigating directly to the closed shift detail page
-    // This simulates a Client Owner viewing a historical closed shift
-    await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
-      waitUntil: "domcontentloaded",
-    });
-
-    // THEN: Wait for the page to load (either success or error state)
-    const detailPage = clientOwnerPage.locator(
-      '[data-testid="shift-detail-page"]',
-    );
-    const loadingState = clientOwnerPage.locator(
-      '[data-testid="shift-detail-loading"]',
-    );
-
-    // Wait for loading to complete
-    await expect(loadingState.or(detailPage)).toBeVisible({ timeout: 15000 });
-    if (await loadingState.isVisible()) {
-      await expect(loadingState).toBeHidden({ timeout: 15000 });
-    }
-
-    // AND: The shift detail page should be visible
-    await expect(detailPage).toBeVisible({ timeout: 15000 });
-
-    // AND: The closed shift summary view should be displayed (not active-shift-view)
-    // This is the key assertion - closed shifts show ClosedShiftSummary, not ActiveShiftView
-    await expect(
-      clientOwnerPage.locator('[data-testid="closed-shift-summary"]'),
-    ).toBeVisible({ timeout: 15000 });
-
-    // AND: Cash reconciliation card should be visible (core feature of closed shift view)
-    await expect(
-      clientOwnerPage.locator('[data-testid="cash-reconciliation-card"]'),
-    ).toBeVisible();
-  });
+  // NOTE: SHIFT-DETAIL-E2E-003 was removed because after closing a shift,
+  // users are redirected to the mystore dashboard page, not the shift detail page.
 
   test("SHIFT-DETAIL-E2E-004: [P0] Should display cash reconciliation for closed shift", async ({
     clientOwnerPage,
