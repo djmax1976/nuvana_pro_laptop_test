@@ -425,6 +425,24 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     );
 
     // WHEN: Navigating directly to the shift detail page
+    // Re-ensure auth state before navigation (CI reliability fix)
+    // The addInitScript from fixture may race with page hydration in slower CI environments
+    await clientOwnerPage.evaluate((userData) => {
+      localStorage.setItem(
+        "auth_session",
+        JSON.stringify({
+          user: {
+            id: userData.user_id,
+            email: userData.email,
+            name: userData.name,
+            roles: userData.roles,
+          },
+          authenticated: true,
+          isClientUser: true,
+        }),
+      );
+    }, clientUser);
+
     // Use domcontentloaded to avoid racing with auth validation during networkidle
     await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
       waitUntil: "domcontentloaded",
@@ -433,24 +451,36 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     // Wait for page load state to complete
     await clientOwnerPage.waitForLoadState("load");
 
-    // Wait for either the shift detail page OR error/loading states
-    // This handles the async nature of data fetching
+    // THEN: Wait for shift detail page to render
+    // Handle possible states: loading -> success OR redirect to login (auth failure)
+    // First, wait for any meaningful content to appear
+    const shiftDetailPage = clientOwnerPage.locator(
+      '[data-testid="shift-detail-page"]',
+    );
+    const shiftDetailLoading = clientOwnerPage.locator(
+      '[data-testid="shift-detail-loading"]',
+    );
+    const loginPage = clientOwnerPage.locator('text="Welcome back"');
+
+    // Wait for either the page content, loading state, or login redirect
     await Promise.race([
-      clientOwnerPage
-        .locator('[data-testid="shift-detail-page"]')
-        .waitFor({ state: "visible", timeout: 30000 }),
-      clientOwnerPage
-        .locator('[data-testid="shift-detail-loading"]')
-        .waitFor({ state: "visible", timeout: 30000 })
-        .catch(() => null),
+      shiftDetailPage.waitFor({ state: "visible", timeout: 30000 }),
+      shiftDetailLoading.waitFor({ state: "visible", timeout: 30000 }),
+      loginPage.waitFor({ state: "visible", timeout: 30000 }),
     ]);
 
-    // Now wait specifically for the page content (may still be loading)
-    await expect(
-      clientOwnerPage.locator('[data-testid="shift-detail-page"]'),
-    ).toBeVisible({ timeout: 30000 });
+    // If redirected to login, fail early with clear message
+    const isOnLoginPage = await loginPage.isVisible();
+    if (isOnLoginPage) {
+      throw new Error(
+        "Authentication failed - redirected to login page. This indicates the test fixture did not properly authenticate the client owner user.",
+      );
+    }
 
-    // THEN: The closed shift summary view should be displayed
+    // Wait for the actual shift detail page content
+    await expect(shiftDetailPage).toBeVisible({ timeout: 30000 });
+
+    // AND: The closed shift summary view should be displayed
     await expect(
       clientOwnerPage.locator('[data-testid="closed-shift-summary"]'),
     ).toBeVisible({ timeout: 15000 });
