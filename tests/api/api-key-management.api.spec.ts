@@ -21,22 +21,46 @@ async function createTestStoreWithCompany(
 }
 
 /**
- * Cleans up test store and associated data
+ * Cleans up test store and associated data with robust error handling.
+ * This ensures cleanup doesn't fail even if some records are missing.
  */
 async function cleanupTestStore(storeId: string, companyId: string) {
   await withBypassClient(async (bypassClient) => {
-    await bypassClient.apiKeyAuditEvent.deleteMany({
-      where: { api_key: { store_id: storeId } },
-    });
-    await bypassClient.apiKey.deleteMany({
-      where: { store_id: storeId },
-    });
-    await bypassClient.store.delete({
-      where: { store_id: storeId },
-    });
-    await bypassClient.company.delete({
-      where: { company_id: companyId },
-    });
+    // Step 1: Delete audit events first (FK constraint)
+    try {
+      await bypassClient.apiKeyAuditEvent.deleteMany({
+        where: { api_key: { store_id: storeId } },
+      });
+    } catch {
+      // Ignore errors - records may not exist
+    }
+
+    // Step 2: Delete API keys
+    try {
+      await bypassClient.apiKey.deleteMany({
+        where: { store_id: storeId },
+      });
+    } catch {
+      // Ignore errors - records may not exist
+    }
+
+    // Step 3: Delete store
+    try {
+      await bypassClient.store.delete({
+        where: { store_id: storeId },
+      });
+    } catch {
+      // Ignore errors - record may not exist
+    }
+
+    // Step 4: Delete company
+    try {
+      await bypassClient.company.delete({
+        where: { company_id: companyId },
+      });
+    } catch {
+      // Ignore errors - record may not exist
+    }
   });
 }
 
@@ -279,33 +303,55 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-API-012: [P1] GET /api/v1/admin/api-keys - should filter by store_id", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    const store = await prismaClient.store.findFirst({
-      where: {},
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
-    }
-
-    // WHEN: Requesting API keys filtered by store_id
-    const response = await superadminApiRequest.get(
-      `/api/v1/admin/api-keys?store_id=${store.store_id}`,
+    // Create a fresh store to ensure test isolation
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
     );
 
-    // THEN: Response is successful
-    expect(response.status(), "Expected 200 OK status").toBe(200);
-    const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
+    try {
+      // Create an API key for this store so we have data to filter
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Filter Test Key ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
 
-    // AND: All returned keys belong to the specified store
-    for (const item of body.data.items) {
-      expect(
-        item.store_id,
-        `Key should belong to store ${store.store_id}`,
-      ).toBe(store.store_id);
+      // WHEN: Requesting API keys filtered by store_id
+      const response = await superadminApiRequest.get(
+        `/api/v1/admin/api-keys?store_id=${store.store_id}`,
+      );
+
+      // THEN: Response is successful
+      expect(response.status(), "Expected 200 OK status").toBe(200);
+      const body = await response.json();
+      expect(body.success, "Response should indicate success").toBe(true);
+
+      // AND: All returned keys belong to the specified store
+      for (const item of body.data.items) {
+        expect(
+          item.store_id,
+          `Key should belong to store ${store.store_id}`,
+        ).toBe(store.store_id);
+      }
+
+      // Cleanup - revoke the key
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
   });
 
@@ -1162,26 +1208,31 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-VAL-002: [P1] POST /api/v1/admin/api-keys - should reject label exceeding max length", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    const store = await prismaClient.store.findFirst({
-      where: {},
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to ensure test isolation
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      // WHEN: Creating API key with label exceeding 100 characters
+      const longLabel = "A".repeat(101);
+      const response = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: longLabel,
+        },
+      );
+
+      // THEN: Request is rejected with 400 Bad Request
+      expect(response.status(), "Expected 400 Bad Request status").toBe(400);
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    // WHEN: Creating API key with label exceeding 100 characters
-    const longLabel = "A".repeat(101);
-    const response = await superadminApiRequest.post("/api/v1/admin/api-keys", {
-      store_id: store.store_id,
-      label: longLabel,
-    });
-
-    // THEN: Request is rejected with 400 Bad Request
-    expect(response.status(), "Expected 400 Bad Request status").toBe(400);
   });
 
   test("APIKEY-VAL-003: [P1] POST /api/v1/admin/api-keys/:keyId/rotate - should reject invalid grace_period_days", async ({

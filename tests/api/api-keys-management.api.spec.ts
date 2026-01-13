@@ -75,6 +75,58 @@ async function createTestStoreWithCompany(
   return { company, store, ownerId, createdOwner };
 }
 
+/**
+ * Cleans up test store and associated data with robust error handling.
+ * This ensures cleanup doesn't fail even if some records are missing.
+ */
+async function cleanupTestStore(
+  storeId: string,
+  companyId: string,
+  additionalStoreIds?: string[],
+  additionalCompanyIds?: string[],
+) {
+  await withBypassClient(async (bypassClient) => {
+    const allStoreIds = [storeId, ...(additionalStoreIds || [])];
+    const allCompanyIds = [companyId, ...(additionalCompanyIds || [])];
+
+    // Step 1: Delete audit events first (FK constraint)
+    try {
+      await bypassClient.apiKeyAuditEvent.deleteMany({
+        where: { api_key: { store_id: { in: allStoreIds } } },
+      });
+    } catch {
+      // Ignore errors - records may not exist
+    }
+
+    // Step 2: Delete API keys
+    try {
+      await bypassClient.apiKey.deleteMany({
+        where: { store_id: { in: allStoreIds } },
+      });
+    } catch {
+      // Ignore errors - records may not exist
+    }
+
+    // Step 3: Delete stores
+    try {
+      await bypassClient.store.deleteMany({
+        where: { store_id: { in: allStoreIds } },
+      });
+    } catch {
+      // Ignore errors - records may not exist
+    }
+
+    // Step 4: Delete companies
+    try {
+      await bypassClient.company.deleteMany({
+        where: { company_id: { in: allCompanyIds } },
+      });
+    } catch {
+      // Ignore errors - records may not exist
+    }
+  });
+}
+
 // NOTE: Admin-created API keys are IMMEDIATELY ACTIVE (not PENDING)
 // The createApiKey service sets status: "ACTIVE" and activated_at: new Date()
 // Only keys created via rotation start as PENDING - no activation helper needed
@@ -159,22 +211,7 @@ test.describe("API Keys Management - Authorization", () => {
         expect([201, 400, 404]).toContain(response.status());
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
   });
@@ -224,22 +261,7 @@ test.describe("API Keys Management - CRUD Operations", () => {
         expect(details.data.raw_key).toBeUndefined();
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -285,22 +307,7 @@ test.describe("API Keys Management - CRUD Operations", () => {
         expect(details.data.monthly_data_quota_mb).toBe(500);
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -382,24 +389,16 @@ test.describe("API Keys Management - CRUD Operations", () => {
         expect(body.data.pagination.total_pages).toBeGreaterThanOrEqual(2);
       } finally {
         // Cleanup all test stores
-        await withBypassClient(async (bypassClient) => {
-          for (const { company, store } of testData) {
-            await bypassClient.apiKeyAuditEvent.deleteMany({
-              where: {
-                api_key: { store_id: store.store_id },
-              },
-            });
-            await bypassClient.apiKey.deleteMany({
-              where: { store_id: store.store_id },
-            });
-            await bypassClient.store.delete({
-              where: { store_id: store.store_id },
-            });
-            await bypassClient.company.delete({
-              where: { company_id: company.company_id },
-            });
-          }
-        });
+        const storeIds = testData.map((d) => d.store.store_id);
+        const companyIds = testData.map((d) => d.company.company_id);
+        if (storeIds.length > 0) {
+          await cleanupTestStore(
+            storeIds[0],
+            companyIds[0],
+            storeIds.slice(1),
+            companyIds.slice(1),
+          );
+        }
       }
     });
 
@@ -440,28 +439,13 @@ test.describe("API Keys Management - CRUD Operations", () => {
           expect(key.store_id).toBe(store.store_id);
         }
       } finally {
-        // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: {
-                store_id: { in: [store.store_id, store2.store_id] },
-              },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: { in: [store.store_id, store2.store_id] } },
-          });
-          await bypassClient.store.deleteMany({
-            where: { store_id: { in: [store.store_id, store2.store_id] } },
-          });
-          // Delete both companies
-          await bypassClient.company.deleteMany({
-            where: {
-              company_id: { in: [company.company_id, company2.company_id] },
-            },
-          });
-        });
+        // Cleanup both stores
+        await cleanupTestStore(
+          store.store_id,
+          company.company_id,
+          [store2.store_id],
+          [company2.company_id],
+        );
       }
     });
 
@@ -470,61 +454,67 @@ test.describe("API Keys Management - CRUD Operations", () => {
       superadminUser,
       prismaClient,
     }) => {
+      // Create TWO separate stores since a store can only have one active API key
       const { company, store } = await createTestStoreWithCompany(
         prismaClient,
         superadminUser.user_id,
       );
+      const { company: company2, store: store2 } =
+        await createTestStoreWithCompany(prismaClient, superadminUser.user_id);
 
       try {
-        // Create API keys with delays to ensure different timestamps
+        // Create API keys for different stores with delays to ensure different timestamps
         await superadminApiRequest.post(API_KEYS_BASE_PATH, {
           store_id: store.store_id,
           label: "First Key",
         });
         await new Promise((r) => setTimeout(r, 100));
         await superadminApiRequest.post(API_KEYS_BASE_PATH, {
-          store_id: store.store_id,
+          store_id: store2.store_id,
           label: "Second Key",
         });
 
-        // Sort by createdAt ascending
+        // Sort by createdAt ascending - get all keys (no store filter)
         const ascResponse = await superadminApiRequest.get(
-          `${API_KEYS_BASE_PATH}?store_id=${store.store_id}&sort_by=createdAt&sort_order=asc`,
+          `${API_KEYS_BASE_PATH}?sort_by=createdAt&sort_order=asc`,
         );
         expect(ascResponse.status()).toBe(200);
         const ascBody = await ascResponse.json();
 
         // Sort by createdAt descending
         const descResponse = await superadminApiRequest.get(
-          `${API_KEYS_BASE_PATH}?store_id=${store.store_id}&sort_by=createdAt&sort_order=desc`,
+          `${API_KEYS_BASE_PATH}?sort_by=createdAt&sort_order=desc`,
         );
         expect(descResponse.status()).toBe(200);
         const descBody = await descResponse.json();
 
-        // Verify order is reversed
+        // Verify order is reversed (if there are multiple keys in the result)
         if (ascBody.data.items.length >= 2 && descBody.data.items.length >= 2) {
-          expect(ascBody.data.items[0].api_key_id).toBe(
-            descBody.data.items[descBody.data.items.length - 1].api_key_id,
-          );
+          // The first item in ascending should be the last in descending
+          const ascFirstCreatedAt = new Date(
+            ascBody.data.items[0].created_at,
+          ).getTime();
+          const ascLastCreatedAt = new Date(
+            ascBody.data.items[ascBody.data.items.length - 1].created_at,
+          ).getTime();
+          expect(ascFirstCreatedAt).toBeLessThanOrEqual(ascLastCreatedAt);
+
+          const descFirstCreatedAt = new Date(
+            descBody.data.items[0].created_at,
+          ).getTime();
+          const descLastCreatedAt = new Date(
+            descBody.data.items[descBody.data.items.length - 1].created_at,
+          ).getTime();
+          expect(descFirstCreatedAt).toBeGreaterThanOrEqual(descLastCreatedAt);
         }
       } finally {
-        // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        // Cleanup both stores
+        await cleanupTestStore(
+          store.store_id,
+          company.company_id,
+          [store2.store_id],
+          [company2.company_id],
+        );
       }
     });
   });
@@ -576,22 +566,7 @@ test.describe("API Keys Management - CRUD Operations", () => {
         expect(body.data.raw_key).toBeUndefined();
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -648,22 +623,7 @@ test.describe("API Keys Management - CRUD Operations", () => {
         expect(body.data.label).toBe("Updated Label");
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -708,22 +668,7 @@ test.describe("API Keys Management - CRUD Operations", () => {
         expect(details.data.ip_enforcement_enabled).toBe(true);
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -760,22 +705,7 @@ test.describe("API Keys Management - CRUD Operations", () => {
         expect(body.error.code).toBe("VALIDATION_ERROR");
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
   });
@@ -843,22 +773,7 @@ test.describe("API Keys Management - Security Operations", () => {
         });
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -920,22 +835,7 @@ test.describe("API Keys Management - Security Operations", () => {
         });
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -982,22 +882,7 @@ test.describe("API Keys Management - Security Operations", () => {
         expect(body.error.code).toBe("INVALID_STATE");
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
   });
@@ -1051,22 +936,7 @@ test.describe("API Keys Management - Security Operations", () => {
         });
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -1107,22 +977,7 @@ test.describe("API Keys Management - Security Operations", () => {
         expect(body.error.code).toBe("VALIDATION_ERROR");
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -1170,22 +1025,7 @@ test.describe("API Keys Management - Security Operations", () => {
         expect(body.error.code).toBe("ALREADY_REVOKED");
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
   });
@@ -1237,22 +1077,7 @@ test.describe("API Keys Management - Security Operations", () => {
         });
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -1307,22 +1132,7 @@ test.describe("API Keys Management - Security Operations", () => {
         });
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
   });
@@ -1356,14 +1166,7 @@ test.describe("API Keys Management - Input Validation", () => {
         expect(body.error.code).toBe("VALIDATION_ERROR");
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -1389,14 +1192,7 @@ test.describe("API Keys Management - Input Validation", () => {
         expect(body.error.code).toBe("VALIDATION_ERROR");
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -1425,14 +1221,7 @@ test.describe("API Keys Management - Input Validation", () => {
         expect(body.error.code).toBe("VALIDATION_ERROR");
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -1459,14 +1248,7 @@ test.describe("API Keys Management - Input Validation", () => {
         expect(body.error.code).toBe("VALIDATION_ERROR");
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -1493,14 +1275,7 @@ test.describe("API Keys Management - Input Validation", () => {
         expect(body.error.code).toBe("VALIDATION_ERROR");
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
   });
@@ -1588,22 +1363,7 @@ test.describe("API Keys Management - Audit Trail", () => {
         expect(creationEvent.actor_type).toBe("ADMIN");
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
 
@@ -1655,22 +1415,7 @@ test.describe("API Keys Management - Audit Trail", () => {
         expect(revocationEvent.event_details).toBeDefined();
       } finally {
         // Cleanup
-        await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
-        });
+        await cleanupTestStore(store.store_id, company.company_id);
       }
     });
   });
