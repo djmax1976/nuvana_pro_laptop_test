@@ -746,6 +746,7 @@ class ApiKeyService {
     return {
       key: generatedKey,
       record: this.mapToApiKeyRecord(newKeyRecord),
+      graceEndsAt: graceEndsAt,
     };
   }
 

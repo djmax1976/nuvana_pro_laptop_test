@@ -61,6 +61,19 @@ export class ShiftNotActiveError extends Error {
  * XReport Service class
  */
 class XReportService {
+  private assertShiftAccess(
+    shiftId: string,
+    shiftStoreId: string,
+    requester?: { is_system_admin: boolean; store_ids: string[] },
+  ): void {
+    if (!requester) return;
+    if (requester.is_system_admin) return;
+    if (requester.store_ids.includes(shiftStoreId)) return;
+
+    // Fail closed and avoid tenant data leakage by returning "not found"
+    throw new ShiftNotFoundError(shiftId);
+  }
+
   /**
    * Generate a new X Report for an active shift.
    * Captures current snapshot of all shift transactions and aggregates.
@@ -69,7 +82,7 @@ class XReportService {
    * @returns The generated X Report
    */
   async generateXReport(input: GenerateXReportInput): Promise<XReport> {
-    const { shift_id, generated_by } = input;
+    const { shift_id, generated_by, requester } = input;
 
     // Get the shift with its transactions
     // Phase 2.3: Optimized include queries for lookup tables
@@ -114,6 +127,9 @@ class XReportService {
     if (!shift) {
       throw new ShiftNotFoundError(shift_id);
     }
+
+    // DB-006: TENANT_ISOLATION - Enforce store access when requester context is provided
+    this.assertShiftAccess(shift_id, shift.store_id, requester);
 
     // SEC-014: INPUT_VALIDATION - Validate shift status before processing
     if (shift.status !== "ACTIVE") {
@@ -200,7 +216,20 @@ class XReportService {
   async getByShiftAndNumber(
     shiftId: string,
     reportNumber: number,
+    requester?: { is_system_admin: boolean; store_ids: string[] },
   ): Promise<XReport | null> {
+    // DB-006: TENANT_ISOLATION - Validate shift exists and belongs to requester store
+    if (requester && !requester.is_system_admin) {
+      const shift = await prisma.shift.findUnique({
+        where: { shift_id: shiftId },
+        select: { store_id: true },
+      });
+      if (!shift) {
+        throw new ShiftNotFoundError(shiftId);
+      }
+      this.assertShiftAccess(shiftId, shift.store_id, requester);
+    }
+
     const report = await prisma.xReport.findUnique({
       where: {
         shift_id_report_number: {
@@ -230,6 +259,24 @@ class XReportService {
     });
 
     return reports as unknown as XReport[];
+  }
+
+  async listByShiftForRequester(
+    shiftId: string,
+    requester: { is_system_admin: boolean; store_ids: string[] },
+  ): Promise<XReport[]> {
+    if (!requester.is_system_admin) {
+      const shift = await prisma.shift.findUnique({
+        where: { shift_id: shiftId },
+        select: { store_id: true },
+      });
+      if (!shift) {
+        throw new ShiftNotFoundError(shiftId);
+      }
+      this.assertShiftAccess(shiftId, shift.store_id, requester);
+    }
+
+    return this.listByShift(shiftId);
   }
 
   /**

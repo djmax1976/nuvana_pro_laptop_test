@@ -130,6 +130,10 @@ export async function xReportRoutes(
         const report = await xReportService.generateXReport({
           shift_id: params.shiftId,
           generated_by: user.id,
+          requester: {
+            is_system_admin: user.is_system_admin,
+            store_ids: user.store_ids || [],
+          },
         });
 
         return reply.status(201).send({
@@ -153,8 +157,15 @@ export async function xReportRoutes(
     async (request, reply) => {
       try {
         const params = XReportShiftParamsSchema.parse(request.params);
+        const user = (request as any).user;
 
-        const reports = await xReportService.listByShift(params.shiftId);
+        const reports = await xReportService.listByShiftForRequester(
+          params.shiftId,
+          {
+            is_system_admin: user.is_system_admin,
+            store_ids: user.store_ids || [],
+          },
+        );
 
         return reply.send({
           success: true,
@@ -180,10 +191,15 @@ export async function xReportRoutes(
     async (request, reply) => {
       try {
         const params = XReportShiftNumberParamsSchema.parse(request.params);
+        const user = (request as any).user;
 
         const report = await xReportService.getByShiftAndNumber(
           params.shiftId,
           params.reportNumber,
+          {
+            is_system_admin: user.is_system_admin,
+            store_ids: user.store_ids || [],
+          },
         );
 
         if (!report) {

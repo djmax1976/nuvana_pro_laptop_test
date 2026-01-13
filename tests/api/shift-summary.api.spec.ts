@@ -336,6 +336,64 @@ async function cleanupShiftWithTransactions(
   await prismaClient.shift.delete({ where: { shift_id: shiftId } });
 }
 
+/**
+ * Safely cleans up test data (company, store, users, shifts, etc.)
+ * Uses bypass client to avoid RLS issues and handles errors gracefully
+ */
+async function safeCleanupTestData(data: {
+  shiftId?: string;
+  cashierId?: string;
+  terminalId?: string;
+  storeId?: string;
+  companyId?: string;
+  userId?: string;
+}): Promise<void> {
+  const { withBypassClient } = await import("../support/prisma-bypass");
+  await withBypassClient(async (bypassClient) => {
+    // Clean up shift and transactions first if shiftId provided
+    if (data.shiftId) {
+      await cleanupShiftWithTransactions(bypassClient, data.shiftId).catch(
+        () => {},
+      );
+    }
+
+    // Delete cashier
+    if (data.cashierId) {
+      await bypassClient.cashier
+        .delete({ where: { cashier_id: data.cashierId } })
+        .catch(() => {});
+    }
+
+    // Delete terminal
+    if (data.terminalId) {
+      await bypassClient.pOSTerminal
+        .delete({ where: { pos_terminal_id: data.terminalId } })
+        .catch(() => {});
+    }
+
+    // Delete store
+    if (data.storeId) {
+      await bypassClient.store
+        .delete({ where: { store_id: data.storeId } })
+        .catch(() => {});
+    }
+
+    // Delete company
+    if (data.companyId) {
+      await bypassClient.company
+        .delete({ where: { company_id: data.companyId } })
+        .catch(() => {});
+    }
+
+    // Delete user
+    if (data.userId) {
+      await bypassClient.user
+        .delete({ where: { user_id: data.userId } })
+        .catch(() => {});
+    }
+  });
+}
+
 // =============================================================================
 // SECTION 1: P0 CRITICAL - AUTHENTICATION TESTS
 // =============================================================================
@@ -454,19 +512,15 @@ test.describe("SHIFT-SUMMARY-API: Authorization", () => {
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
 
-    // Cleanup
-    await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
-    await prismaClient.cashier.delete({
-      where: { cashier_id: cashier.cashier_id },
+    // Cleanup: Use safe cleanup helper to avoid RLS issues and handle errors gracefully
+    await safeCleanupTestData({
+      shiftId: shift.shift_id,
+      cashierId: cashier.cashier_id,
+      terminalId: terminal.pos_terminal_id,
+      storeId: store.store_id,
+      companyId: company.company_id,
+      userId: owner.user_id,
     });
-    await prismaClient.pOSTerminal.delete({
-      where: { pos_terminal_id: terminal.pos_terminal_id },
-    });
-    await prismaClient.store.delete({ where: { store_id: store.store_id } });
-    await prismaClient.company.delete({
-      where: { company_id: company.company_id },
-    });
-    await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 });
 
@@ -801,21 +855,15 @@ test.describe("SHIFT-SUMMARY-API: Multi-tenant Isolation", () => {
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
 
-    // Cleanup
-    await cleanupShiftWithTransactions(prismaClient, otherShift.shift_id);
-    await prismaClient.cashier.delete({
-      where: { cashier_id: otherCashier.cashier_id },
+    // Cleanup: Use safe cleanup helper
+    await safeCleanupTestData({
+      shiftId: otherShift.shift_id,
+      cashierId: otherCashier.cashier_id,
+      terminalId: otherTerminal.pos_terminal_id,
+      storeId: otherStore.store_id,
+      companyId: otherCompany.company_id,
+      userId: otherOwner.user_id,
     });
-    await prismaClient.pOSTerminal.delete({
-      where: { pos_terminal_id: otherTerminal.pos_terminal_id },
-    });
-    await prismaClient.store.delete({
-      where: { store_id: otherStore.store_id },
-    });
-    await prismaClient.company.delete({
-      where: { company_id: otherCompany.company_id },
-    });
-    await prismaClient.user.delete({ where: { user_id: otherOwner.user_id } });
   });
 });
 
@@ -2278,20 +2326,14 @@ test.describe("SHIFT-SUMMARY-API: Security & Injection Prevention", () => {
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
 
-    // Cleanup
-    await cleanupShiftWithTransactions(prismaClient, otherShift.shift_id);
-    await prismaClient.cashier.delete({
-      where: { cashier_id: otherCashier.cashier_id },
+    // Cleanup: Use safe cleanup helper
+    await safeCleanupTestData({
+      shiftId: otherShift.shift_id,
+      cashierId: otherCashier.cashier_id,
+      terminalId: otherTerminal.pos_terminal_id,
+      storeId: otherStore.store_id,
+      companyId: otherCompany.company_id,
+      userId: otherOwner.user_id,
     });
-    await prismaClient.pOSTerminal.delete({
-      where: { pos_terminal_id: otherTerminal.pos_terminal_id },
-    });
-    await prismaClient.store.delete({
-      where: { store_id: otherStore.store_id },
-    });
-    await prismaClient.company.delete({
-      where: { company_id: otherCompany.company_id },
-    });
-    await prismaClient.user.delete({ where: { user_id: otherOwner.user_id } });
   });
 });

@@ -1,5 +1,44 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createStore, createCompany, createUser } from "../support/factories";
+import { createStore, createCompany } from "../support/factories";
+import { withBypassClient } from "../support/prisma-bypass";
+
+/**
+ * Creates a test store with company for API key testing.
+ * Each test that creates API keys should use this to avoid conflicts
+ * since a store can only have one active API key.
+ */
+async function createTestStoreWithCompany(
+  prismaClient: any,
+  ownerUserId: string,
+) {
+  const companyData = createCompany({ owner_user_id: ownerUserId });
+  const company = await prismaClient.company.create({ data: companyData });
+
+  const storeData = createStore({ company_id: company.company_id });
+  const store = await prismaClient.store.create({ data: storeData });
+
+  return { company, store };
+}
+
+/**
+ * Cleans up test store and associated data
+ */
+async function cleanupTestStore(storeId: string, companyId: string) {
+  await withBypassClient(async (bypassClient) => {
+    await bypassClient.apiKeyAuditEvent.deleteMany({
+      where: { api_key: { store_id: storeId } },
+    });
+    await bypassClient.apiKey.deleteMany({
+      where: { store_id: storeId },
+    });
+    await bypassClient.store.delete({
+      where: { store_id: storeId },
+    });
+    await bypassClient.company.delete({
+      where: { company_id: companyId },
+    });
+  });
+}
 
 /**
  * @test-level API
@@ -30,25 +69,6 @@ import { createStore, createCompany, createUser } from "../support/factories";
  */
 
 test.describe("API-KEY-API: Super Admin API Key Management", () => {
-  // Store the created API key ID for tests that need existing keys
-  let testApiKeyId: string | null = null;
-  let testStoreId: string | null = null;
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // SETUP - Create test store for API key tests
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  test.beforeAll(async ({ prismaClient }) => {
-    // Get an existing store for tests - we don't want to create test data pollution
-    const existingStore = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (existingStore) {
-      testStoreId = existingStore.store_id;
-    }
-  });
-
   // ═══════════════════════════════════════════════════════════════════════════
   // CREATE API KEY TESTS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -56,54 +76,55 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-API-001: [P0] POST /api/v1/admin/api-keys - should create new API key for store", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin with API_KEY_CREATE permission
-    // AND: A valid store exists
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
-    }
-
-    // WHEN: Creating a new API key for the store
-    const response = await superadminApiRequest.post("/api/v1/admin/api-keys", {
-      store_id: store.store_id,
-      label: `Test API Key ${Date.now()}`,
-    });
-
-    // THEN: Response is successful with 201 Created
-    expect(response.status(), "Expected 201 Created status").toBe(201);
-    const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
-
-    // AND: Response includes the raw key (shown ONCE only)
-    expect(body.data.raw_key, "Raw key should be present").toBeTruthy();
-    expect(
-      body.data.raw_key.length,
-      "Raw key should be proper length",
-    ).toBeGreaterThan(20);
-
-    // AND: Response includes key metadata
-    expect(body.data.api_key_id, "API key ID should be present").toBeTruthy();
-    expect(body.data.store_id, "Store ID should match").toBe(store.store_id);
-    expect(body.data.key_prefix, "Key prefix should be present").toBeTruthy();
-    expect(body.data.key_suffix, "Key suffix should be present").toBeTruthy();
-    expect(body.data.status, "Status should be ACTIVE").toBe("ACTIVE");
-
-    // Store for later tests
-    testApiKeyId = body.data.api_key_id;
-
-    // Cleanup - revoke the key after test
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${body.data.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
     );
+
+    try {
+      // WHEN: Creating a new API key for the store
+      const response = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Test API Key ${Date.now()}`,
+        },
+      );
+
+      // THEN: Response is successful with 201 Created
+      expect(response.status(), "Expected 201 Created status").toBe(201);
+      const body = await response.json();
+      expect(body.success, "Response should indicate success").toBe(true);
+
+      // AND: Response includes the raw key (shown ONCE only)
+      expect(body.data.raw_key, "Raw key should be present").toBeTruthy();
+      expect(
+        body.data.raw_key.length,
+        "Raw key should be proper length",
+      ).toBeGreaterThan(20);
+
+      // AND: Response includes key metadata
+      expect(body.data.api_key_id, "API key ID should be present").toBeTruthy();
+      expect(body.data.store_id, "Store ID should match").toBe(store.store_id);
+      expect(body.data.key_prefix, "Key prefix should be present").toBeTruthy();
+      expect(body.data.key_suffix, "Key suffix should be present").toBeTruthy();
+      expect(body.data.status, "Status should be ACTIVE").toBe("ACTIVE");
+
+      // Cleanup - revoke the key after test
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${body.data.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
+    }
   });
 
   test("APIKEY-API-002: [P0] POST /api/v1/admin/api-keys - should reject request without store_id", async ({
@@ -142,42 +163,47 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-API-004: [P1] POST /api/v1/admin/api-keys - should create key with advanced settings", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
-    }
-
-    // WHEN: Creating API key with advanced configuration
-    const response = await superadminApiRequest.post("/api/v1/admin/api-keys", {
-      store_id: store.store_id,
-      label: `Advanced Test Key ${Date.now()}`,
-      ip_allowlist: ["192.168.1.0/24", "10.0.0.1"],
-      ip_enforcement_enabled: true,
-      rate_limit_rpm: 200,
-      daily_sync_quota: 500,
-      monthly_data_quota_mb: 5000,
-    });
-
-    // THEN: Response is successful
-    expect(response.status(), "Expected 201 Created status").toBe(201);
-    const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
-    expect(body.data.api_key_id, "API key ID should be present").toBeTruthy();
-
-    // Cleanup
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${body.data.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
     );
+
+    try {
+      // WHEN: Creating API key with advanced configuration
+      const response = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Advanced Test Key ${Date.now()}`,
+          ip_allowlist: ["192.168.1.0/24", "10.0.0.1"],
+          ip_enforcement_enabled: true,
+          rate_limit_rpm: 200,
+          daily_sync_quota: 500,
+          monthly_data_quota_mb: 5000,
+        },
+      );
+
+      // THEN: Response is successful
+      expect(response.status(), "Expected 201 Created status").toBe(201);
+      const body = await response.json();
+      expect(body.success, "Response should indicate success").toBe(true);
+      expect(body.data.api_key_id, "API key ID should be present").toBeTruthy();
+
+      // Cleanup - revoke the key
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${body.data.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -256,7 +282,7 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   }) => {
     // GIVEN: I am authenticated as a Super Admin
     const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
+      where: {},
       select: { store_id: true },
     });
     if (!store) {
@@ -310,51 +336,52 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-API-014: [P2] GET /api/v1/admin/api-keys - should support search", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // First create a key with a unique label
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts with existing API keys
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const uniqueLabel = `SearchTest_${Date.now()}`;
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: uniqueLabel,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // WHEN: Searching for the unique label
+      const response = await superadminApiRequest.get(
+        `/api/v1/admin/api-keys?search=${uniqueLabel}`,
+      );
+
+      // THEN: Response is successful and finds the key
+      expect(response.status(), "Expected 200 OK status").toBe(200);
+      const body = await response.json();
+      expect(body.success, "Response should indicate success").toBe(true);
+      expect(
+        body.data.items.length,
+        "Should find at least one key",
+      ).toBeGreaterThanOrEqual(1);
+
+      // Cleanup - revoke the key
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const uniqueLabel = `SearchTest_${Date.now()}`;
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: uniqueLabel,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // WHEN: Searching for the unique label
-    const response = await superadminApiRequest.get(
-      `/api/v1/admin/api-keys?search=${uniqueLabel}`,
-    );
-
-    // THEN: Response is successful and finds the key
-    expect(response.status(), "Expected 200 OK status").toBe(200);
-    const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
-    expect(
-      body.data.items.length,
-      "Should find at least one key",
-    ).toBeGreaterThanOrEqual(1);
-
-    // Cleanup
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
-    );
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -364,62 +391,63 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-API-020: [P1] GET /api/v1/admin/api-keys/:keyId - should return key details", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: An API key exists
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      // Create a key for testing
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Details Test Key ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // WHEN: Requesting key details
+      const response = await superadminApiRequest.get(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
+      );
+
+      // THEN: Response is successful
+      expect(response.status(), "Expected 200 OK status").toBe(200);
+      const body = await response.json();
+      expect(body.success, "Response should indicate success").toBe(true);
+
+      // AND: Details include expected properties
+      expect(body.data.api_key_id, "API key ID should match").toBe(
+        createdKey.api_key_id,
+      );
+      expect(body.data.store_id, "Store ID should be present").toBeTruthy();
+      expect(body.data.store_name, "Store name should be present").toBeTruthy();
+      expect(body.data.key_prefix, "Key prefix should be present").toBeTruthy();
+      expect(body.data.key_suffix, "Key suffix should be present").toBeTruthy();
+      expect(body.data.status, "Status should be present").toBeTruthy();
+      expect(body.data.created_at, "Created at should be present").toBeTruthy();
+
+      // AND: Raw key is NEVER returned in details
+      expect(body.data).not.toHaveProperty("raw_key");
+      expect(body.data).not.toHaveProperty("key_hash");
+
+      // Cleanup - revoke the key
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    // Create a key for testing
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Details Test Key ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // WHEN: Requesting key details
-    const response = await superadminApiRequest.get(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
-    );
-
-    // THEN: Response is successful
-    expect(response.status(), "Expected 200 OK status").toBe(200);
-    const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
-
-    // AND: Details include expected properties
-    expect(body.data.api_key_id, "API key ID should match").toBe(
-      createdKey.api_key_id,
-    );
-    expect(body.data.store_id, "Store ID should be present").toBeTruthy();
-    expect(body.data.store_name, "Store name should be present").toBeTruthy();
-    expect(body.data.key_prefix, "Key prefix should be present").toBeTruthy();
-    expect(body.data.key_suffix, "Key suffix should be present").toBeTruthy();
-    expect(body.data.status, "Status should be present").toBeTruthy();
-    expect(body.data.created_at, "Created at should be present").toBeTruthy();
-
-    // AND: Raw key is NEVER returned in details
-    expect(body.data).not.toHaveProperty("raw_key");
-    expect(body.data).not.toHaveProperty("key_hash");
-
-    // Cleanup
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
-    );
   });
 
   test("APIKEY-API-021: [P1] GET /api/v1/admin/api-keys/:keyId - should return 404 for non-existent key", async ({
@@ -458,58 +486,60 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-API-030: [P1] PATCH /api/v1/admin/api-keys/:keyId - should update key settings", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: An API key exists
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // AND: An API key exists in a fresh store (to avoid conflicts with other tests)
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Update Test Key ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // WHEN: Updating key settings
+      const newLabel = `Updated Label ${Date.now()}`;
+      const response = await superadminApiRequest.patch(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
+        {
+          label: newLabel,
+          rate_limit_rpm: 150,
+        },
+      );
+
+      // THEN: Response is successful
+      expect(response.status(), "Expected 200 OK status").toBe(200);
+      const body = await response.json();
+      expect(body.success, "Response should indicate success").toBe(true);
+
+      // AND: Verify the update by fetching details
+      const detailsResponse = await superadminApiRequest.get(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
+      );
+      const details = (await detailsResponse.json()).data;
+      expect(details.label, "Label should be updated").toBe(newLabel);
+
+      // Cleanup - revoke the key
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      // Cleanup test store
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Update Test Key ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // WHEN: Updating key settings
-    const newLabel = `Updated Label ${Date.now()}`;
-    const response = await superadminApiRequest.patch(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
-      {
-        label: newLabel,
-        rate_limit_rpm: 150,
-      },
-    );
-
-    // THEN: Response is successful
-    expect(response.status(), "Expected 200 OK status").toBe(200);
-    const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
-
-    // AND: Verify the update by fetching details
-    const detailsResponse = await superadminApiRequest.get(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
-    );
-    const details = (await detailsResponse.json()).data;
-    expect(details.label, "Label should be updated").toBe(newLabel);
-
-    // Cleanup
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
-    );
   });
 
   test("APIKEY-API-031: [P1] PATCH /api/v1/admin/api-keys/:keyId - should reject invalid UUID format", async ({
@@ -534,77 +564,81 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-API-040: [P0] POST /api/v1/admin/api-keys/:keyId/rotate - should rotate key with grace period", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: An API key exists
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Rotate Test Key ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // WHEN: Rotating the key with 7-day grace period
+      const response = await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/rotate`,
+        {
+          grace_period_days: 7,
+          preserve_metadata: true,
+          preserve_ip_allowlist: true,
+        },
+      );
+
+      // THEN: Response is successful
+      expect(response.status(), "Expected 200 OK status").toBe(200);
+      const body = await response.json();
+      expect(body.success, "Response should indicate success").toBe(true);
+
+      // AND: New key is returned (shown ONCE only)
+      expect(body.data.new_key, "New key should be present").toBeTruthy();
+      expect(
+        body.data.new_key.raw_key,
+        "Raw key should be present",
+      ).toBeTruthy();
+      expect(
+        body.data.new_key.api_key_id,
+        "New key ID should be present",
+      ).toBeTruthy();
+      expect(body.data.new_key.api_key_id).not.toBe(createdKey.api_key_id);
+
+      // AND: Old key info is returned with grace period
+      expect(body.data.old_key, "Old key info should be present").toBeTruthy();
+      expect(body.data.old_key.api_key_id, "Old key ID should be present").toBe(
+        createdKey.api_key_id,
+      );
+      expect(
+        body.data.old_key.grace_period_ends_at,
+        "Grace period end should be present",
+      ).toBeTruthy();
+
+      // Cleanup both keys
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${body.data.new_key.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Rotate Test Key ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // WHEN: Rotating the key with 7-day grace period
-    const response = await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/rotate`,
-      {
-        grace_period_days: 7,
-        preserve_metadata: true,
-        preserve_ip_allowlist: true,
-      },
-    );
-
-    // THEN: Response is successful
-    expect(response.status(), "Expected 200 OK status").toBe(200);
-    const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
-
-    // AND: New key is returned (shown ONCE only)
-    expect(body.data.new_key, "New key should be present").toBeTruthy();
-    expect(body.data.new_key.raw_key, "Raw key should be present").toBeTruthy();
-    expect(
-      body.data.new_key.api_key_id,
-      "New key ID should be present",
-    ).toBeTruthy();
-    expect(body.data.new_key.api_key_id).not.toBe(createdKey.api_key_id);
-
-    // AND: Old key info is returned with grace period
-    expect(body.data.old_key, "Old key info should be present").toBeTruthy();
-    expect(body.data.old_key.api_key_id, "Old key ID should be present").toBe(
-      createdKey.api_key_id,
-    );
-    expect(
-      body.data.old_key.grace_period_ends_at,
-      "Grace period end should be present",
-    ).toBeTruthy();
-
-    // Cleanup both keys
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${body.data.new_key.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
-    );
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
-    );
   });
 
   test("APIKEY-API-041: [P1] POST /api/v1/admin/api-keys/:keyId/rotate - should reject invalid UUID format", async ({
@@ -629,139 +663,143 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-API-050: [P0] POST /api/v1/admin/api-keys/:keyId/revoke - should revoke key immediately", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: An API key exists
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Revoke Test Key ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // WHEN: Revoking the key
+      const response = await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "COMPROMISED",
+          notes: "Security test - suspected compromise",
+          notify_admins: false,
+        },
+      );
+
+      // THEN: Response is successful
+      expect(response.status(), "Expected 200 OK status").toBe(200);
+      const body = await response.json();
+      expect(body.success, "Response should indicate success").toBe(true);
+
+      // AND: Key is now revoked (verify by fetching details)
+      const detailsResponse = await superadminApiRequest.get(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
+      );
+      const details = (await detailsResponse.json()).data;
+      expect(details.status, "Status should be REVOKED").toBe("REVOKED");
+      expect(details.revocation_reason, "Revocation reason should be set").toBe(
+        "COMPROMISED",
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Revoke Test Key ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // WHEN: Revoking the key
-    const response = await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {
-        reason: "COMPROMISED",
-        notes: "Security test - suspected compromise",
-        notify_admins: false,
-      },
-    );
-
-    // THEN: Response is successful
-    expect(response.status(), "Expected 200 OK status").toBe(200);
-    const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
-
-    // AND: Key is now revoked (verify by fetching details)
-    const detailsResponse = await superadminApiRequest.get(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
-    );
-    const details = (await detailsResponse.json()).data;
-    expect(details.status, "Status should be REVOKED").toBe("REVOKED");
-    expect(details.revocation_reason, "Revocation reason should be set").toBe(
-      "COMPROMISED",
-    );
   });
 
   test("APIKEY-API-051: [P0] POST /api/v1/admin/api-keys/:keyId/revoke - should reject missing reason", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: An API key exists
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Revoke No Reason Test ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // WHEN: Revoking without reason
+      const response = await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {},
+      );
+
+      // THEN: Request is rejected with 400 Bad Request
+      expect(response.status(), "Expected 400 Bad Request status").toBe(400);
+
+      // Cleanup - revoke with valid reason
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Revoke No Reason Test ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // WHEN: Revoking without reason
-    const response = await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {},
-    );
-
-    // THEN: Request is rejected with 400 Bad Request
-    expect(response.status(), "Expected 400 Bad Request status").toBe(400);
-
-    // Cleanup
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
-    );
   });
 
   test("APIKEY-API-052: [P1] POST /api/v1/admin/api-keys/:keyId/revoke - should reject invalid reason", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Revoke Invalid Reason Test ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // WHEN: Revoking with invalid reason
+      const response = await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        { reason: "INVALID_REASON" },
+      );
+
+      // THEN: Request is rejected with 400 Bad Request
+      expect(response.status(), "Expected 400 Bad Request status").toBe(400);
+
+      // Cleanup - revoke with valid reason
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Revoke Invalid Reason Test ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // WHEN: Revoking with invalid reason
-    const response = await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      { reason: "INVALID_REASON" },
-    );
-
-    // THEN: Request is rejected with 400 Bad Request
-    expect(response.status(), "Expected 400 Bad Request status").toBe(400);
-
-    // Cleanup
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
-    );
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -771,113 +809,115 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-API-060: [P1] POST /api/v1/admin/api-keys/:keyId/suspend - should suspend key", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: An ACTIVE API key exists
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Suspend Test Key ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // WHEN: Suspending the key
+      const response = await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/suspend`,
+        { reason: "Temporary suspension for testing" },
+      );
+
+      // THEN: Response is successful
+      expect(response.status(), "Expected 200 OK status").toBe(200);
+      const body = await response.json();
+      expect(body.success, "Response should indicate success").toBe(true);
+
+      // AND: Key is now suspended
+      const detailsResponse = await superadminApiRequest.get(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
+      );
+      const details = (await detailsResponse.json()).data;
+      expect(details.status, "Status should be SUSPENDED").toBe("SUSPENDED");
+
+      // Cleanup - revoke the key
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Suspend Test Key ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // WHEN: Suspending the key
-    const response = await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/suspend`,
-      { reason: "Temporary suspension for testing" },
-    );
-
-    // THEN: Response is successful
-    expect(response.status(), "Expected 200 OK status").toBe(200);
-    const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
-
-    // AND: Key is now suspended
-    const detailsResponse = await superadminApiRequest.get(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
-    );
-    const details = (await detailsResponse.json()).data;
-    expect(details.status, "Status should be SUSPENDED").toBe("SUSPENDED");
-
-    // Cleanup
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
-    );
   });
 
   test("APIKEY-API-061: [P1] POST /api/v1/admin/api-keys/:keyId/reactivate - should reactivate suspended key", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: A SUSPENDED API key exists
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Reactivate Test Key ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // Suspend first
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/suspend`,
+        { reason: "Pre-reactivation suspension" },
+      );
+
+      // WHEN: Reactivating the key
+      const response = await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/reactivate`,
+        {},
+      );
+
+      // THEN: Response is successful
+      expect(response.status(), "Expected 200 OK status").toBe(200);
+      const body = await response.json();
+      expect(body.success, "Response should indicate success").toBe(true);
+
+      // AND: Key is now active again
+      const detailsResponse = await superadminApiRequest.get(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
+      );
+      const details = (await detailsResponse.json()).data;
+      expect(details.status, "Status should be ACTIVE").toBe("ACTIVE");
+
+      // Cleanup - revoke the key
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Reactivate Test Key ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // Suspend first
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/suspend`,
-      { reason: "Pre-reactivation suspension" },
-    );
-
-    // WHEN: Reactivating the key
-    const response = await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/reactivate`,
-      {},
-    );
-
-    // THEN: Response is successful
-    expect(response.status(), "Expected 200 OK status").toBe(200);
-    const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
-
-    // AND: Key is now active again
-    const detailsResponse = await superadminApiRequest.get(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
-    );
-    const details = (await detailsResponse.json()).data;
-    expect(details.status, "Status should be ACTIVE").toBe("ACTIVE");
-
-    // Cleanup
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
-    );
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -887,58 +927,59 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-API-070: [P1] GET /api/v1/admin/api-keys/:keyId/audit - should return audit trail", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: An API key exists with some activity
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Audit Test Key ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // WHEN: Requesting audit trail
+      const response = await superadminApiRequest.get(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/audit`,
+      );
+
+      // THEN: Response is successful
+      expect(response.status(), "Expected 200 OK status").toBe(200);
+      const body = await response.json();
+      expect(body.success, "Response should indicate success").toBe(true);
+      expect(body.data.items, "Items should be an array").toBeTruthy();
+      expect(Array.isArray(body.data.items), "Items should be an array").toBe(
+        true,
+      );
+
+      // AND: At least the creation event should be present
+      if (body.data.items.length > 0) {
+        const event = body.data.items[0];
+        expect(event).toHaveProperty("audit_event_id");
+        expect(event).toHaveProperty("event_type");
+        expect(event).toHaveProperty("created_at");
+      }
+
+      // Cleanup - revoke the key
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Audit Test Key ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // WHEN: Requesting audit trail
-    const response = await superadminApiRequest.get(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/audit`,
-    );
-
-    // THEN: Response is successful
-    expect(response.status(), "Expected 200 OK status").toBe(200);
-    const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
-    expect(body.data.items, "Items should be an array").toBeTruthy();
-    expect(Array.isArray(body.data.items), "Items should be an array").toBe(
-      true,
-    );
-
-    // AND: At least the creation event should be present
-    if (body.data.items.length > 0) {
-      const event = body.data.items[0];
-      expect(event).toHaveProperty("audit_event_id");
-      expect(event).toHaveProperty("event_type");
-      expect(event).toHaveProperty("created_at");
-    }
-
-    // Cleanup
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
-    );
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1124,7 +1165,7 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   }) => {
     // GIVEN: I am authenticated as a Super Admin
     const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
+      where: {},
       select: { store_id: true },
     });
     if (!store) {
@@ -1146,87 +1187,91 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-VAL-003: [P1] POST /api/v1/admin/api-keys/:keyId/rotate - should reject invalid grace_period_days", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Validation Test Key ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // WHEN: Rotating with invalid grace_period_days (negative)
+      const response = await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/rotate`,
+        { grace_period_days: -5 },
+      );
+
+      // THEN: Request is rejected with 400 Bad Request
+      expect(response.status(), "Expected 400 Bad Request status").toBe(400);
+
+      // Cleanup - revoke the key
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Validation Test Key ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // WHEN: Rotating with invalid grace_period_days (negative)
-    const response = await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/rotate`,
-      { grace_period_days: -5 },
-    );
-
-    // THEN: Request is rejected with 400 Bad Request
-    expect(response.status(), "Expected 400 Bad Request status").toBe(400);
-
-    // Cleanup
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
-    );
   });
 
   test("APIKEY-VAL-004: [P1] PATCH /api/v1/admin/api-keys/:keyId - should reject invalid rate_limit_rpm", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Rate Limit Validation Test ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // WHEN: Updating with invalid rate_limit_rpm (negative)
+      const response = await superadminApiRequest.patch(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
+        { rate_limit_rpm: -100 },
+      );
+
+      // THEN: Request is rejected with 400 Bad Request
+      expect(response.status(), "Expected 400 Bad Request status").toBe(400);
+
+      // Cleanup - revoke the key
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        {
+          reason: "ADMIN_ACTION",
+          notes: "Test cleanup",
+        },
+      );
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Rate Limit Validation Test ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // WHEN: Updating with invalid rate_limit_rpm (negative)
-    const response = await superadminApiRequest.patch(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}`,
-      { rate_limit_rpm: -100 },
-    );
-
-    // THEN: Request is rejected with 400 Bad Request
-    expect(response.status(), "Expected 400 Bad Request status").toBe(400);
-
-    // Cleanup
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      {
-        reason: "ADMIN_ACTION",
-        notes: "Test cleanup",
-      },
-    );
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1236,125 +1281,128 @@ test.describe("API-KEY-API: Super Admin API Key Management", () => {
   test("APIKEY-EDGE-001: [P1] POST /api/v1/admin/api-keys/:keyId/revoke - should reject double revocation", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: A revoked API key exists
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Double Revoke Test ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // Revoke once
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        { reason: "ADMIN_ACTION", notes: "First revocation" },
+      );
+
+      // WHEN: Attempting to revoke again
+      const response = await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        { reason: "ADMIN_ACTION", notes: "Second revocation" },
+      );
+
+      // THEN: Request is rejected with 400 Bad Request (already revoked)
+      expect(response.status(), "Expected 400 Bad Request status").toBe(400);
+      const body = await response.json();
+      expect(body.success, "Response should indicate failure").toBe(false);
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Double Revoke Test ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // Revoke once
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      { reason: "ADMIN_ACTION", notes: "First revocation" },
-    );
-
-    // WHEN: Attempting to revoke again
-    const response = await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      { reason: "ADMIN_ACTION", notes: "Second revocation" },
-    );
-
-    // THEN: Request is rejected with 400 Bad Request (already revoked)
-    expect(response.status(), "Expected 400 Bad Request status").toBe(400);
-    const body = await response.json();
-    expect(body.success, "Response should indicate failure").toBe(false);
   });
 
   test("APIKEY-EDGE-002: [P1] POST /api/v1/admin/api-keys/:keyId/reactivate - should reject reactivating revoked key", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: A revoked API key exists
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Reactivate Revoked Test ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // Revoke the key
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        { reason: "ADMIN_ACTION", notes: "Revoked for test" },
+      );
+
+      // WHEN: Attempting to reactivate a revoked key
+      const response = await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/reactivate`,
+        {},
+      );
+
+      // THEN: Request is rejected with 400 Bad Request (cannot reactivate revoked keys)
+      expect(response.status(), "Expected 400 Bad Request status").toBe(400);
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Reactivate Revoked Test ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // Revoke the key
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      { reason: "ADMIN_ACTION", notes: "Revoked for test" },
-    );
-
-    // WHEN: Attempting to reactivate a revoked key
-    const response = await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/reactivate`,
-      {},
-    );
-
-    // THEN: Request is rejected with 400 Bad Request (cannot reactivate revoked keys)
-    expect(response.status(), "Expected 400 Bad Request status").toBe(400);
   });
 
   test("APIKEY-EDGE-003: [P1] POST /api/v1/admin/api-keys/:keyId/rotate - should reject rotating revoked key", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: A revoked API key exists
-    const store = await prismaClient.store.findFirst({
-      where: { deleted_at: null },
-      select: { store_id: true },
-    });
-    if (!store) {
-      test.skip();
-      return;
+    // Create a fresh store to avoid conflicts
+    const { company, store } = await createTestStoreWithCompany(
+      prismaClient,
+      superadminUser.user_id,
+    );
+
+    try {
+      const createResponse = await superadminApiRequest.post(
+        "/api/v1/admin/api-keys",
+        {
+          store_id: store.store_id,
+          label: `Rotate Revoked Test ${Date.now()}`,
+        },
+      );
+      expect(createResponse.status()).toBe(201);
+      const createdKey = (await createResponse.json()).data;
+
+      // Revoke the key
+      await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
+        { reason: "ADMIN_ACTION", notes: "Revoked for test" },
+      );
+
+      // WHEN: Attempting to rotate a revoked key
+      const response = await superadminApiRequest.post(
+        `/api/v1/admin/api-keys/${createdKey.api_key_id}/rotate`,
+        { grace_period_days: 7 },
+      );
+
+      // THEN: Request is rejected with 400 Bad Request (cannot rotate revoked keys)
+      expect(response.status(), "Expected 400 Bad Request status").toBe(400);
+    } finally {
+      await cleanupTestStore(store.store_id, company.company_id);
     }
-
-    const createResponse = await superadminApiRequest.post(
-      "/api/v1/admin/api-keys",
-      {
-        store_id: store.store_id,
-        label: `Rotate Revoked Test ${Date.now()}`,
-      },
-    );
-    expect(createResponse.status()).toBe(201);
-    const createdKey = (await createResponse.json()).data;
-
-    // Revoke the key
-    await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/revoke`,
-      { reason: "ADMIN_ACTION", notes: "Revoked for test" },
-    );
-
-    // WHEN: Attempting to rotate a revoked key
-    const response = await superadminApiRequest.post(
-      `/api/v1/admin/api-keys/${createdKey.api_key_id}/rotate`,
-      { grace_period_days: 7 },
-    );
-
-    // THEN: Request is rejected with 400 Bad Request (cannot rotate revoked keys)
-    expect(response.status(), "Expected 400 Bad Request status").toBe(400);
   });
 });

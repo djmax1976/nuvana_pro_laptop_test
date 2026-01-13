@@ -39,6 +39,7 @@
   "exclude": [
     "node_modules",
     "nuvana_control",
+    "nuvana-sync",
     "bmad",
     "nuvana_docs",
     "my-files",

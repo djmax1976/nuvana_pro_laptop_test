@@ -683,31 +683,36 @@ export class GilbarcoNAXMLAdapter extends BasePOSAdapter {
         const salesTotals = detail.MSMSalesTotals as Record<string, unknown>;
         if (!salesTotals) continue;
 
-        const tender = salesTotals.Tender as Record<string, unknown>;
-        if (!tender) continue;
+        // Tender is always an array due to parser configuration
+        const tenderItems = this.ensureArray(salesTotals.Tender);
+        for (const tender of tenderItems) {
+          const tenderRecord = tender as Record<string, unknown>;
+          if (!tenderRecord) continue;
 
-        const tenderCode = String(tender.TenderCode || "").trim();
-        const tenderSubCode = String(tender.TenderSubCode || "").trim();
+          const tenderCode = String(tenderRecord.TenderCode || "").trim();
+          const tenderSubCode = String(tenderRecord.TenderSubCode || "").trim();
 
-        if (tenderCode) {
-          const posCode = tenderSubCode
-            ? `${tenderCode}:${tenderSubCode}`
-            : tenderCode;
-          const displayName = this.formatTenderDisplayName(
-            tenderCode,
-            tenderSubCode,
-          );
-          const isElectronic = this.isElectronicTender(tenderCode);
+          if (tenderCode) {
+            const posCode = tenderSubCode
+              ? `${tenderCode}:${tenderSubCode}`
+              : tenderCode;
+            const displayName = this.formatTenderDisplayName(
+              tenderCode,
+              tenderSubCode,
+            );
+            const isElectronic = this.isElectronicTender(tenderCode);
 
-          tenders.push({
-            posCode,
-            displayName,
-            isElectronic,
-            isCashEquivalent: tenderCode === "cash",
-            affectsCashDrawer: tenderCode === "cash" || tenderCode === "check",
-            requiresReference: isElectronic,
-            isActive: true,
-          });
+            tenders.push({
+              posCode,
+              displayName,
+              isElectronic,
+              isCashEquivalent: tenderCode === "cash",
+              affectsCashDrawer:
+                tenderCode === "cash" || tenderCode === "check",
+              requiresReference: isElectronic,
+              isActive: true,
+            });
+          }
         }
       }
     } catch {
@@ -1542,11 +1547,13 @@ export class GilbarcoNAXMLAdapter extends BasePOSAdapter {
         saleEvent.EventStartDate || saleEvent.BusinessDate || "",
       );
       const eventStartTime = String(saleEvent.EventStartTime || "00:00:00");
+      // eslint-disable-next-line no-restricted-syntax -- parsing external XML timestamp, not generating business date
       const timestamp = new Date(`${eventStartDate}T${eventStartTime}`);
 
       // Build receipt timestamp
       const receiptDate = String(saleEvent.ReceiptDate || eventStartDate);
       const receiptTime = String(saleEvent.ReceiptTime || eventStartTime);
+      // eslint-disable-next-line no-restricted-syntax -- parsing external XML timestamp, not generating business date
       const receiptTimestamp = new Date(`${receiptDate}T${receiptTime}`);
 
       // Extract register/cashier info (PascalCase)

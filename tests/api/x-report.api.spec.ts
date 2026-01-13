@@ -27,7 +27,7 @@ import { Prisma } from "@prisma/client";
  * - Multiple X Reports can be generated per shift
  * - Each X Report has a sequential report_number within the shift
  * - Authentication required (JWT token)
- * - Authorization required (X_REPORT_GENERATE, X_REPORT_READ permissions)
+ * - Authorization required (SHIFT_REPORT_VIEW permission)
  * - Multi-tenant isolation (store_id must be accessible to user)
  *
  * =============================================================================
@@ -88,10 +88,10 @@ import { Prisma } from "@prisma/client";
  *
  * | Method | Endpoint                              | Permission           |
  * |--------|---------------------------------------|----------------------|
- * | POST   | /api/shifts/:shiftId/x-reports        | X_REPORT_GENERATE    |
- * | GET    | /api/shifts/:shiftId/x-reports        | X_REPORT_READ        |
- * | GET    | /api/x-reports/:xReportId             | X_REPORT_READ        |
- * | POST   | /api/x-reports/:xReportId/printed     | X_REPORT_GENERATE    |
+ * | POST   | /api/shifts/:shiftId/x-reports        | SHIFT_REPORT_VIEW    |
+ * | GET    | /api/shifts/:shiftId/x-reports        | SHIFT_REPORT_VIEW    |
+ * | GET    | /api/x-reports/:xReportId             | SHIFT_REPORT_VIEW    |
+ * | POST   | /api/x-reports/:xReportId/printed     | SHIFT_REPORT_VIEW    |
  *
  * =============================================================================
  */
@@ -227,7 +227,7 @@ test.describe("X-REPORT-API: Authentication", () => {
       `/api/shifts/${shiftId}/x-reports`,
       {},
       {
-        headers: { Authorization: `Bearer ${expiredToken}` },
+        headers: { Cookie: `access_token=${expiredToken}` },
       },
     );
 
@@ -679,24 +679,165 @@ test.describe("X-REPORT-API: Validation", () => {
 // =============================================================================
 
 test.describe("X-REPORT-API: Multi-tenant Isolation", () => {
-  test("X-REPORT-040: [P1] should return 404 when accessing X Report from different company", async ({
+  test("X-REPORT-041: [P1] should return 404 when generating X Report for shift in different company", async ({
     storeManagerApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: An X Report from a different company
+    // GIVEN: An active shift that belongs to a different company/store
     const otherOwner = await prismaClient.user.create({
-      data: createUser({ name: `Other Owner ${Date.now()}` }),
+      data: createUser({ name: `Test Other Owner ${Date.now()}` }),
     });
     const otherCompany = await prismaClient.company.create({
       data: createCompany({
-        name: `Other Company ${Date.now()}`,
+        name: `Test Other Company ${Date.now()}`,
         owner_user_id: otherOwner.user_id,
       }),
     });
     const otherStore = await prismaClient.store.create({
       data: createStore({
         company_id: otherCompany.company_id,
-        name: `Other Store ${Date.now()}`,
+        name: `Test Other Store ${Date.now()}`,
+      }),
+    });
+    const otherTerminal = await createPOSTerminal(
+      prismaClient,
+      otherStore.store_id,
+    );
+    const otherCashier = await createTestCashier(
+      prismaClient,
+      otherStore.store_id,
+      otherOwner.user_id,
+    );
+    const otherShift = await createActiveShiftForXReport(
+      prismaClient,
+      otherStore.store_id,
+      otherOwner.user_id,
+      otherCashier.cashier_id,
+      otherTerminal.pos_terminal_id,
+    );
+
+    // WHEN: Attempting to generate an X Report for a shift in a different tenant
+    const response = await storeManagerApiRequest.post(
+      `/api/shifts/${otherShift.shift_id}/x-reports`,
+      {},
+    );
+
+    // THEN: Should return 404 Not Found (fail-closed to avoid tenant data leakage)
+    expect(
+      response.status(),
+      "Should return 404 for cross-tenant shift access",
+    ).toBe(404);
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be SHIFT_NOT_FOUND").toBe(
+      "SHIFT_NOT_FOUND",
+    );
+
+    // Cleanup
+    await cleanupXReportTestData(prismaClient, otherShift.shift_id);
+    await prismaClient.cashier.delete({
+      where: { cashier_id: otherCashier.cashier_id },
+    });
+    await prismaClient.pOSTerminal.delete({
+      where: { pos_terminal_id: otherTerminal.pos_terminal_id },
+    });
+    await prismaClient.store.delete({
+      where: { store_id: otherStore.store_id },
+    });
+    await prismaClient.company.delete({
+      where: { company_id: otherCompany.company_id },
+    });
+    await prismaClient.user.delete({ where: { user_id: otherOwner.user_id } });
+  });
+
+  test("X-REPORT-042: [P1] should return 404 when listing X Reports for shift in different company", async ({
+    storeManagerApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An active shift that belongs to a different company/store
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: `Test Other Owner ${Date.now()}` }),
+    });
+    const otherCompany = await prismaClient.company.create({
+      data: createCompany({
+        name: `Test Other Company ${Date.now()}`,
+        owner_user_id: otherOwner.user_id,
+      }),
+    });
+    const otherStore = await prismaClient.store.create({
+      data: createStore({
+        company_id: otherCompany.company_id,
+        name: `Test Other Store ${Date.now()}`,
+      }),
+    });
+    const otherTerminal = await createPOSTerminal(
+      prismaClient,
+      otherStore.store_id,
+    );
+    const otherCashier = await createTestCashier(
+      prismaClient,
+      otherStore.store_id,
+      otherOwner.user_id,
+    );
+    const otherShift = await createActiveShiftForXReport(
+      prismaClient,
+      otherStore.store_id,
+      otherOwner.user_id,
+      otherCashier.cashier_id,
+      otherTerminal.pos_terminal_id,
+    );
+
+    // WHEN: Attempting to list X Reports for a shift in a different tenant
+    const response = await storeManagerApiRequest.get(
+      `/api/shifts/${otherShift.shift_id}/x-reports`,
+    );
+
+    // THEN: Should return 404 Not Found (fail-closed to avoid tenant data leakage)
+    expect(
+      response.status(),
+      "Should return 404 for cross-tenant shift access",
+    ).toBe(404);
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be SHIFT_NOT_FOUND").toBe(
+      "SHIFT_NOT_FOUND",
+    );
+
+    // Cleanup
+    await cleanupXReportTestData(prismaClient, otherShift.shift_id);
+    await prismaClient.cashier.delete({
+      where: { cashier_id: otherCashier.cashier_id },
+    });
+    await prismaClient.pOSTerminal.delete({
+      where: { pos_terminal_id: otherTerminal.pos_terminal_id },
+    });
+    await prismaClient.store.delete({
+      where: { store_id: otherStore.store_id },
+    });
+    await prismaClient.company.delete({
+      where: { company_id: otherCompany.company_id },
+    });
+    await prismaClient.user.delete({ where: { user_id: otherOwner.user_id } });
+  });
+
+  test("X-REPORT-040: [P1] should return 404 when accessing X Report from different company", async ({
+    storeManagerApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An X Report from a different company
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: `Test Other Owner ${Date.now()}` }),
+    });
+    const otherCompany = await prismaClient.company.create({
+      data: createCompany({
+        name: `Test Other Company ${Date.now()}`,
+        owner_user_id: otherOwner.user_id,
+      }),
+    });
+    const otherStore = await prismaClient.store.create({
+      data: createStore({
+        company_id: otherCompany.company_id,
+        name: `Test Other Store ${Date.now()}`,
       }),
     });
     const otherTerminal = await createPOSTerminal(
@@ -879,6 +1020,116 @@ test.describe("X-REPORT-API: Mark as Printed", () => {
     expect(response.status(), "Should return 200 OK").toBe(200);
     const body = await response.json();
     expect(body.data.print_count, "print_count should be 3").toBe(3);
+
+    // Cleanup
+    await cleanupXReportTestData(prismaClient, shift.shift_id);
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
+    await prismaClient.pOSTerminal.delete({
+      where: { pos_terminal_id: terminal.pos_terminal_id },
+    });
+  });
+
+  test("X-REPORT-052: [P1] should return 400 for invalid print_count_increment (0)", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: An X Report exists
+    const terminal = await createPOSTerminal(
+      prismaClient,
+      storeManagerUser.store_id,
+    );
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
+    const shift = await createActiveShiftForXReport(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+      cashier.cashier_id,
+      terminal.pos_terminal_id,
+    );
+
+    const createResponse = await storeManagerApiRequest.post(
+      `/api/shifts/${shift.shift_id}/x-reports`,
+      {},
+    );
+    const created = await createResponse.json();
+
+    // WHEN: Marking X Report as printed with invalid increment
+    const response = await storeManagerApiRequest.post(
+      `/api/x-reports/${created.data.x_report_id}/printed`,
+      { print_count_increment: 0 },
+    );
+
+    // THEN: Should return 400 Validation Error
+    expect(response.status(), "Should return 400 for invalid increment").toBe(
+      400,
+    );
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be VALIDATION_ERROR").toBe(
+      "VALIDATION_ERROR",
+    );
+
+    // Cleanup
+    await cleanupXReportTestData(prismaClient, shift.shift_id);
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
+    await prismaClient.pOSTerminal.delete({
+      where: { pos_terminal_id: terminal.pos_terminal_id },
+    });
+  });
+
+  test("X-REPORT-053: [P1] should return 400 for invalid print_count_increment (> 10)", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: An X Report exists
+    const terminal = await createPOSTerminal(
+      prismaClient,
+      storeManagerUser.store_id,
+    );
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
+    const shift = await createActiveShiftForXReport(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+      cashier.cashier_id,
+      terminal.pos_terminal_id,
+    );
+
+    const createResponse = await storeManagerApiRequest.post(
+      `/api/shifts/${shift.shift_id}/x-reports`,
+      {},
+    );
+    const created = await createResponse.json();
+
+    // WHEN: Marking X Report as printed with invalid increment
+    const response = await storeManagerApiRequest.post(
+      `/api/x-reports/${created.data.x_report_id}/printed`,
+      { print_count_increment: 11 },
+    );
+
+    // THEN: Should return 400 Validation Error
+    expect(response.status(), "Should return 400 for invalid increment").toBe(
+      400,
+    );
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be VALIDATION_ERROR").toBe(
+      "VALIDATION_ERROR",
+    );
 
     // Cleanup
     await cleanupXReportTestData(prismaClient, shift.shift_id);

@@ -54,7 +54,9 @@ test.describe("User PIN Management API", () => {
       clientUser,
       prismaClient,
     }) => {
-      // GIVEN: A STORE_MANAGER employee without PIN
+      // GIVEN: A STORE_MANAGER employee
+      // Note: STORE_MANAGER and SHIFT_MANAGER roles require PIN at creation time.
+      // This test verifies that PIN can be updated after initial creation.
       const storeManagerRole = await prismaClient.role.findFirst({
         where: { code: "STORE_MANAGER", scope: "STORE" },
       });
@@ -63,7 +65,7 @@ test.describe("User PIN Management API", () => {
         return;
       }
 
-      // Create employee with STORE_MANAGER role
+      // Create employee with STORE_MANAGER role and initial PIN (required for managers)
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
         role_id: storeManagerRole.role_id,
@@ -76,6 +78,7 @@ test.describe("User PIN Management API", () => {
           name: employeeData.name,
           store_id: employeeData.store_id,
           role_id: employeeData.role_id,
+          pin: "9876", // Initial PIN required for STORE_MANAGER
         },
       );
 
@@ -89,7 +92,10 @@ test.describe("User PIN Management API", () => {
       const createBody = await createResponse.json();
       const employeeId = createBody.data.user_id;
 
-      // WHEN: Setting PIN for the employee
+      // Verify employee was created with PIN
+      expect(createBody.data.has_pin).toBe(true);
+
+      // WHEN: Updating PIN for the employee (changing from initial to new PIN)
       const response = await clientUserApiRequest.put(
         `/api/client/employees/${employeeId}/pin`,
         {
@@ -98,12 +104,12 @@ test.describe("User PIN Management API", () => {
         },
       );
 
-      // THEN: PIN should be set successfully
+      // THEN: PIN should be updated successfully
       expect(response.status()).toBe(200);
       const body = await response.json();
       expect(body.success).toBe(true);
 
-      // Verify PIN is stored (check has_pin flag via status endpoint)
+      // Verify PIN is still set (check has_pin flag via status endpoint)
       const statusResponse = await clientUserApiRequest.get(
         `/api/client/employees/${employeeId}/pin/status`,
       );
@@ -117,7 +123,9 @@ test.describe("User PIN Management API", () => {
       clientUser,
       prismaClient,
     }) => {
-      // GIVEN: A SHIFT_MANAGER employee without PIN
+      // GIVEN: A SHIFT_MANAGER employee
+      // Note: STORE_MANAGER and SHIFT_MANAGER roles require PIN at creation time.
+      // This test verifies that PIN can be updated after initial creation.
       const shiftManagerRole = await prismaClient.role.findFirst({
         where: { code: "SHIFT_MANAGER", scope: "STORE" },
       });
@@ -126,7 +134,7 @@ test.describe("User PIN Management API", () => {
         return;
       }
 
-      // Create employee with SHIFT_MANAGER role
+      // Create employee with SHIFT_MANAGER role and initial PIN (required for managers)
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
         role_id: shiftManagerRole.role_id,
@@ -139,6 +147,7 @@ test.describe("User PIN Management API", () => {
           name: employeeData.name,
           store_id: employeeData.store_id,
           role_id: employeeData.role_id,
+          pin: "8765", // Initial PIN required for SHIFT_MANAGER
         },
       );
 
@@ -152,7 +161,10 @@ test.describe("User PIN Management API", () => {
       const createBody = await createResponse.json();
       const employeeId = createBody.data.user_id;
 
-      // WHEN: Setting PIN for the employee
+      // Verify employee was created with PIN
+      expect(createBody.data.has_pin).toBe(true);
+
+      // WHEN: Updating PIN for the employee (changing from initial to new PIN)
       const response = await clientUserApiRequest.put(
         `/api/client/employees/${employeeId}/pin`,
         {
@@ -161,10 +173,18 @@ test.describe("User PIN Management API", () => {
         },
       );
 
-      // THEN: PIN should be set successfully
+      // THEN: PIN should be updated successfully
       expect(response.status()).toBe(200);
       const body = await response.json();
       expect(body.success).toBe(true);
+
+      // Verify PIN is still set
+      const statusResponse = await clientUserApiRequest.get(
+        `/api/client/employees/${employeeId}/pin/status`,
+      );
+      expect(statusResponse.status()).toBe(200);
+      const statusBody = await statusResponse.json();
+      expect(statusBody.data.has_pin).toBe(true);
     });
 
     test("UPIN-API-013: should reject invalid PIN format - too short", async ({
@@ -172,17 +192,18 @@ test.describe("User PIN Management API", () => {
       clientUser,
       prismaClient,
     }) => {
-      // GIVEN: An employee
-      const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+      // GIVEN: An employee (use CASHIER role as it doesn't require PIN at creation)
+      const cashierRole = await prismaClient.role.findFirst({
+        where: { code: "CASHIER", scope: "STORE" },
       });
-      if (!storeRole) {
-        throw new Error("No STORE scope role found in database");
+      if (!cashierRole) {
+        test.skip(true, "CASHIER role not found in database");
+        return;
       }
 
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: cashierRole.role_id,
       });
 
       const createResponse = await clientUserApiRequest.post(
@@ -225,17 +246,18 @@ test.describe("User PIN Management API", () => {
       clientUser,
       prismaClient,
     }) => {
-      // GIVEN: An employee
-      const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+      // GIVEN: An employee (use CASHIER role as it doesn't require PIN at creation)
+      const cashierRole = await prismaClient.role.findFirst({
+        where: { code: "CASHIER", scope: "STORE" },
       });
-      if (!storeRole) {
-        throw new Error("No STORE scope role found in database");
+      if (!cashierRole) {
+        test.skip(true, "CASHIER role not found in database");
+        return;
       }
 
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: cashierRole.role_id,
       });
 
       const createResponse = await clientUserApiRequest.post(
@@ -278,18 +300,19 @@ test.describe("User PIN Management API", () => {
       clientUser,
       prismaClient,
     }) => {
-      // GIVEN: Two employees at the same store
-      const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+      // GIVEN: Two employees at the same store (use CASHIER role as it doesn't require PIN at creation)
+      const cashierRole = await prismaClient.role.findFirst({
+        where: { code: "CASHIER", scope: "STORE" },
       });
-      if (!storeRole) {
-        throw new Error("No STORE scope role found in database");
+      if (!cashierRole) {
+        test.skip(true, "CASHIER role not found in database");
+        return;
       }
 
       // Create first employee and set PIN
       const employee1Data = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: cashierRole.role_id,
       });
 
       const create1Response = await clientUserApiRequest.post(
@@ -331,7 +354,7 @@ test.describe("User PIN Management API", () => {
       // Create second employee
       const employee2Data = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: cashierRole.role_id,
       });
 
       const create2Response = await clientUserApiRequest.post(
@@ -374,17 +397,18 @@ test.describe("User PIN Management API", () => {
       clientUser,
       prismaClient,
     }) => {
-      // GIVEN: An employee with PIN set
-      const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+      // GIVEN: An employee with PIN set (use CASHIER role as it doesn't require PIN at creation)
+      const cashierRole = await prismaClient.role.findFirst({
+        where: { code: "CASHIER", scope: "STORE" },
       });
-      if (!storeRole) {
-        throw new Error("No STORE scope role found in database");
+      if (!cashierRole) {
+        test.skip(true, "CASHIER role not found in database");
+        return;
       }
 
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: cashierRole.role_id,
       });
 
       const createResponse = await clientUserApiRequest.post(
@@ -447,17 +471,18 @@ test.describe("User PIN Management API", () => {
       clientUser,
       prismaClient,
     }) => {
-      // GIVEN: An employee
-      const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+      // GIVEN: An employee (use CASHIER role as it doesn't require PIN at creation)
+      const cashierRole = await prismaClient.role.findFirst({
+        where: { code: "CASHIER", scope: "STORE" },
       });
-      if (!storeRole) {
-        throw new Error("No STORE scope role found in database");
+      if (!cashierRole) {
+        test.skip(true, "CASHIER role not found in database");
+        return;
       }
 
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: cashierRole.role_id,
       });
 
       const createResponse = await clientUserApiRequest.post(
@@ -490,7 +515,7 @@ test.describe("User PIN Management API", () => {
       const body = await response.json();
       expect(body.success).toBe(true);
       expect(typeof body.data.has_pin).toBe("boolean");
-      expect(body.data.has_pin).toBe(false); // New employee has no PIN
+      expect(body.data.has_pin).toBe(false); // New CASHIER employee has no PIN
     });
 
     test("UPIN-API-009b: should show has_pin=true after PIN is set", async ({
@@ -498,17 +523,18 @@ test.describe("User PIN Management API", () => {
       clientUser,
       prismaClient,
     }) => {
-      // GIVEN: An employee with PIN set
-      const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+      // GIVEN: An employee with PIN set (use CASHIER role as it doesn't require PIN at creation)
+      const cashierRole = await prismaClient.role.findFirst({
+        where: { code: "CASHIER", scope: "STORE" },
       });
-      if (!storeRole) {
-        throw new Error("No STORE scope role found in database");
+      if (!cashierRole) {
+        test.skip(true, "CASHIER role not found in database");
+        return;
       }
 
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: cashierRole.role_id,
       });
 
       const createResponse = await clientUserApiRequest.post(
@@ -568,17 +594,18 @@ test.describe("User PIN Management API", () => {
       clientUser,
       prismaClient,
     }) => {
-      // GIVEN: An employee with PIN set
-      const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+      // GIVEN: An employee with PIN set (use CASHIER role as it doesn't require PIN at creation)
+      const cashierRole = await prismaClient.role.findFirst({
+        where: { code: "CASHIER", scope: "STORE" },
       });
-      if (!storeRole) {
-        throw new Error("No STORE scope role found in database");
+      if (!cashierRole) {
+        test.skip(true, "CASHIER role not found in database");
+        return;
       }
 
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: cashierRole.role_id,
       });
 
       const createResponse = await clientUserApiRequest.post(
@@ -646,17 +673,19 @@ test.describe("User PIN Management API", () => {
       prismaClient,
       apiRequest,
     }) => {
-      // GIVEN: An employee with PIN set
-      const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+      // GIVEN: A STORE_MANAGER employee with PIN (managers have SHIFT_OPEN permission)
+      // Note: STORE_MANAGER requires PIN at creation time
+      const storeManagerRole = await prismaClient.role.findFirst({
+        where: { code: "STORE_MANAGER", scope: "STORE" },
       });
-      if (!storeRole) {
-        throw new Error("No STORE scope role found in database");
+      if (!storeManagerRole) {
+        test.skip(true, "STORE_MANAGER role not found in database");
+        return;
       }
 
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: storeManagerRole.role_id,
       });
 
       const createResponse = await clientUserApiRequest.post(
@@ -666,6 +695,7 @@ test.describe("User PIN Management API", () => {
           name: employeeData.name,
           store_id: employeeData.store_id,
           role_id: employeeData.role_id,
+          pin: "5555", // PIN required for STORE_MANAGER
         },
       );
 
@@ -678,20 +708,6 @@ test.describe("User PIN Management API", () => {
 
       const createBody = await createResponse.json();
       const employeeId = createBody.data.user_id;
-
-      // Set PIN
-      const setPINResponse = await clientUserApiRequest.put(
-        `/api/client/employees/${employeeId}/pin`,
-        {
-          pin: "5555",
-          store_id: clientUser.store_id,
-        },
-      );
-
-      if (setPINResponse.status() !== 200) {
-        const errorBody = await setPINResponse.json();
-        throw new Error(`PIN set failed: ${JSON.stringify(errorBody)}`);
-      }
 
       // WHEN: Verifying PIN
       const response = await apiRequest.post("/api/auth/verify-user-pin", {
@@ -717,17 +733,19 @@ test.describe("User PIN Management API", () => {
       prismaClient,
       apiRequest,
     }) => {
-      // GIVEN: An employee with PIN set
-      const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+      // GIVEN: A STORE_MANAGER employee with PIN (managers have SHIFT_OPEN permission)
+      // Note: STORE_MANAGER requires PIN at creation time
+      const storeManagerRole = await prismaClient.role.findFirst({
+        where: { code: "STORE_MANAGER", scope: "STORE" },
       });
-      if (!storeRole) {
-        throw new Error("No STORE scope role found in database");
+      if (!storeManagerRole) {
+        test.skip(true, "STORE_MANAGER role not found in database");
+        return;
       }
 
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: storeManagerRole.role_id,
       });
 
       const createResponse = await clientUserApiRequest.post(
@@ -737,6 +755,7 @@ test.describe("User PIN Management API", () => {
           name: employeeData.name,
           store_id: employeeData.store_id,
           role_id: employeeData.role_id,
+          pin: "6666", // PIN required for STORE_MANAGER
         },
       );
 
@@ -750,25 +769,11 @@ test.describe("User PIN Management API", () => {
       const createBody = await createResponse.json();
       const employeeId = createBody.data.user_id;
 
-      // Set PIN
-      const setPINResponse = await clientUserApiRequest.put(
-        `/api/client/employees/${employeeId}/pin`,
-        {
-          pin: "6666",
-          store_id: clientUser.store_id,
-        },
-      );
-
-      if (setPINResponse.status() !== 200) {
-        const errorBody = await setPINResponse.json();
-        throw new Error(`PIN set failed: ${JSON.stringify(errorBody)}`);
-      }
-
-      // WHEN: Verifying PIN
+      // WHEN: Verifying PIN (use SHIFT_OPEN which STORE_MANAGER has)
       const response = await apiRequest.post("/api/auth/verify-user-pin", {
         user_id: employeeId,
         pin: "6666",
-        required_permission: "CASH_DROP",
+        required_permission: "SHIFT_OPEN",
         store_id: clientUser.store_id,
       });
 
@@ -792,17 +797,19 @@ test.describe("User PIN Management API", () => {
       prismaClient,
       apiRequest,
     }) => {
-      // GIVEN: An employee with PIN set
-      const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+      // GIVEN: A STORE_MANAGER employee with PIN set
+      // Note: STORE_MANAGER requires PIN at creation time
+      const storeManagerRole = await prismaClient.role.findFirst({
+        where: { code: "STORE_MANAGER", scope: "STORE" },
       });
-      if (!storeRole) {
-        throw new Error("No STORE scope role found in database");
+      if (!storeManagerRole) {
+        test.skip(true, "STORE_MANAGER role not found in database");
+        return;
       }
 
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: storeManagerRole.role_id,
       });
 
       const createResponse = await clientUserApiRequest.post(
@@ -812,6 +819,7 @@ test.describe("User PIN Management API", () => {
           name: employeeData.name,
           store_id: employeeData.store_id,
           role_id: employeeData.role_id,
+          pin: "7777", // PIN required for STORE_MANAGER
         },
       );
 
@@ -824,20 +832,6 @@ test.describe("User PIN Management API", () => {
 
       const createBody = await createResponse.json();
       const employeeId = createBody.data.user_id;
-
-      // Set PIN
-      const setPINResponse = await clientUserApiRequest.put(
-        `/api/client/employees/${employeeId}/pin`,
-        {
-          pin: "7777",
-          store_id: clientUser.store_id,
-        },
-      );
-
-      if (setPINResponse.status() !== 200) {
-        const errorBody = await setPINResponse.json();
-        throw new Error(`PIN set failed: ${JSON.stringify(errorBody)}`);
-      }
 
       // WHEN: Verifying with wrong PIN
       const response = await apiRequest.post("/api/auth/verify-user-pin", {
@@ -859,17 +853,19 @@ test.describe("User PIN Management API", () => {
       prismaClient,
       apiRequest,
     }) => {
-      // GIVEN: An employee with PIN set
-      const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+      // GIVEN: A STORE_MANAGER employee with PIN set (for SHIFT_OPEN permission)
+      // Note: STORE_MANAGER requires PIN at creation time
+      const storeManagerRole = await prismaClient.role.findFirst({
+        where: { code: "STORE_MANAGER", scope: "STORE" },
       });
-      if (!storeRole) {
-        throw new Error("No STORE scope role found in database");
+      if (!storeManagerRole) {
+        test.skip(true, "STORE_MANAGER role not found in database");
+        return;
       }
 
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: storeManagerRole.role_id,
       });
 
       const createResponse = await clientUserApiRequest.post(
@@ -879,6 +875,7 @@ test.describe("User PIN Management API", () => {
           name: employeeData.name,
           store_id: employeeData.store_id,
           role_id: employeeData.role_id,
+          pin: "3333", // PIN required for STORE_MANAGER
         },
       );
 
@@ -891,20 +888,6 @@ test.describe("User PIN Management API", () => {
 
       const createBody = await createResponse.json();
       const employeeId = createBody.data.user_id;
-
-      // Set PIN
-      const setPINResponse = await clientUserApiRequest.put(
-        `/api/client/employees/${employeeId}/pin`,
-        {
-          pin: "3333",
-          store_id: clientUser.store_id,
-        },
-      );
-
-      if (setPINResponse.status() !== 200) {
-        const errorBody = await setPINResponse.json();
-        throw new Error(`PIN set failed: ${JSON.stringify(errorBody)}`);
-      }
 
       // WHEN: Verifying with wrong PIN
       const response = await apiRequest.post("/api/auth/verify-user-pin", {
@@ -975,17 +958,18 @@ test.describe("User PIN Management API", () => {
       clientUser,
       prismaClient,
     }) => {
-      // GIVEN: A valid employee
-      const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+      // GIVEN: A valid employee (use CASHIER role as it doesn't require PIN at creation)
+      const cashierRole = await prismaClient.role.findFirst({
+        where: { code: "CASHIER", scope: "STORE" },
       });
-      if (!storeRole) {
-        throw new Error("No STORE scope role found in database");
+      if (!cashierRole) {
+        test.skip(true, "CASHIER role not found in database");
+        return;
       }
 
       const employeeData = createEmployeeRequest({
         store_id: clientUser.store_id,
-        role_id: storeRole.role_id,
+        role_id: cashierRole.role_id,
       });
 
       const createResponse = await clientUserApiRequest.post(

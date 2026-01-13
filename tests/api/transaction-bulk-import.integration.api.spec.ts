@@ -821,9 +821,16 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     superadminUser,
     prismaClient,
   }) => {
-    // NOTE: This test requires the transaction worker to be running
-    // If the worker is not available, the test will verify that transactions
-    // were enqueued to RabbitMQ (processed_rows > 0) but may not find them in the database
+    // NOTE: This test verifies the complete flow from file upload to RabbitMQ enqueueing
+    // If the transaction worker is running, it also verifies that transactions are processed
+    // and appear in the database. Worker availability is optional for this integration test.
+    //
+    // CRITICAL ASSERTIONS:
+    // 1. All valid transactions must be successfully enqueued to RabbitMQ (processed_rows = total_rows - error_rows)
+    // 2. Enqueue failures must be tracked in error_rows and error_summary
+    // 3. Job status must accurately reflect completion state
+    // 4. If worker is running, transactions must appear in database with correct data
+
     // GIVEN: I am authenticated as System Admin with valid store and shift
     const company = await createCompany(prismaClient);
     const store = await createStore(prismaClient, {
@@ -850,7 +857,8 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     });
 
     // Create CSV with 5 valid transactions
-    const transactions = Array.from({ length: 5 }, () =>
+    const transactionCount = 5;
+    const transactions = Array.from({ length: transactionCount }, () =>
       createTransactionPayload({
         store_id: store.store_id,
         shift_id: shift.shift_id,
@@ -868,42 +876,82 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     );
 
     expect(jobId, "Should have job_id").toBeTruthy();
+    expect(
+      uploadBody.data?.status,
+      "Initial job status should be PENDING",
+    ).toBe("PENDING");
 
-    // Wait for job to complete
+    // Wait for job to complete (with extended timeout for RabbitMQ operations)
     const completionResult = await waitForJobCompletion(
       superadminApiRequest,
       jobId,
+      30000, // 30 seconds - allow time for RabbitMQ operations
     );
 
-    // THEN: Job should be COMPLETED
+    // THEN: Job should be COMPLETED (not FAILED)
     expect(
       completionResult,
-      "Job should complete within timeout",
+      "Job should complete within timeout. If this fails, check RabbitMQ connectivity and worker status.",
     ).not.toBeNull();
     expect(
       completionResult!.status,
-      "Job should be COMPLETED (not FAILED)",
+      "Job should be COMPLETED (not FAILED). If FAILED, check error_summary for details.",
     ).toBe("COMPLETED");
 
     const job = completionResult!.job;
     expect(job, "Job object should exist").toBeTruthy();
+    expect(job.job_id, "Job ID should match").toBe(jobId);
+    expect(
+      job.total_rows,
+      "Total rows should match uploaded transactions",
+    ).toBe(transactionCount);
 
-    // THEN: Transactions should have been enqueued to RabbitMQ
-    // processed_rows > 0 indicates messages were successfully published to the queue
+    // THEN: All valid transactions must be successfully enqueued to RabbitMQ
+    // processed_rows represents transactions that were successfully published to RabbitMQ
+    // The implementation now verifies publishToTransactionsQueue returns true before counting
     expect(
       job.processed_rows,
-      "Should have enqueued at least some transactions to RabbitMQ",
-    ).toBeGreaterThan(0);
+      `All ${transactionCount} valid transactions should be enqueued to RabbitMQ. processed_rows=${job.processed_rows}, expected=${transactionCount}`,
+    ).toBe(transactionCount);
+
+    // THEN: Error tracking must be accurate
+    // If there were validation errors, they should be tracked separately
+    // Enqueue failures (if any) are now tracked in error_rows
+    expect(job.error_rows, "Error rows should be >= 0").toBeGreaterThanOrEqual(
+      0,
+    );
     expect(
       job.processed_rows + job.error_rows,
-      "Processed + error rows should equal total rows",
+      "Processed + error rows must equal total rows (all transactions accounted for)",
     ).toBe(job.total_rows);
 
-    // Quick check if worker is running - poll a few times with short intervals
-    // Worker processing is optional for this test; the critical assertion is that
-    // transactions were successfully enqueued (processed_rows > 0)
+    // THEN: If there are errors, they must be in error_summary
+    if (job.error_rows > 0) {
+      const errors = completionResult!.errors || [];
+      expect(Array.isArray(errors), "Errors should be an array").toBe(true);
+      expect(
+        errors.length,
+        "Error summary length should match error_rows count",
+      ).toBe(job.error_rows);
+      // Verify error structure
+      errors.forEach((error: any, index: number) => {
+        expect(
+          error.row_number,
+          `Error ${index} should have row_number`,
+        ).toBeDefined();
+        expect(
+          error.error,
+          `Error ${index} should have error message`,
+        ).toBeTruthy();
+      });
+    }
+
+    // THEN: Verify RabbitMQ enqueueing by checking if worker processed transactions
+    // This is optional - if worker is not running, enqueueing is still verified above
+    // Poll with reasonable timeout to allow worker processing
     let dbTransactions: any[] = [];
-    const maxWorkerAttempts = 5; // Only try 5 times (2.5 seconds total)
+    const maxWorkerAttempts = 10; // 10 attempts = 5 seconds total
+    const workerPollInterval = 500;
 
     for (let i = 0; i < maxWorkerAttempts; i++) {
       dbTransactions = await prismaClient.transaction.findMany({
@@ -911,42 +959,94 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
           store_id: store.store_id,
           shift_id: shift.shift_id,
         },
-        take: 10,
+        orderBy: {
+          timestamp: "desc",
+        },
+        take: transactionCount + 5, // Get a few extra to verify we're not missing any
       });
 
-      if (dbTransactions.length > 0) {
+      // If we found transactions, check if we have all of them
+      if (dbTransactions.length >= job.processed_rows) {
         break;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, workerPollInterval));
     }
 
     // If worker processed transactions, verify data integrity
-    // If not, that's OK - the enqueueing was verified above
-    if (dbTransactions.length === 0) {
+    if (dbTransactions.length > 0) {
+      // Worker is running - verify all enqueued transactions were processed
+      expect(
+        dbTransactions.length,
+        `Worker should have processed all ${job.processed_rows} enqueued transactions. Found ${dbTransactions.length} in database.`,
+      ).toBeGreaterThanOrEqual(job.processed_rows);
+
+      // Verify transaction data integrity for a sample
+      const sampleSize = Math.min(dbTransactions.length, 3);
+      for (let i = 0; i < sampleSize; i++) {
+        const tx = dbTransactions[i];
+        expect(
+          tx.store_id,
+          `Transaction ${i} should have correct store_id`,
+        ).toBe(store.store_id);
+        expect(
+          tx.shift_id,
+          `Transaction ${i} should have correct shift_id`,
+        ).toBe(shift.shift_id);
+        expect(tx.cashier_id, `Transaction ${i} should have cashier_id`).toBe(
+          cashier.cashier_id,
+        );
+        expect(
+          tx.total,
+          `Transaction ${i} should have total amount`,
+        ).toBeDefined();
+        expect(
+          typeof tx.total,
+          `Transaction ${i} total should be a number`,
+        ).toBe("number");
+        expect(
+          tx.total,
+          `Transaction ${i} total should be > 0`,
+        ).toBeGreaterThan(0);
+        expect(
+          tx.timestamp,
+          `Transaction ${i} should have timestamp`,
+        ).toBeDefined();
+        expect(
+          tx.public_id,
+          `Transaction ${i} should have public_id`,
+        ).toBeDefined();
+      }
+
+      // Verify line items and payments exist for at least one transaction
+      const txWithDetails = await prismaClient.transaction.findFirst({
+        where: {
+          store_id: store.store_id,
+          shift_id: shift.shift_id,
+        },
+        include: {
+          line_items: true,
+          payments: true,
+        },
+      });
+
+      if (txWithDetails) {
+        expect(
+          txWithDetails.line_items.length,
+          "Transaction should have line items",
+        ).toBeGreaterThan(0);
+        expect(
+          txWithDetails.payments.length,
+          "Transaction should have payments",
+        ).toBeGreaterThan(0);
+      }
+    } else {
       // Worker not running - this is acceptable for integration tests
-      // The important part is that transactions were enqueued (verified above)
-      return;
+      // The critical assertion (enqueueing) was verified above
+      // Log a note but don't fail the test
+      console.log(
+        `[INFO] Transaction worker not running - verified ${job.processed_rows} transactions were enqueued to RabbitMQ`,
+      );
     }
-
-    // Worker is running - verify transaction data integrity
-    expect(
-      dbTransactions.length,
-      "Worker should have processed transactions",
-    ).toBeGreaterThan(0);
-
-    const firstTransaction = dbTransactions[0];
-    expect(
-      firstTransaction.store_id,
-      "Transaction should have correct store_id",
-    ).toBe(store.store_id);
-    expect(
-      firstTransaction.shift_id,
-      "Transaction should have correct shift_id",
-    ).toBe(shift.shift_id);
-    expect(
-      firstTransaction.total,
-      "Transaction should have total amount",
-    ).toBeDefined();
   });
 });

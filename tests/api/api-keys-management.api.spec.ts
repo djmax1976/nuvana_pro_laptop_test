@@ -432,18 +432,30 @@ test.describe("API Keys Management - CRUD Operations", () => {
       superadminUser,
       prismaClient,
     }) => {
-      const { company, store } = await createTestStoreWithCompany(
-        prismaClient,
-        superadminUser.user_id,
-      );
+      // Create multiple stores, each with one API key
+      // (API enforces single active key per store)
+      const testData: Array<{
+        company: any;
+        store: any;
+      }> = [];
 
       try {
-        // Create multiple API keys
+        // Create 3 stores with API keys
         for (let i = 0; i < 3; i++) {
-          await superadminApiRequest.post(API_KEYS_BASE_PATH, {
-            store_id: store.store_id,
-            label: `Test Key ${i + 1}`,
-          });
+          const { company, store } = await createTestStoreWithCompany(
+            prismaClient,
+            superadminUser.user_id,
+          );
+          testData.push({ company, store });
+
+          const createResp = await superadminApiRequest.post(
+            API_KEYS_BASE_PATH,
+            {
+              store_id: store.store_id,
+              label: `Pagination Test Key ${i + 1}`,
+            },
+          );
+          expect(createResp.status()).toBe(201);
         }
 
         // List with pagination
@@ -460,22 +472,24 @@ test.describe("API Keys Management - CRUD Operations", () => {
         expect(body.data.pagination.limit).toBe(2);
         expect(body.data.pagination.total_pages).toBeGreaterThanOrEqual(2);
       } finally {
-        // Cleanup
+        // Cleanup all test stores
         await withBypassClient(async (bypassClient) => {
-          await bypassClient.apiKeyAuditEvent.deleteMany({
-            where: {
-              api_key: { store_id: store.store_id },
-            },
-          });
-          await bypassClient.apiKey.deleteMany({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.store.delete({
-            where: { store_id: store.store_id },
-          });
-          await bypassClient.company.delete({
-            where: { company_id: company.company_id },
-          });
+          for (const { company, store } of testData) {
+            await bypassClient.apiKeyAuditEvent.deleteMany({
+              where: {
+                api_key: { store_id: store.store_id },
+              },
+            });
+            await bypassClient.apiKey.deleteMany({
+              where: { store_id: store.store_id },
+            });
+            await bypassClient.store.delete({
+              where: { store_id: store.store_id },
+            });
+            await bypassClient.company.delete({
+              where: { company_id: company.company_id },
+            });
+          }
         });
       }
     });
@@ -642,7 +656,8 @@ test.describe("API Keys Management - CRUD Operations", () => {
         expect(body.data.api_key_id).toBe(apiKeyId);
         expect(body.data.store_id).toBe(store.store_id);
         expect(body.data.label).toBe(VALID_LABEL);
-        expect(body.data.status).toBe("PENDING"); // Initial status
+        // Admin-created API keys are immediately ACTIVE (not PENDING like rotated keys)
+        expect(body.data.status).toBe("ACTIVE");
         expect(body.data.key_prefix).toBeDefined();
         expect(body.data.key_suffix).toBeDefined();
         expect(body.data.metadata).toEqual({ terminal_id: "T001" });

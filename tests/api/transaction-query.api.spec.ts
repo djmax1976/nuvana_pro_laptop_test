@@ -190,6 +190,7 @@ async function cleanupTestData(entities: {
 test.describe("3.4-API: Transaction Query by Store ID", () => {
   test("3.4-API-001: [P0] GET /api/transactions?store_id={uuid} - should return paginated list of transactions", async ({
     superadminApiRequest,
+    superadminUser,
     prismaClient,
   }) => {
     // GIVEN: A store exists with transactions
@@ -197,15 +198,36 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     const { owner, company, store, cashier, shift } =
       await createTestStoreShiftAndCashier(prismaClient);
 
-    // Create 5 transactions for the store
+    // Ensure superadmin user exists and is ACTIVE (required for activeStatusMiddleware)
+    // The fixture should handle this, but we verify to catch any setup issues
+    const superadminUserRecord = await prismaClient.user.findUnique({
+      where: { user_id: superadminUser.user_id },
+      select: { user_id: true, status: true },
+    });
+    if (!superadminUserRecord) {
+      throw new Error(
+        `Superadmin user ${superadminUser.user_id} not found in database. Fixture setup may have failed.`,
+      );
+    }
+    if (superadminUserRecord.status !== "ACTIVE") {
+      // Ensure user is ACTIVE
+      await prismaClient.user.update({
+        where: { user_id: superadminUser.user_id },
+        data: { status: "ACTIVE" },
+      });
+    }
+
+    // Create 5 transactions for the store and track them for cleanup
+    const transactions = [];
     for (let i = 0; i < 5; i++) {
-      await prismaClient.transaction.create({
+      const transaction = await prismaClient.transaction.create({
         data: createTransaction({
           store_id: store.store_id,
           shift_id: shift.shift_id,
           cashier_id: owner.user_id, // Transaction.cashier_id references User
         }),
       });
+      transactions.push(transaction);
     }
 
     // WHEN: Querying transactions by store_id
@@ -230,8 +252,9 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     expect(body.data.meta.total, "Should have total count").toBeGreaterThan(0);
     expect(body.data.meta.limit, "Should have default limit of 50").toBe(50);
 
-    // Cleanup
+    // Cleanup - transactions will be deleted via shift_id cleanup
     await cleanupTestData({
+      transactions,
       shifts: [shift],
       cashiers: [cashier],
       stores: [store],
@@ -829,9 +852,10 @@ test.describe("3.4-API: Transaction Query with Line Items", () => {
     expect(lineItem.product_id, "Should include product_id").toBe(productId);
     expect(lineItem.sku, "Should include sku").toBe("SKU-001");
     expect(lineItem.name, "Should include name").toBe("Test Product");
-    expect(lineItem.quantity, "Should include quantity").toBe(2);
-    expect(lineItem.unit_price, "Should include unit_price").toBe(10.0);
-    expect(lineItem.line_total, "Should include line_total").toBe(20.0);
+    // Decimal fields are serialized as strings in JSON API responses
+    expect(Number(lineItem.quantity), "Should include quantity").toBe(2);
+    expect(Number(lineItem.unit_price), "Should include unit_price").toBe(10.0);
+    expect(Number(lineItem.line_total), "Should include line_total").toBe(20.0);
 
     // Cleanup
     await cleanupTestData({

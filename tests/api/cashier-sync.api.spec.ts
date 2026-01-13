@@ -77,13 +77,18 @@ async function makeApiKeyRequest(
     });
   }
 
-  const requestOptions = {
+  const requestOptions: {
+    headers: Record<string, string>;
+    data?: unknown;
+  } = {
     headers: {
       "X-API-Key": apiKey,
       "Content-Type": "application/json",
     },
-    ...(options.body && { data: options.body }),
   };
+  if (options.body) {
+    requestOptions.data = options.body;
+  }
 
   if (method === "GET") {
     return request.get(url.toString(), requestOptions);
@@ -103,7 +108,7 @@ test.describe("CASHIER-SYNC-API: Cashier Sync Endpoint Tests", () => {
   test.beforeAll(async ({ request }) => {
     // Get or create test store
     const store = await prisma.store.findFirst({
-      where: { deleted_at: null },
+      where: { status: "ACTIVE" },
       select: {
         store_id: true,
         company_id: true,

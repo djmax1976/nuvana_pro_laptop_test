@@ -146,7 +146,9 @@ const createMockStoreLoginUser = (
   name: "John Smith",
   email: "john.smith@teststore.com",
   status: "ACTIVE",
-  pin_hash: "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZRGdjGj/n3.P1q2xTcK2K5K5K5K5K",
+  pin_hash: "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZRGdjGj/n3.P1q2xTcK2K5K5K5K5K" as
+    | string
+    | null,
   // NOTE: password_hash should NEVER be included in select
   updated_at: new Date("2024-01-15T12:00:00.000Z"),
   user_roles: [createMockUserRole(storeId)],

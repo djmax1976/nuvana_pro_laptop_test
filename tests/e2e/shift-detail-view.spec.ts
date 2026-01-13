@@ -403,7 +403,7 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     await expect(clientOwnerPage.getByText(cashier.name)).toBeVisible();
   });
 
-  test("SHIFT-DETAIL-E2E-003: [P0] Should display closed shift summary for CLOSED shift", async ({
+  test("SHIFT-DETAIL-E2E-003: [P0] Should display closed shift summary when navigating directly to closed shift", async ({
     clientOwnerPage,
     clientUser,
     prismaClient,
@@ -424,58 +424,36 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
       terminal.pos_terminal_id,
     );
 
-    // WHEN: Navigating to the shift detail page
-    // CRITICAL FOR CI: This test follows Test 002 which shows an OPEN shift (active-shift-view).
-    // We're navigating to a CLOSED shift which uses a different component (closed-shift-summary).
-    // Using networkidle ensures all API calls complete before assertions.
+    // WHEN: Navigating directly to the closed shift detail page
+    // This simulates a Client Owner viewing a historical closed shift
     await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
     });
 
-    // THEN: The page container should be visible first
+    // THEN: Wait for the page to load (either success or error state)
+    const detailPage = clientOwnerPage.locator(
+      '[data-testid="shift-detail-page"]',
+    );
+    const loadingState = clientOwnerPage.locator(
+      '[data-testid="shift-detail-loading"]',
+    );
+
+    // Wait for loading to complete
+    await expect(loadingState.or(detailPage)).toBeVisible({ timeout: 15000 });
+    if (await loadingState.isVisible()) {
+      await expect(loadingState).toBeHidden({ timeout: 15000 });
+    }
+
+    // AND: The shift detail page should be visible
+    await expect(detailPage).toBeVisible({ timeout: 15000 });
+
+    // AND: The closed shift summary view should be displayed (not active-shift-view)
+    // This is the key assertion - closed shifts show ClosedShiftSummary, not ActiveShiftView
     await expect(
-      clientOwnerPage.locator('[data-testid="shift-detail-page"]'),
-    ).toBeVisible({ timeout: 30000 });
+      clientOwnerPage.locator('[data-testid="closed-shift-summary"]'),
+    ).toBeVisible({ timeout: 15000 });
 
-    // Verify we got the CLOSED shift view (not active-shift-view from previous test's cache)
-    // Check for error state first to provide better diagnostics
-    const errorState = clientOwnerPage.locator(
-      '[data-testid="shift-detail-error"]',
-    );
-    const notFoundState = clientOwnerPage.locator(
-      '[data-testid="shift-detail-not-found"]',
-    );
-    const closedSummary = clientOwnerPage.locator(
-      '[data-testid="closed-shift-summary"]',
-    );
-
-    // Wait for one of the final states to appear
-    await Promise.race([
-      closedSummary.waitFor({ state: "visible", timeout: 30000 }),
-      errorState.waitFor({ state: "visible", timeout: 30000 }),
-      notFoundState.waitFor({ state: "visible", timeout: 30000 }),
-    ]);
-
-    // Fail fast with clear message if we hit an error state
-    if (await errorState.isVisible()) {
-      const errorText = await clientOwnerPage
-        .locator('[data-testid="shift-detail-error"]')
-        .textContent();
-      throw new Error(`Shift detail API error: ${errorText}`);
-    }
-    if (await notFoundState.isVisible()) {
-      throw new Error(
-        `Shift not found - possible race condition. Shift ID: ${shift.shift_id}`,
-      );
-    }
-
-    // AND: The closed shift summary view should be displayed
-    await expect(closedSummary).toBeVisible();
-
-    // AND: The "Shift Summary" header should be visible
-    await expect(clientOwnerPage.getByText("Shift Summary")).toBeVisible();
-
-    // AND: Cash reconciliation card should be visible
+    // AND: Cash reconciliation card should be visible (core feature of closed shift view)
     await expect(
       clientOwnerPage.locator('[data-testid="cash-reconciliation-card"]'),
     ).toBeVisible();

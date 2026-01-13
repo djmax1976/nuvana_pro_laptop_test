@@ -1657,29 +1657,75 @@ async function processBulkImport(
       // Enqueue valid transactions in batches of 100
       const batchSize = 100;
       let processedCount = 0;
+      const enqueueErrors: Array<{
+        row_number: number;
+        field: string;
+        error: string;
+      }> = [];
 
       for (let i = 0; i < validTransactions.length; i += batchSize) {
         const batch = validTransactions.slice(i, i + batchSize);
 
-        const enqueuePromises = batch.map((tx) => {
-          const correlationId = uuidv4();
-          const message = {
-            correlation_id: correlationId,
-            timestamp: new Date().toISOString(),
-            source: "BULK_IMPORT" as const,
-            user_id: userId,
-            payload: tx,
-          };
+        const enqueueResults = await Promise.allSettled(
+          batch.map((tx, batchIndex) => {
+            const correlationId = uuidv4();
+            const message = {
+              correlation_id: correlationId,
+              timestamp: new Date().toISOString(),
+              source: "BULK_IMPORT" as const,
+              user_id: userId,
+              payload: tx,
+            };
 
-          return publishToTransactionsQueue(message, correlationId);
+            return publishToTransactionsQueue(message, correlationId);
+          }),
+        );
+
+        // Count successfully published messages
+        let batchProcessedCount = 0;
+        enqueueResults.forEach((result, batchIndex) => {
+          if (result.status === "fulfilled" && result.value === true) {
+            batchProcessedCount++;
+          } else {
+            // Track enqueue failures
+            const globalIndex = i + batchIndex;
+            const rowNumber =
+              fileType === "CSV" ? globalIndex + 2 : globalIndex + 1;
+            const errorMessage =
+              result.status === "rejected"
+                ? result.reason?.message || "Failed to enqueue transaction"
+                : "RabbitMQ channel buffer full - message not published";
+            enqueueErrors.push({
+              row_number: rowNumber,
+              field: "enqueue",
+              error: errorMessage,
+            });
+          }
         });
 
-        await Promise.all(enqueuePromises);
-        processedCount += batch.length;
+        processedCount += batchProcessedCount;
 
-        // Update progress
+        // Update progress after each batch
+        // Note: processed_rows only counts transactions that were successfully published to RabbitMQ
+        // Enqueue failures are tracked separately in error_rows
         await transactionService.updateBulkImportJob(jobId, {
           processed_rows: processedCount,
+        });
+      }
+
+      // If there were enqueue errors, add them to error summary
+      // This ensures that enqueue failures (e.g., RabbitMQ buffer full, connection issues)
+      // are properly tracked and reported to the user
+      if (enqueueErrors.length > 0) {
+        const currentJob = await transactionService.getBulkImportJob(
+          jobId,
+          userId,
+          true,
+        );
+        const existingErrors = (currentJob?.error_summary as any[]) || [];
+        await transactionService.updateBulkImportJob(jobId, {
+          error_rows: existingErrors.length + enqueueErrors.length,
+          error_summary: [...existingErrors, ...enqueueErrors],
         });
       }
 

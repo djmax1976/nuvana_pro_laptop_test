@@ -337,6 +337,21 @@ export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
       try {
         const { keyId } = request.params as { keyId: string };
 
+        // Validate keyId is a valid UUID
+        if (
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            keyId,
+          )
+        ) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid API key ID format",
+            },
+          });
+        }
+
         const details = await apiKeyService.getApiKey(keyId);
 
         if (!details) {
@@ -578,7 +593,7 @@ export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
             },
             old_key: {
               api_key_id: keyId,
-              grace_period_ends_at: result.record.rotationGraceEndsAt,
+              grace_period_ends_at: result.graceEndsAt,
             },
           },
           message:

@@ -59,73 +59,60 @@ let boOutboxPath: string;
 let processedPath: string;
 let errorPath: string;
 
-// Sample NAXML documents for testing
+// Sample NAXML documents for testing - Using Gilbarco Passport file formats
+// MCM = MerchandiseCodeMovement (departments), MSM = MiscellaneousSummaryMovement (tenders)
+// TLM = TaxLevelMovement (tax rates), PJR = POSJournal (transactions)
+
 const SAMPLE_DEPARTMENT_XML = `<?xml version="1.0" encoding="UTF-8"?>
-<NAXMLDepartmentMaintenance version="3.4">
-  <MaintenanceHeader>
-    <StoreLocationId>STORE001</StoreLocationId>
-    <MaintenanceDate>2025-12-19T10:00:00Z</MaintenanceDate>
-    <MaintenanceType>Full</MaintenanceType>
-  </MaintenanceHeader>
-  <Departments>
-    <Department>
-      <DepartmentCode>001</DepartmentCode>
-      <Description>Beverages</Description>
-      <IsTaxable>true</IsTaxable>
-      <IsActive>true</IsActive>
-    </Department>
-    <Department>
-      <DepartmentCode>002</DepartmentCode>
-      <Description>Snacks</Description>
-      <IsTaxable>true</IsTaxable>
-      <IsActive>true</IsActive>
-    </Department>
-  </Departments>
-</NAXMLDepartmentMaintenance>`;
+<NAXML-POSJournal version="3.4">
+  <MerchandiseCodeMovement>
+    <MCMDetail>
+      <MerchandiseCode>001</MerchandiseCode>
+      <MerchandiseCodeDescription>Beverages</MerchandiseCodeDescription>
+    </MCMDetail>
+    <MCMDetail>
+      <MerchandiseCode>002</MerchandiseCode>
+      <MerchandiseCodeDescription>Snacks</MerchandiseCodeDescription>
+    </MCMDetail>
+  </MerchandiseCodeMovement>
+</NAXML-POSJournal>`;
 
 const SAMPLE_TENDER_XML = `<?xml version="1.0" encoding="UTF-8"?>
-<NAXMLTenderMaintenance version="3.4">
-  <MaintenanceHeader>
-    <StoreLocationId>STORE001</StoreLocationId>
-    <MaintenanceDate>2025-12-19T10:00:00Z</MaintenanceDate>
-    <MaintenanceType>Full</MaintenanceType>
-  </MaintenanceHeader>
-  <Tenders>
-    <Tender>
-      <TenderCode>CASH</TenderCode>
-      <Description>Cash</Description>
-      <IsCashEquivalent>true</IsCashEquivalent>
-      <IsElectronic>false</IsElectronic>
-      <AffectsCashDrawer>true</AffectsCashDrawer>
-      <IsActive>true</IsActive>
-    </Tender>
-    <Tender>
-      <TenderCode>CREDIT</TenderCode>
-      <Description>Credit Card</Description>
-      <IsCashEquivalent>false</IsCashEquivalent>
-      <IsElectronic>true</IsElectronic>
-      <AffectsCashDrawer>false</AffectsCashDrawer>
-      <IsActive>true</IsActive>
-    </Tender>
-  </Tenders>
-</NAXMLTenderMaintenance>`;
+<NAXML-POSJournal version="3.4">
+  <MiscellaneousSummaryMovement>
+    <MSMDetail>
+      <MSMSalesTotals>
+        <Tender>
+          <TenderCode>cash</TenderCode>
+          <TenderSubCode>generic</TenderSubCode>
+          <TenderAmount>1000.00</TenderAmount>
+          <TenderCount>50</TenderCount>
+        </Tender>
+      </MSMSalesTotals>
+    </MSMDetail>
+    <MSMDetail>
+      <MSMSalesTotals>
+        <Tender>
+          <TenderCode>outsideCredit</TenderCode>
+          <TenderSubCode>visa</TenderSubCode>
+          <TenderAmount>2500.00</TenderAmount>
+          <TenderCount>75</TenderCount>
+        </Tender>
+      </MSMSalesTotals>
+    </MSMDetail>
+  </MiscellaneousSummaryMovement>
+</NAXML-POSJournal>`;
 
 const SAMPLE_TAX_RATE_XML = `<?xml version="1.0" encoding="UTF-8"?>
-<NAXMLTaxRateMaintenance version="3.4">
-  <MaintenanceHeader>
-    <StoreLocationId>STORE001</StoreLocationId>
-    <MaintenanceDate>2025-12-19T10:00:00Z</MaintenanceDate>
-    <MaintenanceType>Full</MaintenanceType>
-  </MaintenanceHeader>
-  <TaxRates>
-    <TaxRate>
-      <TaxRateCode>STATE</TaxRateCode>
-      <Description>State Sales Tax</Description>
-      <Rate>0.0825</Rate>
-      <IsActive>true</IsActive>
-    </TaxRate>
-  </TaxRates>
-</NAXMLTaxRateMaintenance>`;
+<NAXML-POSJournal version="3.4">
+  <TaxLevelMovement>
+    <TLMDetail>
+      <TaxLevelID>STATE</TaxLevelID>
+      <TaxableSalesAmount>1000.00</TaxableSalesAmount>
+      <TaxCollectedAmount>82.50</TaxCollectedAmount>
+    </TLMDetail>
+  </TaxLevelMovement>
+</NAXML-POSJournal>`;
 
 const SAMPLE_TRANSACTION_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <NAXMLTransactionDocument version="3.4">
@@ -372,7 +359,7 @@ test.describe("Phase2-Unit: GNAXML Entity Sync from Files", () => {
     const adapter = new GilbarcoNAXMLAdapter();
 
     await fs.writeFile(
-      path.join(boOutboxPath, "DeptMaint_20251219.xml"),
+      path.join(boOutboxPath, "MCM_20251219.xml"),
       SAMPLE_DEPARTMENT_XML,
     );
 
@@ -409,7 +396,7 @@ test.describe("Phase2-Unit: GNAXML Entity Sync from Files", () => {
     const adapter = new GilbarcoNAXMLAdapter();
 
     await fs.writeFile(
-      path.join(boOutboxPath, "TenderMaint_20251219.xml"),
+      path.join(boOutboxPath, "MSM_20251219.xml"),
       SAMPLE_TENDER_XML,
     );
 
@@ -432,10 +419,11 @@ test.describe("Phase2-Unit: GNAXML Entity Sync from Files", () => {
 
     // THEN: Tender types should be imported
     expect(tenders.length).toBe(2);
-    expect(tenders[0].posCode).toBe("CASH");
+    // Gilbarco uses lowercase tender codes with subcodes
+    expect(tenders[0].posCode).toBe("cash:generic");
     expect(tenders[0].isCashEquivalent).toBe(true);
     expect(tenders[0].isElectronic).toBe(false);
-    expect(tenders[1].posCode).toBe("CREDIT");
+    expect(tenders[1].posCode).toBe("outsideCredit:visa");
     expect(tenders[1].isElectronic).toBe(true);
   });
 
@@ -446,7 +434,7 @@ test.describe("Phase2-Unit: GNAXML Entity Sync from Files", () => {
     const adapter = new GilbarcoNAXMLAdapter();
 
     await fs.writeFile(
-      path.join(boOutboxPath, "TaxMaint_20251219.xml"),
+      path.join(boOutboxPath, "TLM_20251219.xml"),
       SAMPLE_TAX_RATE_XML,
     );
 
@@ -470,8 +458,11 @@ test.describe("Phase2-Unit: GNAXML Entity Sync from Files", () => {
     // THEN: Tax rates should be imported
     expect(taxRates.length).toBe(1);
     expect(taxRates[0].posCode).toBe("STATE");
-    expect(taxRates[0].displayName).toBe("State Sales Tax");
-    expect(taxRates[0].rate).toBe(0.0825);
+    // Adapter generates displayName from taxLevelId
+    expect(taxRates[0].displayName).toBe("Tax Level STATE");
+    // Rate is calculated from (TaxCollectedAmount / TaxableSalesAmount) * 100
+    // 82.50 / 1000.00 * 100 = 8.25
+    expect(taxRates[0].rate).toBe(8.25);
   });
 
   test("GNAXML-024: [P1] sync methods should return empty array when no files exist", async () => {
@@ -520,7 +511,7 @@ test.describe("Phase2-Unit: GNAXML Transaction Import", () => {
     const adapter = new GilbarcoNAXMLAdapter();
 
     await fs.writeFile(
-      path.join(boOutboxPath, "TLog_20251219_001.xml"),
+      path.join(boOutboxPath, "PJR_20251219_001.xml"),
       SAMPLE_TRANSACTION_XML,
     );
 
@@ -545,7 +536,7 @@ test.describe("Phase2-Unit: GNAXML Transaction Import", () => {
     expect(results.length).toBe(1);
     expect(results[0].success).toBe(true);
     expect(results[0].documentType).toBe("TransactionDocument");
-    expect(results[0].sourceFilePath).toContain("TLog_20251219_001.xml");
+    expect(results[0].sourceFilePath).toContain("PJR_20251219_001.xml");
   });
 
   test("GNAXML-011: [P1] importTransactions should return empty array when no files exist", async () => {
@@ -582,15 +573,15 @@ test.describe("Phase2-Unit: GNAXML Transaction Import", () => {
     const adapter = new GilbarcoNAXMLAdapter();
 
     await fs.writeFile(
-      path.join(boOutboxPath, "TLog_20251219_001.xml"),
+      path.join(boOutboxPath, "PJR_20251219_001.xml"),
       SAMPLE_TRANSACTION_XML,
     );
     await fs.writeFile(
-      path.join(boOutboxPath, "TLog_20251219_002.xml"),
+      path.join(boOutboxPath, "PJR_20251219_002.xml"),
       SAMPLE_TRANSACTION_XML,
     );
     await fs.writeFile(
-      path.join(boOutboxPath, "Trans_Morning.xml"),
+      path.join(boOutboxPath, "PJR_Morning.xml"),
       SAMPLE_TRANSACTION_XML,
     );
 
@@ -821,7 +812,7 @@ test.describe("Phase2-Unit: GNAXML File Archiving", () => {
       await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
-    const originalFile = path.join(boOutboxPath, "TLog_Archive_Test.xml");
+    const originalFile = path.join(boOutboxPath, "PJR_Archive_Test.xml");
     await fs.writeFile(originalFile, SAMPLE_TRANSACTION_XML);
 
     const config = {
@@ -870,7 +861,7 @@ test.describe("Phase2-Unit: GNAXML File Archiving", () => {
       await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
-    const originalFile = path.join(boOutboxPath, "TLog_NoArchive_Test.xml");
+    const originalFile = path.join(boOutboxPath, "PJR_NoArchive_Test.xml");
     await fs.writeFile(originalFile, SAMPLE_TRANSACTION_XML);
 
     const config = {
@@ -992,7 +983,7 @@ test.describe("Phase2-Unit: GNAXML Error Handling", () => {
 
     // Create file then make it inaccessible (on Windows, we'll just test empty handling)
     await fs.writeFile(
-      path.join(boOutboxPath, "TLog_Error.xml"),
+      path.join(boOutboxPath, "PJR_Error.xml"),
       "", // Empty file which may cause parse error
     );
 

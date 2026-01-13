@@ -57,7 +57,7 @@ describe("SetEmployeePINModal Component", () => {
       {
         user_role_id: "role-uuid-001",
         role_code: "STORE_MANAGER",
-        assigned_at: "2024-06-15T09:30:00Z",
+        role_description: "Store Manager",
       },
     ],
     has_pin: false,
@@ -73,7 +73,7 @@ describe("SetEmployeePINModal Component", () => {
       {
         user_role_id: "role-uuid-002",
         role_code: "SHIFT_MANAGER",
-        assigned_at: "2024-08-20T14:00:00Z",
+        role_description: "Shift Manager",
       },
     ],
     has_pin: true,

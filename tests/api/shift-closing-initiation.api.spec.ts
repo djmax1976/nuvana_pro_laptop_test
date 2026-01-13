@@ -515,14 +515,14 @@ test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
 
     // Create cash transactions
     // Note: transaction.cashier_id references users.user_id, not cashiers.cashier_id
-    await createCashTransaction(
+    const transaction1 = await createCashTransaction(
       prismaClient,
       shift.shift_id,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
       25.0,
     );
-    await createCashTransaction(
+    const transaction2 = await createCashTransaction(
       prismaClient,
       shift.shift_id,
       storeManagerUser.store_id,
@@ -530,27 +530,127 @@ test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
       25.0,
     );
 
-    // WHEN: Initiating shift closing
+    // Verify transactions were created
+    const transactionsBeforeClose = await prismaClient.transaction.findMany({
+      where: { shift_id: shift.shift_id },
+      include: { payments: true },
+    });
+    expect(transactionsBeforeClose.length, "Should have 2 transactions").toBe(
+      2,
+    );
+
+    const cashPaymentsTotal = transactionsBeforeClose
+      .flatMap((t) => t.payments)
+      .filter((p) => p.method === "cash" || p.method === "CASH")
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+    expect(cashPaymentsTotal, "Cash payments should total 50.0").toBe(50.0);
+
+    // WHEN: Initiating shift closing with closing_cash = 150.0
+    const closingCash = 150.0;
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      { closing_cash: 150.0 },
+      { closing_cash: closingCash },
     );
 
     // THEN: Should return 200 OK
-    expect(response.status()).toBe(200);
+    expect(response.status(), "Should return 200 OK").toBe(200);
     const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(body.data, "Response should contain shift data").toBeDefined();
 
-    // AND: closing_cash should match request body
-    expect(body.data.closing_cash).toBe(150.0);
+    // AND: Response should contain correct closing_cash value
+    expect(
+      body.data.closing_cash,
+      "closing_cash in response should match request",
+    ).toBe(closingCash);
+    expect(
+      typeof body.data.closing_cash,
+      "closing_cash should be a number",
+    ).toBe("number");
 
-    // Cleanup - delete transactions first (they reference shift via foreign key)
+    // AND: Response should contain all required fields
+    expect(body.data.shift_id, "shift_id should be present").toBe(
+      shift.shift_id,
+    );
+    expect(body.data.status, "status should be CLOSED").toBe("CLOSED");
+    expect(body.data.closed_at, "closed_at should be set").toBeDefined();
+    expect(body.data.closed_by, "closed_by should be set").toBe(
+      storeManagerUser.user_id,
+    );
+
+    // AND: Database should reflect the closing_cash value correctly
+    const shiftAfterClose = await prismaClient.shift.findUnique({
+      where: { shift_id: shift.shift_id },
+    });
+    expect(shiftAfterClose, "Shift should exist in database").not.toBeNull();
+    expect(shiftAfterClose?.status, "Shift status should be CLOSED").toBe(
+      "CLOSED",
+    );
+    expect(
+      shiftAfterClose?.closing_cash,
+      "closing_cash should be set",
+    ).not.toBeNull();
+
+    // Verify closing_cash value matches (handle Prisma Decimal conversion)
+    const dbClosingCash = shiftAfterClose?.closing_cash
+      ? Number(shiftAfterClose.closing_cash)
+      : null;
+    expect(
+      dbClosingCash,
+      "closing_cash in database should match request value",
+    ).toBe(closingCash);
+
+    // AND: closing_cash should be independent of cash transactions
+    // The closing_cash value (150.0) should be recorded as the exact value provided,
+    // regardless of the cash transactions (50.0 total) that exist for the shift.
+    // This verifies that closing_cash is not calculated from transactions but is
+    // the actual cash count provided by the user.
+    expect(
+      dbClosingCash,
+      "closing_cash should be the exact value provided, not calculated from transactions",
+    ).toBe(closingCash);
+
+    // Verify that closing_cash is stored independently - it should match the provided value
+    // even though cash transactions exist. The system should not auto-calculate or modify
+    // the closing_cash based on transaction history.
+    const openingCash = Number(shiftAfterClose?.opening_cash || 0);
+    const cashTransactionsTotal = 50.0; // Sum of the two transactions created above
+    // Note: closing_cash (150.0) may or may not equal opening_cash + cash transactions.
+    // What matters is that it's recorded as the exact value provided, not calculated.
+    expect(
+      dbClosingCash,
+      "closing_cash should be recorded as the exact value provided in the request",
+    ).toBe(closingCash);
+
+    // AND: Cash transactions should still exist (they are not deleted on close)
+    const transactionsAfterClose = await prismaClient.transaction.findMany({
+      where: { shift_id: shift.shift_id },
+    });
+    expect(
+      transactionsAfterClose.length,
+      "Cash transactions should still exist after closing",
+    ).toBe(2);
+
+    // Cleanup - delete in correct order to respect foreign key constraints
+    // 1. Delete transaction payments (they reference transactions via shift)
+    await prismaClient.transactionPayment.deleteMany({
+      where: {
+        transaction: {
+          shift_id: shift.shift_id,
+        },
+      },
+    });
+    // 2. Delete transactions (they reference shift)
     await prismaClient.transaction.deleteMany({
       where: { shift_id: shift.shift_id },
     });
+    // 3. Delete shift (it references cashier and terminal)
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    // 4. Delete terminal (it references store)
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
+    // 5. Delete cashier (it references store and user)
     await prismaClient.cashier.delete({
       where: { cashier_id: cashier.cashier_id },
     });

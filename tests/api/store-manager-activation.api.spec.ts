@@ -85,13 +85,18 @@ async function makeApiKeyRequest(
     });
   }
 
-  const requestOptions = {
+  const requestOptions: {
+    headers: Record<string, string>;
+    data?: unknown;
+  } = {
     headers: {
       "X-API-Key": apiKey,
       "Content-Type": "application/json",
     },
-    ...(options.body && { data: options.body }),
   };
+  if (options.body) {
+    requestOptions.data = options.body;
+  }
 
   if (method === "GET") {
     return request.get(url.toString(), requestOptions);

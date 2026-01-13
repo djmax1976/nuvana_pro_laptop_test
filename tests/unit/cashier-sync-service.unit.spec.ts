@@ -110,13 +110,13 @@ const createMockSyncSession = (overrides = {}) => ({
   ...overrides,
 });
 
-const createMockCashier = (overrides = {}) => ({
+const createMockCashier = (overrides: Record<string, unknown> = {}) => ({
   cashier_id: `cashier-${Math.random().toString(36).substr(2, 9)}`,
   employee_id: "0001",
   name: "John Doe",
   pin_hash: "$2a$10$testHashValue12345678901234567890",
   is_active: true,
-  disabled_at: null,
+  disabled_at: null as Date | null,
   updated_at: new Date(),
   created_at: new Date(),
   ...overrides,

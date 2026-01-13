@@ -230,8 +230,9 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
       "Line item should be linked to transaction",
     ).toBe(transaction.transaction_id);
     expect(lineItem.name, "Line item name should be defined").toBeDefined();
+    // quantity is stored as Decimal(12,3) and returned as string by Prisma
     expect(
-      lineItem.quantity,
+      Number(lineItem.quantity),
       "Quantity should be greater than 0",
     ).toBeGreaterThan(0);
     expect(lineItem.unit_price, "Unit price should be defined").toBeDefined();
@@ -1069,7 +1070,8 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     });
 
     // THEN: Zero quantity is stored
-    expect(lineItem.quantity, "Zero quantity should be stored").toBe(0);
+    // quantity is stored as Decimal(12,3) and returned as string by Prisma
+    expect(Number(lineItem.quantity), "Zero quantity should be stored").toBe(0);
   });
 
   test("[P2] should handle negative quantity line items (returns)", async ({
@@ -1110,8 +1112,9 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     });
 
     // THEN: Negative quantity is stored for returns
+    // quantity is stored as Decimal(12,3) and returned as string by Prisma
     expect(
-      lineItem.quantity,
+      Number(lineItem.quantity),
       "Negative quantity should be stored for returns",
     ).toBe(-1);
     expect(
@@ -1158,7 +1161,10 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     });
 
     // THEN: Large quantity is stored correctly
-    expect(lineItem.quantity, "Large quantity should be stored").toBe(10000);
+    // quantity is stored as Decimal(12,3) and returned as string by Prisma
+    expect(Number(lineItem.quantity), "Large quantity should be stored").toBe(
+      10000,
+    );
   });
 
   test("[P2] should reject invalid UUID for foreign keys", async ({

@@ -90,6 +90,15 @@ export interface XReport {
 export interface GenerateXReportInput {
   shift_id: string;
   generated_by: string;
+  /**
+   * Optional requester context for tenant isolation enforcement.
+   * When provided, service must ensure the shift belongs to one of the requester's stores
+   * unless the requester is a system admin.
+   */
+  requester?: {
+    is_system_admin: boolean;
+    store_ids: string[];
+  };
 }
 
 /**

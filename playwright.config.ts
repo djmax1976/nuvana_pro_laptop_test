@@ -7,6 +7,19 @@ import { defineConfig, devices } from "@playwright/test";
  * APIRequestContext. Tests are organized by level (e2e, api, component, unit).
  */
 
+function hasProjectArg(projectName: string): boolean {
+  const args = process.argv;
+  for (let i = 0; i < args.length; i++) {
+    // eslint-disable-next-line security/detect-object-injection -- safe: i is a numeric loop index
+    const arg = args[i];
+    // eslint-disable-next-line security/detect-object-injection -- safe: i+1 is bounded by array length check above
+    const nextArg = i + 1 < args.length ? args[i + 1] : undefined;
+    if (arg === "--project" && nextArg === projectName) return true;
+    if (arg === `--project=${projectName}`) return true;
+  }
+  return false;
+}
+
 export default defineConfig({
   // Test directory structure
   testDir: "./tests",
@@ -83,27 +96,40 @@ export default defineConfig({
   ...(process.env.CI
     ? {}
     : {
-        webServer: [
-          {
-            command: "npm run dev",
-            url: process.env.FRONTEND_URL || "http://localhost:3000",
-            reuseExistingServer: true,
-            timeout: 120000,
-            stdout: "ignore",
-            stderr: "pipe",
-          },
-          {
+        // For API-only runs, avoid starting the frontend dev server (unneeded and prone to EADDRINUSE flakiness).
+        // This is driven by CLI args used by npm scripts (e.g. `--project=api`).
+        webServer: (() => {
+          const apiSelected = hasProjectArg("api");
+          const e2eSelected = hasProjectArg("e2e");
+          const shouldStartFrontend = !apiSelected || e2eSelected;
+
+          const servers = [];
+          if (shouldStartFrontend) {
+            servers.push({
+              command: "npm run dev",
+              url: process.env.FRONTEND_URL || "http://localhost:3000",
+              reuseExistingServer: true,
+              timeout: 120000,
+              stdout: "ignore" as const,
+              stderr: "pipe" as const,
+            });
+          }
+
+          servers.push({
             // IMPORTANT: Tests should be run via npm scripts (e.g., `npm run test:api`)
             // which use cross-env to set DATABASE_URL=nuvana_test
             // This ensures both the test fixtures AND the webServer connect to test DB
-            command: "cd backend && npm run dev:test",
+            command: "cd backend && npm run serve:test",
             url:
               (process.env.BACKEND_URL || "http://localhost:3001") + "/health",
-            reuseExistingServer: !process.env.CI,
+            // Avoid reusing potentially stale servers between runs; this keeps tests deterministic.
+            reuseExistingServer: false,
             timeout: 120000,
-            stdout: "pipe",
-            stderr: "pipe",
-          },
-        ],
+            stdout: "pipe" as const,
+            stderr: "pipe" as const,
+          });
+
+          return servers;
+        })(),
       }),
 });
