@@ -1212,10 +1212,10 @@ test.describe("SHIFT-SUMMARY-API: Phase 2.4 Tax Rate Aggregation", () => {
   }) => {
     // Skip test if Phase 2.4 migration hasn't been applied
     if (!(await isPhase24MigrationApplied(prismaClient))) {
-      console.log(
-        "Skipping test: Phase 2.4 migration not applied (tax_rate_id column missing).",
+      test.skip(
+        true,
+        "Phase 2.4 migration not applied (tax_rate_id column missing)",
       );
-      test.skip();
       return;
     }
 
@@ -1226,9 +1226,7 @@ test.describe("SHIFT-SUMMARY-API: Phase 2.4 Tax Rate Aggregation", () => {
 
     // Skip test if no tax rate exists (seed data not loaded)
     if (!taxRate) {
-      console.log(
-        "Skipping test: No system tax rate found. Ensure seeds are loaded.",
-      );
+      test.skip(true, "No system tax rate found. Ensure seeds are loaded.");
       return;
     }
 
@@ -1326,10 +1324,10 @@ test.describe("SHIFT-SUMMARY-API: Phase 2.4 Tax Rate Aggregation", () => {
   }) => {
     // Skip test if Phase 2.4 migration hasn't been applied
     if (!(await isPhase24MigrationApplied(prismaClient))) {
-      console.log(
-        "Skipping test: Phase 2.4 migration not applied (tax_rate_id column missing).",
+      test.skip(
+        true,
+        "Phase 2.4 migration not applied (tax_rate_id column missing)",
       );
-      test.skip();
       return;
     }
 
@@ -1442,10 +1440,10 @@ test.describe("SHIFT-SUMMARY-API: Phase 2.4 Tax Rate Aggregation", () => {
   }) => {
     // Skip test if Phase 2.4 migration hasn't been applied
     if (!(await isPhase24MigrationApplied(prismaClient))) {
-      console.log(
-        "Skipping test: Phase 2.4 migration not applied (tax_rate_id column missing).",
+      test.skip(
+        true,
+        "Phase 2.4 migration not applied (tax_rate_id column missing)",
       );
-      test.skip();
       return;
     }
 

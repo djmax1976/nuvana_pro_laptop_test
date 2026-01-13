@@ -1231,10 +1231,6 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
       );
 
       // THEN: Schedule is created
-      if (response.status() !== 201) {
-        const errorBody = await response.json();
-        console.error(`Failed cron: ${cron}`, errorBody);
-      }
       expect(response.status(), `Should accept cron: ${cron}`).toBe(201);
       const body = await response.json();
       testContext.createdScheduleIds.push(body.data.scheduleId);

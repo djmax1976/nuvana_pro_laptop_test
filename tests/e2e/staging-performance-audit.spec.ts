@@ -113,9 +113,6 @@ function recordMetric(
     details,
   };
   context.metrics.push(metric);
-  console.log(
-    `[PERF] ${operation}: ${Math.round(duration)}ms (threshold: ${threshold}ms) - ${metric.passed ? "PASS" : "FAIL"}`,
-  );
   return metric;
 }
 
@@ -141,62 +138,21 @@ function setupApiTimingListener(page: Page, context: TestContext): void {
           method: request.method(),
           status: response.status(),
         });
-        if (duration > THRESHOLDS.SLOW_API_THRESHOLD) {
-          console.log(
-            `[API-SLOW] ${request.method()} ${url} - ${duration}ms (${response.status()})`,
-          );
-        }
       }
       requestStartTimes.delete(request.url());
     }
   });
 }
 
-function printPerformanceSummary(context: TestContext): void {
-  console.log("\n========== PERFORMANCE SUMMARY ==========");
-  console.log(
-    "Operation                              | Duration | Threshold | Status",
-  );
-  console.log(
-    "---------------------------------------|----------|-----------|-------",
-  );
-
-  for (const metric of context.metrics) {
-    const opPadded = metric.operation.padEnd(38);
-    const durPadded = `${metric.duration}ms`.padStart(8);
-    const thrPadded = `${metric.threshold}ms`.padStart(9);
-    const status = metric.passed ? "PASS" : "FAIL";
-    console.log(`${opPadded} | ${durPadded} | ${thrPadded} | ${status}`);
-  }
-
-  // Summarize API performance
-  if (context.apiTimings.length > 0) {
-    console.log("\n========== API CALL SUMMARY ==========");
-    const sortedTimings = [...context.apiTimings].sort(
-      (a, b) => b.duration - a.duration,
-    );
-    const topSlow = sortedTimings.slice(0, 10);
-    for (const timing of topSlow) {
-      const flag =
-        timing.duration > THRESHOLDS.SLOW_API_THRESHOLD ? "[SLOW]" : "";
-      console.log(
-        `${flag} ${timing.method.padEnd(6)} ${timing.duration.toString().padStart(5)}ms | ${timing.url}`,
-      );
-    }
-  }
-
-  // Alert on failures
+function getPerformanceSummary(context: TestContext): {
+  failures: PerformanceMetric[];
+  slowApis: ApiTiming[];
+} {
   const failures = context.metrics.filter((m) => !m.passed);
-  if (failures.length > 0) {
-    console.log(
-      `\n[ALERT] ${failures.length} operation(s) exceeded thresholds`,
-    );
-    for (const f of failures) {
-      console.log(
-        `  - ${f.operation}: ${f.duration}ms (threshold: ${f.threshold}ms)`,
-      );
-    }
-  }
+  const slowApis = context.apiTimings.filter(
+    (t) => t.duration > THRESHOLDS.SLOW_API_THRESHOLD,
+  );
+  return { failures, slowApis };
 }
 
 // ============================================
@@ -249,14 +205,11 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
     // In staging mode, override via TEST_ADMIN_EMAIL/TEST_ADMIN_PASSWORD env vars
     const testEmail = ADMIN_CREDENTIALS.email;
     testContext.testPassword = ADMIN_CREDENTIALS.password;
-    console.log(`[SETUP] Using admin: ${testEmail}`);
 
     try {
       // ============================================
       // TEST 1: Login Performance (using shared auth helper)
       // ============================================
-      console.log("\n========== TEST 1: LOGIN PERFORMANCE ==========");
-      console.log(`[SETUP] Logging in with admin: ${testEmail}`);
 
       const loginStart = Date.now();
 
@@ -287,7 +240,6 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
       // ============================================
       // TEST 3: Dashboard Initial Load
       // ============================================
-      console.log("\n========== TEST 3: DASHBOARD INITIAL LOAD ==========");
 
       const dashboardLoadStart = Date.now();
 
@@ -332,7 +284,6 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
       // ============================================
       // TEST 4: Navigate to Users Page
       // ============================================
-      console.log("\n========== TEST 4: USERS PAGE NAVIGATION ==========");
 
       const usersNavStart = Date.now();
       await page.goto(buildUrl("/admin/users"), {
@@ -374,7 +325,6 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
       );
 
       const userRowCount = await usersTable.count();
-      console.log(`[INFO] Users table row count: ${userRowCount}`);
 
       await page.screenshot({
         path: "test-results/03-users-page.png",
@@ -384,7 +334,6 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
       // ============================================
       // TEST 5: Navigate to Stores Page
       // ============================================
-      console.log("\n========== TEST 5: STORES PAGE NAVIGATION ==========");
 
       const storesNavStart = Date.now();
       await page.goto(buildUrl("/stores"), { waitUntil: "domcontentloaded" });
@@ -426,7 +375,6 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
       );
 
       const storeRowCount = await storesTable.count();
-      console.log(`[INFO] Stores table row count: ${storeRowCount}`);
 
       await page.screenshot({
         path: "test-results/04-stores-page.png",
@@ -436,7 +384,6 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
       // ============================================
       // TEST 6: Navigate to Companies Page
       // ============================================
-      console.log("\n========== TEST 6: COMPANIES PAGE NAVIGATION ==========");
 
       const companiesNavStart = Date.now();
       // Note: Companies page is at /companies, not /admin/companies
@@ -481,7 +428,6 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
       );
 
       const companyRowCount = await companiesTable.count();
-      console.log(`[INFO] Companies table row count: ${companyRowCount}`);
 
       await page.screenshot({
         path: "test-results/05-companies-page.png",
@@ -491,7 +437,7 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
       // ============================================
       // SUMMARY
       // ============================================
-      printPerformanceSummary(testContext);
+      const { failures } = getPerformanceSummary(testContext);
 
       await page.screenshot({
         path: "test-results/06-final-state.png",
@@ -505,12 +451,11 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
           (m.operation.includes("Login") || m.operation.includes("Dashboard")),
       );
 
-      // Log warnings for any failures but don't fail the test
-      // Performance tests should be informational, not blocking
-      if (criticalFailures.length > 0) {
-        console.warn(
-          `\n[WARNING] ${criticalFailures.length} critical operation(s) exceeded thresholds`,
-        );
+      // Use soft assertion for performance failures - informational, not blocking
+      for (const failure of criticalFailures) {
+        expect
+          .soft(failure.duration, `${failure.operation} exceeded threshold`)
+          .toBeLessThanOrEqual(failure.threshold);
       }
     } finally {
       // No cleanup needed - using seeded admin user
@@ -527,7 +472,6 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
     // Use same admin credentials as the main audit test
     const testEmail = ADMIN_CREDENTIALS.email;
     const testPassword = ADMIN_CREDENTIALS.password;
-    console.log(`[SETUP] Using admin: ${testEmail}`);
 
     // Login using the shared auth helper
     // Pass TARGET_URL for staging mode support
@@ -553,36 +497,18 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
       (t) => t.duration > THRESHOLDS.SLOW_API_THRESHOLD,
     );
 
-    console.log("\n========== API PERFORMANCE ANALYSIS ==========");
-    console.log(`Total API calls: ${testContext.apiTimings.length}`);
-    console.log(
-      `Slow API calls (>${THRESHOLDS.SLOW_API_THRESHOLD}ms): ${slowApis.length}`,
-    );
-
-    if (slowApis.length > 0) {
-      console.log("\nSlow API calls:");
-      for (const api of slowApis) {
-        console.log(`  ${api.method} ${api.url}: ${api.duration}ms`);
-      }
-    }
-
-    // Calculate average response time
-    if (testContext.apiTimings.length > 0) {
-      const avgDuration =
-        testContext.apiTimings.reduce((sum, t) => sum + t.duration, 0) /
-        testContext.apiTimings.length;
-      console.log(`\nAverage API response time: ${Math.round(avgDuration)}ms`);
-    }
-
-    // Log warning if too many slow APIs, but don't fail
+    // Use soft assertions for API performance - informational, not blocking
     if (testContext.apiTimings.length > 0) {
       const slowApiPercentage =
         (slowApis.length / testContext.apiTimings.length) * 100;
-      if (slowApiPercentage > 20) {
-        console.warn(
-          `\n[WARNING] ${slowApiPercentage.toFixed(1)}% of API calls are slow`,
-        );
-      }
+
+      // Soft assert that less than 20% of APIs are slow
+      expect
+        .soft(
+          slowApiPercentage,
+          `${slowApiPercentage.toFixed(1)}% of API calls exceed ${THRESHOLDS.SLOW_API_THRESHOLD}ms threshold`,
+        )
+        .toBeLessThanOrEqual(20);
     }
   });
 });

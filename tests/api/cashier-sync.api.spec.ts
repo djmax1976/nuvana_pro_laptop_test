@@ -111,7 +111,6 @@ test.describe("CASHIER-SYNC-API: Cashier Sync Endpoint Tests", () => {
     });
 
     if (!store) {
-      console.warn("No test store found - some tests may be skipped");
       return;
     }
 

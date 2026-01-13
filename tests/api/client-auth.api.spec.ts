@@ -602,7 +602,7 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
     });
 
     if (!clientOwnerRole) {
-      console.log("CLIENT_OWNER role not seeded yet, skipping test");
+      test.skip(true, "CLIENT_OWNER role not seeded yet");
       return;
     }
 
@@ -670,7 +670,7 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
     });
 
     if (!clientUserRole) {
-      console.log("CLIENT_USER role not seeded yet, skipping test");
+      test.skip(true, "CLIENT_USER role not seeded yet");
       return;
     }
 
@@ -1875,7 +1875,7 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
         where: { company_id: company.company_id },
       });
       await prismaClient.user.delete({ where: { user_id: owner.user_id } });
-      console.log("STORE_MANAGER role not seeded, skipping test");
+      test.skip(true, "STORE_MANAGER role not seeded");
       return;
     }
 
@@ -2000,7 +2000,7 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
         where: { company_id: company.company_id },
       });
       await prismaClient.user.delete({ where: { user_id: owner.user_id } });
-      console.log("CLIENT_OWNER role not seeded, skipping test");
+      test.skip(true, "CLIENT_OWNER role not seeded");
       return;
     }
 
@@ -2116,7 +2116,7 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
         where: { company_id: company.company_id },
       });
       await prismaClient.user.delete({ where: { user_id: owner.user_id } });
-      console.log("SHIFT_MANAGER role not seeded, skipping test");
+      test.skip(true, "SHIFT_MANAGER role not seeded");
       return;
     }
 

@@ -651,12 +651,13 @@ test.describe("STORE-MANAGER-ACTIVATION-DB: Database Integration Verification", 
           (ur) => ur.store_id === store.store_id,
         );
         // Note: This may be false if user has roles at other stores only
-        // Log for visibility
-        if (!hasRoleAtStore) {
-          console.log(
+        // Use soft assertion for visibility without failing
+        expect
+          .soft(
+            hasRoleAtStore,
             `Store ${store.store_id} login user has no roles at this store`,
-          );
-        }
+          )
+          .toBe(true);
       }
     });
   });

@@ -425,65 +425,38 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     );
 
     // WHEN: Navigating directly to the shift detail page
-    // Re-ensure auth state before navigation (CI reliability fix)
-    // The addInitScript from fixture may race with page hydration in slower CI environments
-    await clientOwnerPage.evaluate((userData) => {
-      localStorage.setItem(
-        "auth_session",
-        JSON.stringify({
-          user: {
-            id: userData.user_id,
-            email: userData.email,
-            name: userData.name,
-            roles: userData.roles,
-          },
-          authenticated: true,
-          isClientUser: true,
-        }),
-      );
-    }, clientUser);
-
-    // Use domcontentloaded to avoid racing with auth validation during networkidle
-    await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
+    // IMPORTANT: In serial test mode, the page may still show content from previous test (002).
+    // We must ensure:
+    // 1. Navigate to the new URL
+    // 2. Wait for URL to match the expected shift ID
+    // 3. Wait for the correct view (closed-shift-summary, NOT active-shift-view from test 002)
+    const targetUrl = `/client-dashboard/shifts/${shift.shift_id}`;
+    await clientOwnerPage.goto(targetUrl, {
       waitUntil: "domcontentloaded",
     });
 
-    // Wait for page load state to complete
-    await clientOwnerPage.waitForLoadState("load");
+    // Verify URL changed to correct shift - critical for serial test isolation
+    await expect(clientOwnerPage).toHaveURL(targetUrl, {
+      timeout: 10000,
+    });
 
-    // THEN: Wait for shift detail page to render
-    // Handle possible states: loading -> success OR redirect to login (auth failure)
-    // First, wait for any meaningful content to appear
-    const shiftDetailPage = clientOwnerPage.locator(
-      '[data-testid="shift-detail-page"]',
-    );
-    const shiftDetailLoading = clientOwnerPage.locator(
-      '[data-testid="shift-detail-loading"]',
-    );
-    const loginPage = clientOwnerPage.locator('text="Welcome back"');
+    // Wait for loading to complete - the page shows loading state while fetching shift data
+    // This is essential because React Query may still be fetching data even after navigation
+    await clientOwnerPage
+      .locator('[data-testid="shift-detail-loading"]')
+      .waitFor({ state: "hidden", timeout: 15000 })
+      .catch(() => {
+        // Loading may already be hidden if data was cached or fast
+      });
 
-    // Wait for either the page content, loading state, or login redirect
-    await Promise.race([
-      shiftDetailPage.waitFor({ state: "visible", timeout: 30000 }),
-      shiftDetailLoading.waitFor({ state: "visible", timeout: 30000 }),
-      loginPage.waitFor({ state: "visible", timeout: 30000 }),
-    ]);
-
-    // If redirected to login, fail early with clear message
-    const isOnLoginPage = await loginPage.isVisible();
-    if (isOnLoginPage) {
-      throw new Error(
-        "Authentication failed - redirected to login page. This indicates the test fixture did not properly authenticate the client owner user.",
-      );
-    }
-
-    // Wait for the actual shift detail page content
-    await expect(shiftDetailPage).toBeVisible({ timeout: 30000 });
-
-    // AND: The closed shift summary view should be displayed
+    // THEN: The closed shift summary view should be displayed (NOT active-shift-view)
+    // Wait for closed-shift-summary which confirms:
+    // 1. Navigation completed to the correct shift
+    // 2. Shift data loaded and status is CLOSED
+    // 3. React rendered the correct view component
     await expect(
       clientOwnerPage.locator('[data-testid="closed-shift-summary"]'),
-    ).toBeVisible({ timeout: 15000 });
+    ).toBeVisible({ timeout: 20000 });
 
     // AND: The "Shift Summary" header should be visible
     await expect(clientOwnerPage.getByText("Shift Summary")).toBeVisible();
@@ -492,9 +465,6 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     await expect(
       clientOwnerPage.locator('[data-testid="cash-reconciliation-card"]'),
     ).toBeVisible();
-
-    // Note: Test data cleanup is handled automatically by global teardown
-    // which cleans up test users, companies, stores, and related data
   });
 
   test("SHIFT-DETAIL-E2E-004: [P0] Should display cash reconciliation for closed shift", async ({

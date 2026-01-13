@@ -253,9 +253,8 @@ async function waitForJobCompletion(
           return { status, job, errors };
         }
       }
-    } catch (error) {
-      // Log error but continue polling
-      console.warn(`Error checking job ${jobId}:`, error);
+    } catch {
+      // Continue polling on error
     }
 
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
@@ -653,11 +652,12 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
 
     // If worker is running, processed_rows should also be > 0
     // This is a softer assertion since worker availability varies
-    if (processedRows === 0) {
-      console.log(
-        "Warning: Worker may not be running - transactions enqueued but not processed",
-      );
-    }
+    expect
+      .soft(
+        processedRows > 0,
+        "Worker may not be running - transactions enqueued but not processed",
+      )
+      .toBe(true);
   });
 });
 

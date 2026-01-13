@@ -86,11 +86,7 @@ test.describe("POS Integration Auth Flow", () => {
           .catch(() => false);
 
         if (modalVisible) {
-          // Auth modal appeared - this is expected
-          console.log(
-            "Auth modal appeared - expected for step-up authentication",
-          );
-
+          // Auth modal appeared - this is expected for step-up authentication
           // For now, just close the modal since we can't fill credentials
           // (the fixture users don't have password accessible)
           const cancelButton = authModal.getByRole("button", {
@@ -104,12 +100,10 @@ test.describe("POS Integration Auth Flow", () => {
           await expect(authModal).not.toBeVisible({ timeout: 5000 });
 
           // Test passes - we verified the modal flow works
-          console.log("Auth modal flow verified successfully");
         } else {
           // If modal didn't appear, user may have been redirected directly
           // Check if we're on the POS integration page
           const currentUrl = page.url();
-          console.log(`Current URL after clicking POS link: ${currentUrl}`);
 
           if (currentUrl.includes("pos-integration")) {
             // Redirected to POS page - check what's displayed
@@ -117,7 +111,7 @@ test.describe("POS Integration Auth Flow", () => {
             const noStore = page.getByText(/no store selected/i);
             const accessDenied = page.getByText(/access denied/i);
 
-            const hasContent = await Promise.race([
+            await Promise.race([
               setupWizard
                 .waitFor({ state: "visible", timeout: 10000 })
                 .then(() => "wizard"),
@@ -128,8 +122,6 @@ test.describe("POS Integration Auth Flow", () => {
                 .waitFor({ state: "visible", timeout: 10000 })
                 .then(() => "denied"),
             ]).catch(() => "timeout");
-
-            console.log(`POS page content: ${hasContent}`);
           }
         }
       } catch (error) {
@@ -282,9 +274,6 @@ test.describe("POS Integration Auth Flow", () => {
 
         if (modalVisible) {
           // Auth modal appeared - expected for step-up auth
-          console.log(
-            "Auth modal appeared - expected for step-up authentication",
-          );
           // Close modal to continue test
           const cancelButton = authModal.getByRole("button", {
             name: /cancel/i,
@@ -294,28 +283,10 @@ test.describe("POS Integration Auth Flow", () => {
           }
           // Modal should close, but we won't navigate to POS page without auth
           await expect(authModal).not.toBeVisible({ timeout: 5000 });
-          console.log("Auth modal closed - test passes (modal flow verified)");
         } else {
           // Wait for page load and potential API call
           await page.waitForURL(/pos-integration/, { timeout: 15000 });
           await page.waitForTimeout(2000);
-
-          // Log captured requests for debugging
-          console.log("\n=== API Requests ===");
-          for (const req of apiRequests) {
-            console.log(`URL: ${req.url}`);
-            console.log(
-              `X-Elevation-Token: ${req.headers["x-elevation-token"] ? "PRESENT" : "MISSING"}`,
-            );
-          }
-
-          // If requests were made to POS integration API, log them
-          if (apiRequests.length > 0) {
-            const hasElevationToken = apiRequests.some(
-              (req) => req.headers["x-elevation-token"],
-            );
-            console.log(`Elevation token used: ${hasElevationToken}`);
-          }
 
           // Test passes if we reached the POS page successfully
           expect(page.url()).toContain("pos-integration");
@@ -386,9 +357,6 @@ test.describe("POS Integration Auth Flow", () => {
 
         if (modalVisible) {
           // Auth modal appeared - expected for step-up auth
-          console.log(
-            "Auth modal appeared - expected for step-up authentication",
-          );
           // Close modal since we can't complete auth in this test
           const cancelButton = authModal.getByRole("button", {
             name: /cancel/i,
@@ -397,7 +365,6 @@ test.describe("POS Integration Auth Flow", () => {
             await cancelButton.click();
           }
           // Test ends here - we verified modal appears
-          console.log("Auth modal flow verified - test passes");
           return;
         }
 
@@ -412,7 +379,7 @@ test.describe("POS Integration Auth Flow", () => {
           .catch(() => false);
 
         if (!wizardVisible) {
-          console.log("Wizard not visible - may be showing different state");
+          // Wizard not visible - may be showing different state
           // Take screenshot for debugging
           await page.screenshot({
             path: "test-results/pos-step3-no-wizard.png",
@@ -461,8 +428,6 @@ test.describe("POS Integration Auth Flow", () => {
           failureMessage.waitFor({ timeout: 15000 }).then(() => "failure"),
         ]).catch(() => "timeout");
 
-        console.log(`Connection test result: ${testResult}`);
-
         // If connection test succeeded, proceed to Step 3
         if (testResult === "success") {
           await page.getByTestId("step2-next-button").click();
@@ -495,16 +460,14 @@ test.describe("POS Integration Auth Flow", () => {
             (await tenderSection.isVisible().catch(() => false)) ||
             (await taxSection.isVisible().catch(() => false));
 
-          console.log(`Preview sections visible: ${hasSections}`);
-
           // Selection summary should be visible
           const selectionSummary = page.getByText(/Selection Summary/i);
-          const hasSummary = await selectionSummary
-            .isVisible()
-            .catch(() => false);
-          console.log(`Selection summary visible: ${hasSummary}`);
-        } else {
-          console.log("Connection test did not succeed - skipping Step 3");
+          await selectionSummary.isVisible().catch(() => false);
+
+          // Verify sections are visible with soft assertion (informational)
+          expect
+            .soft(hasSections, "At least one preview section should be visible")
+            .toBe(true);
         }
       } catch (error) {
         // Take screenshot for debugging

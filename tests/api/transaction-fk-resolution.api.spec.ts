@@ -106,9 +106,8 @@ async function waitForTransaction(
       if (transaction) {
         return transaction;
       }
-    } catch (error) {
-      // Log error but continue polling
-      console.warn(`Error checking for transaction ${transactionId}:`, error);
+    } catch {
+      // Continue polling on error
     }
 
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));

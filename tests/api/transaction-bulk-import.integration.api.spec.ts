@@ -926,10 +926,6 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     if (dbTransactions.length === 0) {
       // Worker not running - this is acceptable for integration tests
       // The important part is that transactions were enqueued (verified above)
-      console.log(
-        `Worker not processing (expected if not running). ` +
-          `Enqueued: ${job.processed_rows} transactions to RabbitMQ.`,
-      );
       return;
     }
 

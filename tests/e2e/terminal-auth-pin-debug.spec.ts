@@ -81,9 +81,6 @@ async function loginAndWaitForMyStore(
         const errorText = await errorAlert.textContent();
         // Network errors are retriable on cold-start
         if (errorText?.includes("Failed to fetch") && attempt < maxRetries) {
-          console.log(
-            `Login attempt ${attempt + 1} failed with network error, retrying...`,
-          );
           await page.waitForTimeout(1000); // Wait 1s before retry
           continue;
         }
@@ -96,7 +93,6 @@ async function loginAndWaitForMyStore(
       }
 
       // Otherwise retry
-      console.log(`Login attempt ${attempt + 1} timed out, retrying...`);
       await page.waitForTimeout(1000);
     }
   }

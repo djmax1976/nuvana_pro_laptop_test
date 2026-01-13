@@ -134,9 +134,8 @@ async function waitForTransactionProcessing(
       if (transaction) {
         return transaction;
       }
-    } catch (error) {
-      // Log error but continue polling
-      console.warn(`Error checking for transaction ${correlationId}:`, error);
+    } catch {
+      // Continue polling on error
     }
 
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
@@ -773,17 +772,6 @@ test.describe("Transaction Processing Worker - Idempotency", () => {
       45000, // 45 seconds for burn-in stability
     );
 
-    // Provide helpful error message if processing times out
-    if (!transaction1) {
-      // Check if transaction is in queue or was rejected
-      const queuedCheck = await prismaClient.transaction.findFirst({
-        where: { store_id: store.store_id },
-        orderBy: { created_at: "desc" },
-      });
-      console.error(
-        `Transaction ${correlationId} not found. Most recent transaction for store: ${queuedCheck?.transaction_id || "none"}`,
-      );
-    }
     expect(transaction1).not.toBeNull();
 
     // THEN: Should have exactly one transaction record

@@ -293,10 +293,6 @@ test.describe("API: Lottery Day Close - is_sold_out Flag", () => {
     );
 
     // THEN: The request should succeed
-    if (response.status() !== 200) {
-      const errorBody = await response.json();
-      console.log("Error response:", JSON.stringify(errorBody, null, 2));
-    }
     expect(response.status(), "Expected 200 OK status").toBe(200);
 
     const body = await response.json();
