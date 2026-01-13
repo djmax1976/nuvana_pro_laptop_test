@@ -1667,7 +1667,7 @@ async function processBulkImport(
         const batch = validTransactions.slice(i, i + batchSize);
 
         const enqueueResults = await Promise.allSettled(
-          batch.map((tx, batchIndex) => {
+          batch.map((tx) => {
             const correlationId = uuidv4();
             const message = {
               correlation_id: correlationId,

@@ -637,7 +637,11 @@ class ApiKeyService {
     input: RotateApiKeyInput,
     rotatedBy: string,
     ipAddress?: string,
-  ): Promise<{ key: GeneratedApiKey; record: ApiKeyRecord }> {
+  ): Promise<{
+    key: GeneratedApiKey;
+    record: ApiKeyRecord;
+    graceEndsAt: Date;
+  }> {
     const oldKeyRecord = await prisma.apiKey.findUnique({
       where: { api_key_id: apiKeyId },
       include: {
