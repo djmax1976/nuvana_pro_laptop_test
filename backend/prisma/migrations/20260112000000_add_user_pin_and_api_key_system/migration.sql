@@ -225,7 +225,17 @@ EXCEPTION
 END $$;
 
 DO $$ BEGIN
-    CREATE TYPE "ElevatedAccessResult" AS ENUM ('SUCCESS', 'FAILURE', 'PENDING');
+    CREATE TYPE "ElevatedAccessResult" AS ENUM (
+        'SUCCESS',
+        'FAILED_CREDENTIALS',
+        'FAILED_PERMISSION',
+        'FAILED_RATE_LIMIT',
+        'FAILED_TOKEN_EXPIRED',
+        'FAILED_TOKEN_INVALID',
+        'FAILED_TOKEN_USED',
+        'FAILED_SCOPE_MISMATCH',
+        'FAILED_STORE_ACCESS'
+    );
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
@@ -234,7 +244,7 @@ CREATE TABLE IF NOT EXISTS "elevated_access_audit" (
     "audit_id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "store_id" UUID NOT NULL,
     "event_type" "ElevatedAccessEventType" NOT NULL,
-    "result" "ElevatedAccessResult" NOT NULL DEFAULT 'PENDING',
+    "result" "ElevatedAccessResult" NOT NULL,
     "requester_user_id" UUID,
     "approver_user_id" UUID,
     "token_hash" VARCHAR(64),
