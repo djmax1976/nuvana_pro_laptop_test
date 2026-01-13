@@ -959,6 +959,15 @@ class ApiKeyService {
     updatedBy: string,
     ipAddress?: string,
   ): Promise<ApiKeyRecord> {
+    // First check if the key exists
+    const existingKey = await prisma.apiKey.findUnique({
+      where: { api_key_id: apiKeyId },
+    });
+
+    if (!existingKey) {
+      throw new Error(`API key not found: ${apiKeyId}`);
+    }
+
     const record = await prisma.apiKey.update({
       where: { api_key_id: apiKeyId },
       data: {
@@ -984,17 +993,23 @@ class ApiKeyService {
     if (input.rateLimitRpm !== undefined)
       updates.rate_limit_rpm = input.rateLimitRpm;
 
-    const eventType =
-      input.metadata !== undefined ? "METADATA_UPDATED" : "SETTINGS_UPDATED";
+    // Use CONFIG_UPDATED which exists in the original migration enum
+    // Falls back gracefully if audit logging fails (non-critical operation)
+    const eventType = "CONFIG_UPDATED";
 
-    await apiKeyAuditService.logEvent({
-      apiKeyId,
-      eventType,
-      actorUserId: updatedBy,
-      actorType: "ADMIN",
-      ipAddress,
-      eventDetails: updates,
-    });
+    try {
+      await apiKeyAuditService.logEvent({
+        apiKeyId,
+        eventType,
+        actorUserId: updatedBy,
+        actorType: "ADMIN",
+        ipAddress,
+        eventDetails: updates,
+      });
+    } catch (auditError) {
+      // Log but don't fail the main operation - audit is non-critical
+      console.error("[ApiKeyService] Failed to log audit event:", auditError);
+    }
 
     return this.mapToApiKeyRecord(record);
   }
@@ -1008,6 +1023,15 @@ class ApiKeyService {
     suspendedBy: string,
     ipAddress?: string,
   ): Promise<void> {
+    // First check if the key exists
+    const existingKey = await prisma.apiKey.findUnique({
+      where: { api_key_id: apiKeyId },
+    });
+
+    if (!existingKey) {
+      throw new Error(`API key not found: ${apiKeyId}`);
+    }
+
     await prisma.apiKey.update({
       where: { api_key_id: apiKeyId },
       data: {
@@ -1016,14 +1040,19 @@ class ApiKeyService {
       },
     });
 
-    await apiKeyAuditService.logEvent({
-      apiKeyId,
-      eventType: "SUSPENDED",
-      actorUserId: suspendedBy,
-      actorType: "ADMIN",
-      ipAddress,
-      eventDetails: { reason },
-    });
+    try {
+      await apiKeyAuditService.logEvent({
+        apiKeyId,
+        eventType: "SUSPENDED",
+        actorUserId: suspendedBy,
+        actorType: "ADMIN",
+        ipAddress,
+        eventDetails: { reason },
+      });
+    } catch (auditError) {
+      // Log but don't fail the main operation - audit is non-critical
+      console.error("[ApiKeyService] Failed to log audit event:", auditError);
+    }
   }
 
   /**
@@ -1054,13 +1083,20 @@ class ApiKeyService {
       },
     });
 
-    await apiKeyAuditService.logEvent({
-      apiKeyId,
-      eventType: "REACTIVATED",
-      actorUserId: reactivatedBy,
-      actorType: "ADMIN",
-      ipAddress,
-    });
+    // Use UNSUSPENDED which exists in the original migration enum
+    // Falls back gracefully if audit logging fails (non-critical operation)
+    try {
+      await apiKeyAuditService.logEvent({
+        apiKeyId,
+        eventType: "UNSUSPENDED",
+        actorUserId: reactivatedBy,
+        actorType: "ADMIN",
+        ipAddress,
+      });
+    } catch (auditError) {
+      // Log but don't fail the main operation - audit is non-critical
+      console.error("[ApiKeyService] Failed to log audit event:", auditError);
+    }
   }
 
   // ==========================================================================

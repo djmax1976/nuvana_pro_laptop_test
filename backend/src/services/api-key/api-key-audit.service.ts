@@ -168,10 +168,11 @@ class ApiKeyAuditService {
   ): Promise<void> {
     await this.logEvent({
       apiKeyId,
-      eventType: "HEARTBEAT",
+      eventType: "USED", // Heartbeat is logged as a USED event
       actorType: "DEVICE",
       ipAddress,
       eventDetails: {
+        event_subtype: "heartbeat",
         device_fingerprint: deviceFingerprint,
         app_version: appVersion,
       },

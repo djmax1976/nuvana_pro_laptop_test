@@ -3779,22 +3779,24 @@ enum ApiKeyRevocationReason {
 }
 
 /// API Key Audit Event Type - All lifecycle and usage events
+/// Note: These values must match the database enum exactly
 enum ApiKeyAuditEventType {
   CREATED // Key was created
   ACTIVATED // Key was first used/activated on device
-  ROTATED // Key was rotated (new key created)
-  REVOKED // Key was revoked
   SUSPENDED // Key was suspended
-  REACTIVATED // Suspended key was reactivated
+  UNSUSPENDED // Suspended key was reactivated (use instead of REACTIVATED)
+  REVOKED // Key was revoked
+  ROTATED // Key was rotated (new key created)
   EXPIRED // Key expired
+  USED // Key was used for a request
   IP_BLOCKED // Request blocked due to IP allowlist
   RATE_LIMITED // Request blocked due to rate limit
+  QUOTA_WARNING // Approaching quota limit
   QUOTA_EXCEEDED // Daily/monthly quota exceeded
-  HEARTBEAT // Periodic heartbeat check
+  CONFIG_UPDATED // Key configuration was updated (settings/metadata)
   SYNC_STARTED // Sync session started
   SYNC_COMPLETED // Sync session completed
-  METADATA_UPDATED // Key metadata was updated
-  SETTINGS_UPDATED // Key settings (quotas, IP) were updated
+  SYNC_FAILED // Sync session failed
 }
 
 /// API Key - Store-bound authentication for desktop POS applications

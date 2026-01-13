@@ -9,11 +9,37 @@
 -- =============================================================================
 
 -- Add missing columns to api_keys table
+-- First add as nullable, then populate with defaults, then make NOT NULL
+
+-- key_prefix: required, derive from store_id if missing
 ALTER TABLE "api_keys" ADD COLUMN IF NOT EXISTS "key_prefix" VARCHAR(50);
+
+-- identity_payload: required, set placeholder if missing
 ALTER TABLE "api_keys" ADD COLUMN IF NOT EXISTS "identity_payload" TEXT;
+
+-- payload_version: has default
 ALTER TABLE "api_keys" ADD COLUMN IF NOT EXISTS "payload_version" INTEGER NOT NULL DEFAULT 1;
+
+-- last_sync_at: nullable
 ALTER TABLE "api_keys" ADD COLUMN IF NOT EXISTS "last_sync_at" TIMESTAMPTZ(6);
+
+-- updated_at: required with default
 ALTER TABLE "api_keys" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- Populate key_prefix for existing rows (if any have NULL)
+UPDATE "api_keys"
+SET "key_prefix" = CONCAT('nuvpos_sk_', LEFT(store_id::text, 8))
+WHERE "key_prefix" IS NULL;
+
+-- Populate identity_payload for existing rows (if any have NULL)
+-- Use a placeholder JWT that indicates migration-created data
+UPDATE "api_keys"
+SET "identity_payload" = 'MIGRATED_PLACEHOLDER'
+WHERE "identity_payload" IS NULL;
+
+-- Now make the columns NOT NULL
+ALTER TABLE "api_keys" ALTER COLUMN "key_prefix" SET NOT NULL;
+ALTER TABLE "api_keys" ALTER COLUMN "identity_payload" SET NOT NULL;
 
 -- Rename grace_period_ends_at to rotation_grace_ends_at if it exists
 DO $$

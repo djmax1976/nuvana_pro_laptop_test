@@ -500,7 +500,31 @@ export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
-        console.error("[ApiKeyRoutes] Update error:", message);
+        // Log full error for CI debugging
+        console.error("[ApiKeyRoutes] Update error:", {
+          message,
+          code:
+            error && typeof error === "object" && "code" in error
+              ? error.code
+              : undefined,
+          stack: error instanceof Error ? error.stack : undefined,
+          error: JSON.stringify(
+            error,
+            Object.getOwnPropertyNames(error || {}),
+            2,
+          ),
+        });
+
+        // Handle "not found" errors from service layer
+        if (message.includes("not found")) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "API key not found",
+            },
+          });
+        }
 
         // Handle Prisma P2025 "Record to update not found" error
         if (
@@ -779,7 +803,31 @@ export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
-        console.error("[ApiKeyRoutes] Suspend error:", message);
+        // Log full error for CI debugging
+        console.error("[ApiKeyRoutes] Suspend error:", {
+          message,
+          code:
+            error && typeof error === "object" && "code" in error
+              ? error.code
+              : undefined,
+          stack: error instanceof Error ? error.stack : undefined,
+          error: JSON.stringify(
+            error,
+            Object.getOwnPropertyNames(error || {}),
+            2,
+          ),
+        });
+
+        // Handle "not found" errors from service layer
+        if (message.includes("not found")) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "API key not found",
+            },
+          });
+        }
 
         // Handle Prisma P2025 "Record to update not found" error
         if (
@@ -840,7 +888,20 @@ export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
-        console.error("[ApiKeyRoutes] Reactivate error:", message);
+        // Log full error for CI debugging
+        console.error("[ApiKeyRoutes] Reactivate error:", {
+          message,
+          code:
+            error && typeof error === "object" && "code" in error
+              ? error.code
+              : undefined,
+          stack: error instanceof Error ? error.stack : undefined,
+          error: JSON.stringify(
+            error,
+            Object.getOwnPropertyNames(error || {}),
+            2,
+          ),
+        });
 
         // Handle "API key not found" error
         if (message.includes("not found")) {
