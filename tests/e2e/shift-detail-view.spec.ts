@@ -424,39 +424,53 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
       terminal.pos_terminal_id,
     );
 
-    // WHEN: Navigating directly to the shift detail page
-    // IMPORTANT: In serial test mode, the page may still show content from previous test (002).
-    // We must ensure:
-    // 1. Navigate to the new URL
-    // 2. Wait for URL to match the expected shift ID
-    // 3. Wait for the correct view (closed-shift-summary, NOT active-shift-view from test 002)
-    const targetUrl = `/client-dashboard/shifts/${shift.shift_id}`;
-    await clientOwnerPage.goto(targetUrl, {
-      waitUntil: "domcontentloaded",
+    // WHEN: Navigating to the shift detail page
+    // CRITICAL FOR CI: This test follows Test 002 which shows an OPEN shift (active-shift-view).
+    // We're navigating to a CLOSED shift which uses a different component (closed-shift-summary).
+    // Using networkidle ensures all API calls complete before assertions.
+    await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
+      waitUntil: "networkidle",
     });
 
-    // Verify URL changed to correct shift - critical for serial test isolation
-    await expect(clientOwnerPage).toHaveURL(targetUrl, {
-      timeout: 10000,
-    });
-
-    // Wait for loading to complete - the page shows loading state while fetching shift data
-    // This is essential because React Query may still be fetching data even after navigation
-    await clientOwnerPage
-      .locator('[data-testid="shift-detail-loading"]')
-      .waitFor({ state: "hidden", timeout: 15000 })
-      .catch(() => {
-        // Loading may already be hidden if data was cached or fast
-      });
-
-    // THEN: The closed shift summary view should be displayed (NOT active-shift-view)
-    // Wait for closed-shift-summary which confirms:
-    // 1. Navigation completed to the correct shift
-    // 2. Shift data loaded and status is CLOSED
-    // 3. React rendered the correct view component
+    // THEN: The page container should be visible first
     await expect(
-      clientOwnerPage.locator('[data-testid="closed-shift-summary"]'),
-    ).toBeVisible({ timeout: 20000 });
+      clientOwnerPage.locator('[data-testid="shift-detail-page"]'),
+    ).toBeVisible({ timeout: 30000 });
+
+    // Verify we got the CLOSED shift view (not active-shift-view from previous test's cache)
+    // Check for error state first to provide better diagnostics
+    const errorState = clientOwnerPage.locator(
+      '[data-testid="shift-detail-error"]',
+    );
+    const notFoundState = clientOwnerPage.locator(
+      '[data-testid="shift-detail-not-found"]',
+    );
+    const closedSummary = clientOwnerPage.locator(
+      '[data-testid="closed-shift-summary"]',
+    );
+
+    // Wait for one of the final states to appear
+    await Promise.race([
+      closedSummary.waitFor({ state: "visible", timeout: 30000 }),
+      errorState.waitFor({ state: "visible", timeout: 30000 }),
+      notFoundState.waitFor({ state: "visible", timeout: 30000 }),
+    ]);
+
+    // Fail fast with clear message if we hit an error state
+    if (await errorState.isVisible()) {
+      const errorText = await clientOwnerPage
+        .locator('[data-testid="shift-detail-error"]')
+        .textContent();
+      throw new Error(`Shift detail API error: ${errorText}`);
+    }
+    if (await notFoundState.isVisible()) {
+      throw new Error(
+        `Shift not found - possible race condition. Shift ID: ${shift.shift_id}`,
+      );
+    }
+
+    // AND: The closed shift summary view should be displayed
+    await expect(closedSummary).toBeVisible();
 
     // AND: The "Shift Summary" header should be visible
     await expect(clientOwnerPage.getByText("Shift Summary")).toBeVisible();
