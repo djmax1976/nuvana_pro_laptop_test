@@ -1155,7 +1155,7 @@ export class GilbarcoNAXMLAdapter extends BasePOSAdapter {
 
     // Convert to array
     const summaries: POSFuelSalesSummary[] = [];
-    for (const [businessDate, data] of dateAggregates) {
+    for (const [businessDate, data] of dateAggregates.entries()) {
       summaries.push({
         businessDate,
         totalSalesAmount: data.totalSalesAmount,
