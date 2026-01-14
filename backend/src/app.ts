@@ -457,8 +457,19 @@ app.register(apiKeyRoutes);
 // Sync routes: /api/v1/sync/* - Offline data synchronization
 app.register(deviceApiRoutes);
 
-// Root endpoint - API information and status
-app.get("/", async () => {
+// Root endpoint - Security best practice for financial/POS applications
+// Production: Return 404 to avoid information disclosure (API-003: ERROR_HANDLING)
+// Development: Return API info for debugging convenience
+app.get("/", async (_request, reply) => {
+  const isProduction = process.env.NODE_ENV === "production";
+
+  if (isProduction) {
+    // Return 404 in production - no information disclosure
+    reply.code(404);
+    return { error: "Not Found" };
+  }
+
+  // Development/test: Return detailed API info for debugging
   return {
     name: "Nuvana Pro API",
     version: process.env.npm_package_version || "1.0.0",
@@ -474,41 +485,13 @@ app.get("/", async () => {
       transactions: "/api/transactions",
       admin: "/api/admin/*",
       contact: "/api/contact",
-      // Client dashboard: GET /api/client/dashboard - Returns dashboard data for authenticated client users (companies, stores, stats)
       clientDashboard: "/api/client/dashboard",
-      // Client employees: POST/GET /api/client/employees, DELETE /api/client/employees/:userId
       clientEmployees: "/api/client/employees",
-      // Cashiers: POST /api/stores/:storeId/cashiers - Create a new cashier for a store (requires CASHIER_CREATE permission)
-      //           GET /api/stores/:storeId/cashiers - List cashiers for a store with optional filtering (requires CASHIER_READ permission)
-      //           GET /api/stores/:storeId/cashiers/:cashierId - Get cashier details by ID (requires CASHIER_READ permission)
-      //           PUT /api/stores/:storeId/cashiers/:cashierId - Update cashier information (requires CASHIER_UPDATE permission)
-      //           DELETE /api/stores/:storeId/cashiers/:cashierId - Soft delete cashier (requires CASHIER_DELETE permission)
-      //           POST /api/stores/:storeId/cashiers/authenticate - Authenticate cashier by name/employee_id and PIN (public endpoint for terminal access)
       cashiers: "/api/stores/:storeId/cashiers",
-      // POS Integration: GET/POST/PATCH/DELETE /api/stores/:storeId/pos-integration - Manage POS connection for store
-      //                  POST /api/stores/:storeId/pos-integration/test - Test POS connection
-      //                  POST /api/stores/:storeId/pos-integration/sync - Trigger manual sync
-      //                  GET /api/stores/:storeId/pos-integration/logs - Get sync history
       posIntegration: "/api/stores/:storeId/pos-integration",
-      // POS Audit: GET /api/stores/:storeId/pos-audit - Get audit records for a store (requires POS_AUDIT_READ permission)
-      //            GET /api/stores/:storeId/pos-audit/summary - Get audit summary for a store
-      //            GET /api/stores/:storeId/pos-audit/:auditId - Get specific audit record
-      //            GET /api/admin/pos-audit - Query all audit records (admin only)
-      //            GET /api/admin/pos-audit/summary - Get system-wide audit summary (admin only)
-      //            GET /api/admin/pos-audit/pii-report - Generate PII access report (admin only)
-      //            POST /api/admin/pos-audit/retention-cleanup - Trigger retention cleanup (admin only)
       posAudit: "/api/stores/:storeId/pos-audit",
       posAuditAdmin: "/api/admin/pos-audit",
-      // NAXML: GET /api/stores/:storeId/naxml/files - List NAXML file logs
-      //        GET /api/stores/:storeId/naxml/files/:fileLogId - Get file log details
-      //        POST /api/stores/:storeId/naxml/files/import - Manual file import
-      //        POST /api/stores/:storeId/naxml/export/departments - Export departments
-      //        POST /api/stores/:storeId/naxml/export/tender-types - Export tender types
-      //        POST /api/stores/:storeId/naxml/export/tax-rates - Export tax rates
       naxml: "/api/stores/:storeId/naxml",
-      // Query Metrics (Phase 6.1): GET /api/health/query-metrics - Database query performance metrics (admin only)
-      //                           PATCH /api/health/query-metrics/config - Update metrics configuration (admin only)
-      //                           POST /api/health/query-metrics/reset - Reset all metrics (admin only)
       queryMetrics: "/api/health/query-metrics",
     },
     documentation: "https://github.com/your-org/nuvana-pro",
