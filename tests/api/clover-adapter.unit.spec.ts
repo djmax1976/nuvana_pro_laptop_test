@@ -180,7 +180,7 @@ test.describe("Phase4-Unit: CLVR Adapter Initialization", () => {
   test("CLVR-001: [P0] should initialize adapter correctly", async () => {
     // GIVEN: The CloverAdapter class
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
 
     // WHEN: Creating an instance
     const adapter = new CloverAdapter();
@@ -193,7 +193,7 @@ test.describe("Phase4-Unit: CLVR Adapter Initialization", () => {
   test("CLVR-002: [P0] should have correct posType", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // THEN: posType should be CLOVER_REST
@@ -203,7 +203,7 @@ test.describe("Phase4-Unit: CLVR Adapter Initialization", () => {
   test("CLVR-003: [P0] should have correct displayName", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // THEN: displayName should be Clover
@@ -219,9 +219,9 @@ test.describe("Phase4-Unit: CLVR Connection Testing", () => {
   test("CLVR-011: [P0] should fail when merchantId is missing", async () => {
     // GIVEN: A config without merchantId
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const { RestApiError } =
-      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
     const adapter = new CloverAdapter();
 
     const configWithoutMerchant = {
@@ -243,9 +243,9 @@ test.describe("Phase4-Unit: CLVR Connection Testing", () => {
   test("CLVR-012: [P0] should include latencyMs in connection result", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const { RestApiError } =
-      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
     const adapter = new CloverAdapter();
 
     const config = createCloverConfig({ merchantId: "" });
@@ -270,7 +270,7 @@ test.describe("Phase4-Unit: CLVR Capabilities", () => {
   test("CLVR-070: [P0] should declare correct capabilities", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // WHEN: Getting capabilities
@@ -286,7 +286,7 @@ test.describe("Phase4-Unit: CLVR Capabilities", () => {
   test("CLVR-071: [P1] should support product sync", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // WHEN: Getting capabilities
@@ -299,7 +299,7 @@ test.describe("Phase4-Unit: CLVR Capabilities", () => {
   test("CLVR-072: [P1] should support webhooks", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // WHEN: Getting capabilities
@@ -320,7 +320,7 @@ test.describe("Phase4-Unit: CLVR Sync Methods", () => {
   test("CLVR-020: [P0] syncDepartments should be a function", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // THEN: syncDepartments should be a function
@@ -330,7 +330,7 @@ test.describe("Phase4-Unit: CLVR Sync Methods", () => {
   test("CLVR-030: [P0] syncTenderTypes should be a function", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // THEN: syncTenderTypes should be a function
@@ -340,7 +340,7 @@ test.describe("Phase4-Unit: CLVR Sync Methods", () => {
   test("CLVR-040: [P0] syncCashiers should be a function", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // THEN: syncCashiers should be a function
@@ -350,7 +350,7 @@ test.describe("Phase4-Unit: CLVR Sync Methods", () => {
   test("CLVR-050: [P0] syncTaxRates should be a function", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // THEN: syncTaxRates should be a function
@@ -360,7 +360,7 @@ test.describe("Phase4-Unit: CLVR Sync Methods", () => {
   test("CLVR-060: [P0] fetchTransactions should be a function", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // THEN: fetchTransactions should be a function
@@ -418,7 +418,7 @@ test.describe("Phase4-Unit: CLVR Rate Limiting", () => {
   test("CLVR-100: [P0] should have rate limit configured", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // THEN: Adapter should exist (rate limit is protected property)
@@ -435,9 +435,9 @@ test.describe("Phase4-Unit: CLVR Config Validation", () => {
   test("CLVR-110: [P0] should require merchantId in config", async () => {
     // GIVEN: A CloverAdapter
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const { RestApiError } =
-      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
     const adapter = new CloverAdapter();
 
     // WHEN: Testing with missing merchantId
@@ -456,9 +456,9 @@ test.describe("Phase4-Unit: CLVR Config Validation", () => {
   test("CLVR-111: [P0] should require non-empty merchantId", async () => {
     // GIVEN: A CloverAdapter
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const { RestApiError } =
-      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
     const adapter = new CloverAdapter();
 
     // WHEN: Testing with empty merchantId
@@ -480,7 +480,7 @@ test.describe("Phase4-Unit: CLVR Adapter Registry", () => {
   test("CLVR-120: [P0] should be registered in adapter registry", async () => {
     // GIVEN: The adapter registry
     const { posAdapterRegistry, hasPOSAdapter } =
-      await import("../../backend/src/services/pos/adapter-registry");
+      await import("../../backend/dist/services/pos/adapter-registry");
 
     // THEN: CLOVER_REST should be registered
     expect(hasPOSAdapter("CLOVER_REST")).toBe(true);
@@ -494,7 +494,7 @@ test.describe("Phase4-Unit: CLVR Adapter Registry", () => {
   test("CLVR-121: [P1] should be listed in adapter list", async () => {
     // GIVEN: The adapter registry
     const { posAdapterRegistry } =
-      await import("../../backend/src/services/pos/adapter-registry");
+      await import("../../backend/dist/services/pos/adapter-registry");
 
     // WHEN: Getting the adapter list
     const adapterList = posAdapterRegistry.getAdapterList();
@@ -677,9 +677,9 @@ test.describe("Phase4-Unit: CLVR Inheritance", () => {
   test("CLVR-130: [P0] should extend BaseRESTAdapter", async () => {
     // GIVEN: CloverAdapter and BaseRESTAdapter
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const { BaseRESTAdapter } =
-      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
 
     // WHEN: Creating an instance
     const adapter = new CloverAdapter();
@@ -691,7 +691,7 @@ test.describe("Phase4-Unit: CLVR Inheritance", () => {
   test("CLVR-131: [P0] should have all inherited methods", async () => {
     // GIVEN: A CloverAdapter instance
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // THEN: Should have all inherited methods
@@ -825,9 +825,9 @@ test.describe("Phase4-Unit: CLVR Security", () => {
   test("CLVR-160: [P0] should not expose credentials in error messages", async () => {
     // GIVEN: A CloverAdapter
     const { CloverAdapter } =
-      await import("../../backend/src/services/pos/adapters/clover.adapter");
+      await import("../../backend/dist/services/pos/adapters/clover.adapter");
     const { RestApiError } =
-      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
     const adapter = new CloverAdapter();
 
     // WHEN: Testing with invalid config

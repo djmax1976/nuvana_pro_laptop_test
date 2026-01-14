@@ -191,7 +191,7 @@ test.describe("Phase2-Unit: GNAXML Security - Path Traversal Prevention", () => 
   test("GNAXML-001: [P0] Path validation should reject path traversal attempts", async () => {
     // GIVEN: A Gilbarco NAXML adapter
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     // WHEN: Attempting to access files outside the XMLGateway directory
@@ -225,7 +225,7 @@ test.describe("Phase2-Unit: GNAXML Connection Testing", () => {
   test("GNAXML-002: [P0] testConnection should succeed with valid XMLGateway structure", async () => {
     // GIVEN: A valid XMLGateway directory structure
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     const config = {
@@ -258,7 +258,7 @@ test.describe("Phase2-Unit: GNAXML Connection Testing", () => {
   test("GNAXML-003: [P0] testConnection should fail when BOInbox is missing", async () => {
     // GIVEN: A directory without BOInbox
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     // Remove BOInbox
@@ -290,7 +290,7 @@ test.describe("Phase2-Unit: GNAXML Connection Testing", () => {
   test("GNAXML-004: [P0] testConnection should fail when BOOutbox is missing", async () => {
     // GIVEN: A directory without BOOutbox
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     // Remove BOOutbox
@@ -321,7 +321,7 @@ test.describe("Phase2-Unit: GNAXML Connection Testing", () => {
   test("GNAXML-005: [P1] testConnection should fail with missing xmlGatewayPath config", async () => {
     // GIVEN: Config without xmlGatewayPath
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     const config = {
@@ -355,7 +355,7 @@ test.describe("Phase2-Unit: GNAXML Entity Sync from Files", () => {
   test("GNAXML-020: [P0] syncDepartments should import departments from XML files", async () => {
     // GIVEN: Department XML files in BOOutbox
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     await fs.writeFile(
@@ -392,7 +392,7 @@ test.describe("Phase2-Unit: GNAXML Entity Sync from Files", () => {
   test("GNAXML-021: [P0] syncTenderTypes should import tender types from XML files", async () => {
     // GIVEN: Tender XML files in BOOutbox
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     await fs.writeFile(
@@ -430,7 +430,7 @@ test.describe("Phase2-Unit: GNAXML Entity Sync from Files", () => {
   test("GNAXML-022: [P0] syncTaxRates should import tax rates from XML files", async () => {
     // GIVEN: Tax rate XML files in BOOutbox
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     await fs.writeFile(
@@ -468,7 +468,7 @@ test.describe("Phase2-Unit: GNAXML Entity Sync from Files", () => {
   test("GNAXML-024: [P1] sync methods should return empty array when no files exist", async () => {
     // GIVEN: Empty BOOutbox directory
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     const config = {
@@ -507,7 +507,7 @@ test.describe("Phase2-Unit: GNAXML Transaction Import", () => {
   test("GNAXML-010: [P0] importTransactions should import transactions from XML files", async () => {
     // GIVEN: Transaction XML files in BOOutbox
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     await fs.writeFile(
@@ -542,7 +542,7 @@ test.describe("Phase2-Unit: GNAXML Transaction Import", () => {
   test("GNAXML-011: [P1] importTransactions should return empty array when no files exist", async () => {
     // GIVEN: Empty BOOutbox directory
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     const config = {
@@ -569,7 +569,7 @@ test.describe("Phase2-Unit: GNAXML Transaction Import", () => {
   test("GNAXML-012: [P1] importTransactions should handle multiple transaction files", async () => {
     // GIVEN: Multiple transaction XML files in BOOutbox
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     await fs.writeFile(
@@ -616,7 +616,7 @@ test.describe("Phase2-Unit: GNAXML Export to POS", () => {
   test("GNAXML-030: [P0] exportDepartments should write department XML to BOInbox", async () => {
     // GIVEN: Department data to export
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     const departments = [
@@ -679,7 +679,7 @@ test.describe("Phase2-Unit: GNAXML Export to POS", () => {
   test("GNAXML-031: [P0] exportTenderTypes should write tender XML to BOInbox", async () => {
     // GIVEN: Tender type data to export
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     const tenders = [
@@ -722,7 +722,7 @@ test.describe("Phase2-Unit: GNAXML Export to POS", () => {
   test("GNAXML-032: [P0] exportTaxRates should write tax rate XML to BOInbox", async () => {
     // GIVEN: Tax rate data to export
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     const taxRates = [
@@ -762,7 +762,7 @@ test.describe("Phase2-Unit: GNAXML Export to POS", () => {
   test("GNAXML-033: [P0] exportPriceBook should write price book XML to BOInbox", async () => {
     // GIVEN: Price book items to export
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     const items = [
@@ -809,7 +809,7 @@ test.describe("Phase2-Unit: GNAXML File Archiving", () => {
   test("GNAXML-040: [P1] should archive processed files when archiveProcessedFiles is true", async () => {
     // GIVEN: Transaction files in BOOutbox with archiving enabled
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     const originalFile = path.join(boOutboxPath, "PJR_Archive_Test.xml");
@@ -858,7 +858,7 @@ test.describe("Phase2-Unit: GNAXML File Archiving", () => {
   test("GNAXML-041: [P1] should not archive files when archiveProcessedFiles is false", async () => {
     // GIVEN: Transaction files in BOOutbox with archiving disabled
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     const originalFile = path.join(boOutboxPath, "PJR_NoArchive_Test.xml");
@@ -904,7 +904,7 @@ test.describe("Phase2-Unit: GNAXML Adapter Capabilities", () => {
   test("GNAXML-050: [P2] getCapabilities should return correct adapter capabilities", async () => {
     // GIVEN: A Gilbarco NAXML adapter
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     // WHEN: Getting capabilities
@@ -923,7 +923,7 @@ test.describe("Phase2-Unit: GNAXML Adapter Capabilities", () => {
   test("GNAXML-051: [P2] adapter should have correct posType and displayName", async () => {
     // GIVEN: A Gilbarco NAXML adapter
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     // THEN: posType and displayName should be correct
@@ -940,7 +940,7 @@ test.describe("Phase2-Unit: GNAXML Adapter Registry", () => {
   test("GNAXML-052: [P1] adapter should be registered in adapter registry", async () => {
     // GIVEN: The adapter registry
     const { posAdapterRegistry, hasPOSAdapter } =
-      await import("../../backend/src/services/pos/adapter-registry");
+      await import("../../backend/dist/services/pos/adapter-registry");
 
     // THEN: GILBARCO_NAXML should be registered
     expect(hasPOSAdapter("GILBARCO_NAXML")).toBe(true);
@@ -954,7 +954,7 @@ test.describe("Phase2-Unit: GNAXML Adapter Registry", () => {
   test("GNAXML-053: [P1] adapter registry should list GILBARCO_NAXML in adapter list", async () => {
     // GIVEN: The adapter registry
     const { posAdapterRegistry } =
-      await import("../../backend/src/services/pos/adapter-registry");
+      await import("../../backend/dist/services/pos/adapter-registry");
 
     // WHEN: Getting the adapter list
     const adapterList = posAdapterRegistry.getAdapterList();
@@ -978,7 +978,7 @@ test.describe("Phase2-Unit: GNAXML Error Handling", () => {
   test("GNAXML-060: [P1] should handle file read errors gracefully", async () => {
     // GIVEN: A file that will cause an error (simulate by removing after listing)
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     // Create file then make it inaccessible (on Windows, we'll just test empty handling)
@@ -1014,7 +1014,7 @@ test.describe("Phase2-Unit: GNAXML Error Handling", () => {
   test("GNAXML-061: [P1] export should handle write errors gracefully", async () => {
     // GIVEN: An invalid BOInbox path (simulate by removing)
     const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/gilbarco-naxml.adapter");
+      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
     // Remove BOInbox to cause write error

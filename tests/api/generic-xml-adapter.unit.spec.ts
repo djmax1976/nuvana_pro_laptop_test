@@ -194,7 +194,7 @@ test.describe("Phase5-Unit: GXML Configuration Validation", () => {
   test("GXML-001: [P0] validateConfig should throw when mappings are missing", async () => {
     // GIVEN: A config without mappings
     const { GenericXMLAdapter, GenericXMLAdapterError } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     const config = {
@@ -222,7 +222,7 @@ test.describe("Phase5-Unit: GXML Configuration Validation", () => {
   test("GXML-002: [P0] should fail when no entity mappings are configured", async () => {
     // GIVEN: A config with empty mappings
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     const config = createBaseConfig({
@@ -241,7 +241,7 @@ test.describe("Phase5-Unit: GXML Configuration Validation", () => {
   test("GXML-003: [P0] fetchXmlContent should fail when endpoint is missing", async () => {
     // GIVEN: A config without xmlEndpoint
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     const config = {
@@ -277,7 +277,7 @@ test.describe("Phase5-Unit: GXML XML Parsing", () => {
     // This is tested indirectly through the adapter methods
     // GIVEN: The adapter can parse and extract from valid XML
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
 
     // Adapter is instantiated successfully
     const adapter = new GenericXMLAdapter();
@@ -289,7 +289,7 @@ test.describe("Phase5-Unit: GXML XML Parsing", () => {
     // GIVEN: XML with encoded entities
     // The adapter should decode &amp; &lt; &gt; &quot; &apos;
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // This is validated through the parsing - entities should be decoded
@@ -305,7 +305,7 @@ test.describe("Phase5-Unit: GXML Value Transformations", () => {
   test("GXML-030: [P1] should handle string transform", async () => {
     // Tested through integration with sync methods
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
     expect(adapter.posType).toBe("GENERIC_XML");
   });
@@ -313,7 +313,7 @@ test.describe("Phase5-Unit: GXML Value Transformations", () => {
   test("GXML-032: [P1] toBoolean should handle various boolean representations", async () => {
     // The adapter handles: true/false, yes/no, 1/0, on/off, active/inactive
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // Boolean handling is tested through the mapping functions
@@ -330,7 +330,7 @@ test.describe("Phase5-Unit: GXML Entity Mapping", () => {
   test("GXML-050: [P0] mapToDepartment should correctly map department fields", async () => {
     // GIVEN: The mapping configuration for departments
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // Verified through sync method - the mapping function handles:
@@ -349,7 +349,7 @@ test.describe("Phase5-Unit: GXML Entity Mapping", () => {
     // - Alcohol (ALCOHOL, BEER, WINE, LIQUOR, SPIRITS) -> 21
     // - Tobacco (TOBACCO, CIGARETTE, CIGAR, VAPE) -> 21
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // Age detection is built into mapToDepartment
@@ -360,7 +360,7 @@ test.describe("Phase5-Unit: GXML Entity Mapping", () => {
     // The adapter detects lottery for names containing:
     // - LOTTERY, LOTTO, SCRATCH
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // Lottery detection is built into mapToDepartment
@@ -376,7 +376,7 @@ test.describe("Phase5-Unit: GXML Sync Methods - No Mapping", () => {
   test("GXML-044: [P1] syncDepartments should return empty array when no mapping", async () => {
     // GIVEN: Config without department mapping
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     const config = createBaseConfig({
@@ -399,7 +399,7 @@ test.describe("Phase5-Unit: GXML Sync Methods - No Mapping", () => {
   test("GXML-045: [P1] syncTenderTypes should return empty array when no mapping", async () => {
     // GIVEN: Config without tender mapping
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     const config = createBaseConfig({
@@ -422,7 +422,7 @@ test.describe("Phase5-Unit: GXML Sync Methods - No Mapping", () => {
   test("GXML-046: [P1] syncTaxRates should return empty array when no mapping", async () => {
     // GIVEN: Config without tax rate mapping
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     const config = createBaseConfig({
@@ -444,7 +444,7 @@ test.describe("Phase5-Unit: GXML Sync Methods - No Mapping", () => {
   test("GXML-047: [P1] syncCashiers should return empty array when no mapping", async () => {
     // GIVEN: Config without cashier mapping
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     const config = createBaseConfig({
@@ -472,7 +472,7 @@ test.describe("Phase5-Unit: GXML Adapter Capabilities", () => {
   test("GXML-070: [P2] getCapabilities should return correct adapter capabilities", async () => {
     // GIVEN: A Generic XML adapter
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // WHEN: Getting capabilities
@@ -491,7 +491,7 @@ test.describe("Phase5-Unit: GXML Adapter Capabilities", () => {
   test("GXML-071: [P2] adapter should have correct posType and displayName", async () => {
     // GIVEN: A Generic XML adapter
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // THEN: posType and displayName should be correct
@@ -508,7 +508,7 @@ test.describe("Phase5-Unit: GXML Error Handling", () => {
   test("GXML-080: [P1] GenericXMLAdapterError should contain structured error info", async () => {
     // GIVEN: The error class
     const { GenericXMLAdapterError } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
 
     // WHEN: Creating an error
     const error = new GenericXMLAdapterError(
@@ -529,7 +529,7 @@ test.describe("Phase5-Unit: GXML Error Handling", () => {
   test("GXML-081: [P1] error should default to non-retryable", async () => {
     // GIVEN: The error class
     const { GenericXMLAdapterError } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
 
     // WHEN: Creating an error without retryable flag
     const error = new GenericXMLAdapterError("Test error", "TEST_CODE");
@@ -547,7 +547,7 @@ test.describe("Phase5-Unit: GXML Adapter Registry", () => {
   test("GXML-090: [P0] adapter should be registered in adapter registry", async () => {
     // GIVEN: The adapter registry
     const { posAdapterRegistry, hasPOSAdapter } =
-      await import("../../backend/src/services/pos/adapter-registry");
+      await import("../../backend/dist/services/pos/adapter-registry");
 
     // THEN: GENERIC_XML should be registered
     expect(hasPOSAdapter("GENERIC_XML")).toBe(true);
@@ -562,7 +562,7 @@ test.describe("Phase5-Unit: GXML Adapter Registry", () => {
   test("GXML-091: [P1] adapter registry should list GENERIC_XML in adapter list", async () => {
     // GIVEN: The adapter registry
     const { posAdapterRegistry } =
-      await import("../../backend/src/services/pos/adapter-registry");
+      await import("../../backend/dist/services/pos/adapter-registry");
 
     // WHEN: Getting the adapter list
     const adapterList = posAdapterRegistry.getAdapterList();
@@ -582,7 +582,7 @@ test.describe("Phase5-Unit: GXML Field Mapping Types", () => {
   test("GXML-100: [P1] XMLFieldMapping type should support all options", async () => {
     // GIVEN: The types are exported
     const types =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
 
     // THEN: Types should be importable (no runtime verification needed)
     expect(types.GenericXMLAdapter).toBeDefined();
@@ -593,7 +593,7 @@ test.describe("Phase5-Unit: GXML Field Mapping Types", () => {
     // The transform types are: string, number, boolean, date,
     // uppercase, lowercase, trim, percentage_to_decimal
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
 
     // If the adapter compiles, the types are valid
     const adapter = new GenericXMLAdapter();
@@ -609,7 +609,7 @@ test.describe("Phase5-Unit: GXML Security", () => {
   test("GXML-110: [P0] adapter should not expose sensitive credentials in logs", async () => {
     // GIVEN: The adapter
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // THEN: Adapter should be instantiable (logging is internal)
@@ -620,7 +620,7 @@ test.describe("Phase5-Unit: GXML Security", () => {
   test("GXML-111: [P1] error details should not leak sensitive information", async () => {
     // GIVEN: The error class
     const { GenericXMLAdapterError } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
 
     // WHEN: Creating an error
     const error = new GenericXMLAdapterError(
@@ -643,7 +643,7 @@ test.describe("Phase5-Unit: GXML Edge Cases", () => {
   test("GXML-120: [P1] should handle empty string values", async () => {
     // GIVEN: The adapter
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // Empty values should be handled by default value logic
@@ -653,7 +653,7 @@ test.describe("Phase5-Unit: GXML Edge Cases", () => {
   test("GXML-121: [P1] should handle null/undefined gracefully", async () => {
     // GIVEN: The adapter
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // The adapter handles null/undefined through toBoolean/toNumber helpers
@@ -663,7 +663,7 @@ test.describe("Phase5-Unit: GXML Edge Cases", () => {
   test("GXML-122: [P1] toNumber should handle invalid numbers", async () => {
     // GIVEN: The adapter handles invalid numbers by returning default
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // Invalid number handling is built into toNumber helper
@@ -674,7 +674,7 @@ test.describe("Phase5-Unit: GXML Edge Cases", () => {
     // GIVEN: Tax rates can be in percentage (8.25) or decimal (0.0825) format
     // The mapToTaxRate function converts rates > 1 to decimal
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // Percentage conversion is built into mapToTaxRate
@@ -691,7 +691,7 @@ test.describe("Phase5-Unit: GXML Business Logic", () => {
     // GIVEN: A tender with "CASH" in the name
     // THEN: Should be marked as cash equivalent and affects cash drawer
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // Business logic is in mapToTenderType
@@ -702,7 +702,7 @@ test.describe("Phase5-Unit: GXML Business Logic", () => {
     // GIVEN: A tender with "CREDIT" in the name
     // THEN: Should be marked as electronic and not cash equivalent
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // Business logic is in mapToTenderType
@@ -713,7 +713,7 @@ test.describe("Phase5-Unit: GXML Business Logic", () => {
     // GIVEN: A cashier with only "name" field (full name)
     // THEN: Should split into firstName and lastName
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // Name splitting is in mapToCashier
@@ -724,7 +724,7 @@ test.describe("Phase5-Unit: GXML Business Logic", () => {
     // GIVEN: A cashier without name fields
     // THEN: Should default firstName to "Unknown"
     const { GenericXMLAdapter } =
-      await import("../../backend/src/services/pos/adapters/generic-xml.adapter");
+      await import("../../backend/dist/services/pos/adapters/generic-xml.adapter");
     const adapter = new GenericXMLAdapter();
 
     // Default handling is in mapToCashier

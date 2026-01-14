@@ -258,7 +258,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Connection Tests", () =
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -285,7 +285,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Connection Tests", () =
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(basePath);
 
@@ -304,7 +304,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Connection Tests", () =
   test("VCMD-003: [P0] Should fail connection test with missing base path config", async () => {
     // GIVEN: Config without commanderBasePath
     const { createVerifoneCommanderAdapter } =
-      await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+      await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
     const adapter = createVerifoneCommanderAdapter();
     const config = {
       commanderBasePath: "",
@@ -345,7 +345,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Sync Tests", () => {
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -374,7 +374,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Sync Tests", () => {
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -402,7 +402,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Sync Tests", () => {
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -434,7 +434,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Sync Tests", () => {
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -457,7 +457,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Sync Tests", () => {
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -487,7 +487,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Transaction Import Test
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -516,7 +516,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Transaction Import Test
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -539,7 +539,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Transaction Import Test
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -565,7 +565,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Export Tests", () => {
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -608,7 +608,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Export Tests", () => {
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -644,7 +644,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Export Tests", () => {
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -677,7 +677,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Export Tests", () => {
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -723,7 +723,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - File Management Tests",
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
       config.archiveProcessedFiles = true;
@@ -755,7 +755,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - File Management Tests",
 
     try {
       const { createVerifoneCommanderAdapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
       const adapter = createVerifoneCommanderAdapter();
       const config = createMockConfig(dirs.basePath);
       config.archiveProcessedFiles = true;
@@ -786,7 +786,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Capabilities Tests", ()
   test("VCMD-060: [P1] Should return correct adapter capabilities", async () => {
     // GIVEN: Verifone Commander adapter
     const { createVerifoneCommanderAdapter } =
-      await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+      await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
     const adapter = createVerifoneCommanderAdapter();
 
     // WHEN: Getting capabilities
@@ -805,7 +805,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Capabilities Tests", ()
   test("VCMD-061: [P1] Should have correct POS type and display name", async () => {
     // GIVEN: Verifone Commander adapter
     const { createVerifoneCommanderAdapter } =
-      await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+      await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
     const adapter = createVerifoneCommanderAdapter();
 
     // THEN: Should have correct identifiers
@@ -823,7 +823,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Error Handling Tests", 
   test("VCMD-050: [P0] Should have VerifoneCommanderError class available", async () => {
     // GIVEN/WHEN: Importing the error class
     const { VerifoneCommanderError, VERIFONE_COMMANDER_ERROR_CODES } =
-      await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+      await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
 
     // THEN: Error class should be properly defined
     const error = new VerifoneCommanderError(
@@ -842,7 +842,7 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Error Handling Tests", 
   test("VCMD-051: [P1] Should define all expected error codes", async () => {
     // GIVEN/WHEN: Importing error codes
     const { VERIFONE_COMMANDER_ERROR_CODES } =
-      await import("../../backend/src/services/pos/adapters/verifone-commander.adapter");
+      await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
 
     // THEN: All expected error codes should be defined
     expect(VERIFONE_COMMANDER_ERROR_CODES.INVALID_CONFIG).toBe(

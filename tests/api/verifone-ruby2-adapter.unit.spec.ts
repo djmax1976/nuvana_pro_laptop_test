@@ -296,7 +296,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Connection Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -323,7 +323,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Connection Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(basePath);
 
@@ -342,7 +342,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Connection Tests", () => {
   test("VRB2-003: [P0] Should fail connection test with missing base path config", async () => {
     // GIVEN: Config without rubyBasePath
     const { createVerifoneRuby2Adapter } =
-      await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+      await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
     const adapter = createVerifoneRuby2Adapter();
     const config = {
       rubyBasePath: "",
@@ -383,7 +383,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Sync Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -412,7 +412,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Sync Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -440,7 +440,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Sync Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -472,7 +472,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Sync Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -496,7 +496,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Sync Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -524,7 +524,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Sync Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -554,7 +554,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Transaction Import Tests", 
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -584,7 +584,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Transaction Import Tests", 
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -607,7 +607,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Transaction Import Tests", 
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -633,7 +633,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Export Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -685,7 +685,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Export Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -731,7 +731,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Export Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -771,7 +771,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Export Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -817,7 +817,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Export Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -872,7 +872,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - File Management Tests", () 
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
       config.archiveProcessedFiles = true;
@@ -904,7 +904,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - File Management Tests", () 
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
       config.archiveProcessedFiles = true;
@@ -936,7 +936,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - File Management Tests", () 
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
       config.archiveProcessedFiles = false;
@@ -966,7 +966,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Capabilities Tests", () => 
   test("VRB2-060: [P1] Should return correct adapter capabilities", async () => {
     // GIVEN: Verifone Ruby2 adapter
     const { createVerifoneRuby2Adapter } =
-      await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+      await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
     const adapter = createVerifoneRuby2Adapter();
 
     // WHEN: Getting capabilities
@@ -985,7 +985,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Capabilities Tests", () => 
   test("VRB2-061: [P1] Should have correct POS type and display name", async () => {
     // GIVEN: Verifone Ruby2 adapter
     const { createVerifoneRuby2Adapter } =
-      await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+      await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
     const adapter = createVerifoneRuby2Adapter();
 
     // THEN: Should have correct identifiers
@@ -1003,7 +1003,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Error Handling Tests", () =
   test("VRB2-050: [P0] Should have VerifoneRuby2Error class available", async () => {
     // GIVEN/WHEN: Importing the error class
     const { VerifoneRuby2Error, VERIFONE_RUBY2_ERROR_CODES } =
-      await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+      await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
 
     // THEN: Error class should be properly defined
     const error = new VerifoneRuby2Error(
@@ -1022,7 +1022,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Error Handling Tests", () =
   test("VRB2-051: [P1] Should define all expected error codes", async () => {
     // GIVEN/WHEN: Importing error codes
     const { VERIFONE_RUBY2_ERROR_CODES } =
-      await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+      await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
 
     // THEN: All expected error codes should be defined
     expect(VERIFONE_RUBY2_ERROR_CODES.INVALID_CONFIG).toBe(
@@ -1063,7 +1063,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Security Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter, VERIFONE_RUBY2_ERROR_CODES } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
 
       // Create config with valid base path
@@ -1100,7 +1100,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Security Tests", () => {
 
     try {
       const { VerifoneRuby2Error, VERIFONE_RUBY2_ERROR_CODES } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
 
       // THEN: PATH_TRAVERSAL error code should be defined and available
       expect(VERIFONE_RUBY2_ERROR_CODES.PATH_TRAVERSAL).toBe(
@@ -1138,7 +1138,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Security Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -1168,7 +1168,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Security Tests", () => {
 
     try {
       const { createVerifoneRuby2Adapter } =
-        await import("../../backend/src/services/pos/adapters/verifone-ruby2.adapter");
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
       const adapter = createVerifoneRuby2Adapter();
       const config = createMockConfig(dirs.basePath);
 
@@ -1191,7 +1191,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Registry Integration", () =
   test("VRB2-070: [P0] Should be registered in adapter registry", async () => {
     // GIVEN/WHEN: Getting adapters from registry
     const { posAdapterRegistry } =
-      await import("../../backend/src/services/pos/adapter-registry");
+      await import("../../backend/dist/services/pos/adapter-registry");
 
     // THEN: Ruby2 adapter should be registered
     expect(posAdapterRegistry.hasAdapter("VERIFONE_RUBY2")).toBe(true);
@@ -1208,7 +1208,7 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Registry Integration", () =
   test("VRB2-071: [P1] Should be listed in adapter list", async () => {
     // GIVEN/WHEN: Getting adapter list from registry
     const { posAdapterRegistry } =
-      await import("../../backend/src/services/pos/adapter-registry");
+      await import("../../backend/dist/services/pos/adapter-registry");
 
     const adapterList = posAdapterRegistry.getAdapterList();
 
