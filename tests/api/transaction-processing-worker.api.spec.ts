@@ -297,11 +297,13 @@ test.describe("Transaction Processing Worker - Core Processing", () => {
     );
 
     expect(item1).toBeDefined();
-    expect(item1.quantity).toBe(2);
+    // quantity is stored as Decimal(12,3) and returned as Prisma Decimal object
+    expect(Number(item1.quantity)).toBe(2);
     expect(Number(item1.unit_price)).toBe(10.0);
 
     expect(item2).toBeDefined();
-    expect(item2.quantity).toBe(1);
+    // quantity is stored as Decimal(12,3) and returned as Prisma Decimal object
+    expect(Number(item2.quantity)).toBe(1);
     expect(Number(item2.unit_price)).toBe(25.0);
   });
 
