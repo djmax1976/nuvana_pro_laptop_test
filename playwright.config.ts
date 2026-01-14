@@ -122,8 +122,9 @@ export default defineConfig({
             command: "cd backend && npm run serve:test",
             url:
               (process.env.BACKEND_URL || "http://localhost:3001") + "/health",
-            // Avoid reusing potentially stale servers between runs; this keeps tests deterministic.
-            reuseExistingServer: false,
+            // Reuse existing server if one is running to avoid EADDRINUSE errors
+            // This prevents transient failures when running tests multiple times
+            reuseExistingServer: true,
             timeout: 120000,
             stdout: "pipe" as const,
             stderr: "pipe" as const,
