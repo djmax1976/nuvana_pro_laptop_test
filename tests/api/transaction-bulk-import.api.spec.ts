@@ -47,6 +47,10 @@ import { withBypassClient } from "../support/prisma-bypass";
 // IMPORTANT: Run with --workers=1 to avoid rate limiting across parallel describe blocks
 const bulkImportEnabled = process.env.BULK_IMPORT_TESTS === "true";
 
+// CI environments are slower - use longer timeouts
+const isCI = process.env.CI === "true";
+const CI_TIMEOUT_MULTIPLIER = isCI ? 2 : 1;
+
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
@@ -228,7 +232,7 @@ async function waitForJobCompletion(
   apiRequest: any,
   jobId: string,
   expectedStatus: string | string[] = ["COMPLETED", "FAILED"],
-  maxWaitMs: number = 30000,
+  maxWaitMs: number = 30000 * CI_TIMEOUT_MULTIPLIER,
   pollIntervalMs: number = 500,
 ): Promise<{ status: string; job: any; errors: any[] } | null> {
   const startTime = Date.now();
@@ -253,9 +257,8 @@ async function waitForJobCompletion(
           return { status, job, errors };
         }
       }
-    } catch (error) {
-      // Log error but continue polling
-      console.warn(`Error checking job ${jobId}:`, error);
+    } catch {
+      // Continue polling on error
     }
 
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
@@ -653,11 +656,12 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
 
     // If worker is running, processed_rows should also be > 0
     // This is a softer assertion since worker availability varies
-    if (processedRows === 0) {
-      console.log(
-        "Warning: Worker may not be running - transactions enqueued but not processed",
-      );
-    }
+    expect
+      .soft(
+        processedRows > 0,
+        "Worker may not be running - transactions enqueued but not processed",
+      )
+      .toBe(true);
   });
 });
 
@@ -699,9 +703,22 @@ test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
       ),
     );
 
+    // Verify upload succeeded before proceeding
+    expect(
+      uploadResponse.status(),
+      `Upload should return 202, got ${uploadResponse.status()}`,
+    ).toBe(202);
+
     const uploadBody = await uploadResponse.json();
+    expect(
+      uploadBody.success,
+      `Upload should succeed: ${JSON.stringify(uploadBody.error || {})}`,
+    ).toBe(true);
     const jobId = uploadBody.data?.job_id;
-    expect(jobId, "Should have job_id from upload").toBeDefined();
+    expect(jobId, "Should have job_id from upload response").toBeDefined();
+
+    // Brief delay to ensure database write is committed (PostgreSQL consistency)
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // WHEN: Checking import status
     const response = await superadminApiRequest.get(
@@ -709,10 +726,19 @@ test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
     );
 
     // THEN: Should return job status with progress metrics
-    expect(response.status(), "Should return 200 for status check").toBe(200);
+    expect(
+      response.status(),
+      `Status check should return 200, got ${response.status()}`,
+    ).toBe(200);
     const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
-    expect(body.data?.job, "Should include job object").toBeTruthy();
+    expect(
+      body.success,
+      `Response should indicate success: ${JSON.stringify(body.error || {})}`,
+    ).toBe(true);
+    expect(
+      body.data?.job,
+      `Should include job object in response: ${JSON.stringify(body)}`,
+    ).toBeTruthy();
     expect(body.data.job.job_id, "Should include job_id").toBe(jobId);
     expect(typeof body.data.job.total_rows, "Should include total_rows").toBe(
       "number",

@@ -141,7 +141,10 @@ async function calculateShiftAggregates(
     tax_collected += txTax;
 
     for (const li of tx.line_items) {
-      const qty = li.quantity;
+      const qty =
+        typeof li.quantity === "object" && "toNumber" in li.quantity
+          ? li.quantity.toNumber()
+          : Number(li.quantity);
       if (qty > 0) {
         items_sold_count += qty;
       } else {
@@ -402,7 +405,7 @@ async function findOrphanedRecords(storeId?: string): Promise<{
   const shiftWhereClause: any = {
     status: "CLOSED",
     closed_at: { not: null },
-    shift_summary: null,
+    shift_summary: { is: null },
   };
   if (storeId) {
     shiftWhereClause.store_id = storeId;

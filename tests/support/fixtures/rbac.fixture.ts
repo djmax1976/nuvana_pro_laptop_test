@@ -676,7 +676,9 @@ export const test = base.extend<RBACFixture>({
         select: { user_id: true },
       });
       if (userExists) {
-        await bypassClient.user.delete({ where: { user_id: user.user_id } });
+        await bypassClient.user.deleteMany({
+          where: { user_id: user.user_id },
+        });
       }
     });
   },
@@ -904,7 +906,7 @@ export const test = base.extend<RBACFixture>({
       });
 
       // 4. Delete user
-      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      await bypassClient.user.deleteMany({ where: { user_id: user.user_id } });
 
       // 5. Delete POS terminals for all stores (before deleting stores)
       if (storeIds.length > 0) {
@@ -918,8 +920,8 @@ export const test = base.extend<RBACFixture>({
         where: { company_id: company.company_id },
       });
 
-      // 7. Delete company last
-      await bypassClient.company.delete({
+      // 7. Delete company last (use deleteMany for idempotent cleanup in parallel test runs)
+      await bypassClient.company.deleteMany({
         where: { company_id: company.company_id },
       });
     });
@@ -1189,7 +1191,7 @@ export const test = base.extend<RBACFixture>({
       });
 
       // 6. Delete the store manager user
-      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      await bypassClient.user.deleteMany({ where: { user_id: user.user_id } });
 
       // 7. Delete store (use deleteMany to avoid errors if already deleted)
       await bypassClient.store.deleteMany({
@@ -1212,7 +1214,9 @@ export const test = base.extend<RBACFixture>({
       });
 
       // 9. Delete the owner user (created for company ownership)
-      await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
+      await bypassClient.user.deleteMany({
+        where: { user_id: ownerUser.user_id },
+      });
     });
   },
 
@@ -1401,7 +1405,7 @@ export const test = base.extend<RBACFixture>({
       });
 
       // 5. Delete the shift manager user
-      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      await bypassClient.user.deleteMany({ where: { user_id: user.user_id } });
 
       // 6. Delete store
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
@@ -1422,7 +1426,9 @@ export const test = base.extend<RBACFixture>({
       });
 
       // 8. Delete the owner user (created for company ownership)
-      await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
+      await bypassClient.user.deleteMany({
+        where: { user_id: ownerUser.user_id },
+      });
     });
   },
 
@@ -1553,7 +1559,7 @@ export const test = base.extend<RBACFixture>({
       });
 
       // 5. Delete the authenticated user
-      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      await bypassClient.user.deleteMany({ where: { user_id: user.user_id } });
 
       // 6. Delete store
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
@@ -1574,7 +1580,9 @@ export const test = base.extend<RBACFixture>({
       });
 
       // 8. Delete the owner user (created for company ownership)
-      await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
+      await bypassClient.user.deleteMany({
+        where: { user_id: ownerUser.user_id },
+      });
     });
   },
 
@@ -2328,7 +2336,7 @@ export const test = base.extend<RBACFixture>({
       });
 
       // 6. Delete the regular user
-      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      await bypassClient.user.deleteMany({ where: { user_id: user.user_id } });
 
       // 7. Delete POS terminals for the store
       await bypassClient.pOSTerminal.deleteMany({
@@ -2354,7 +2362,9 @@ export const test = base.extend<RBACFixture>({
       });
 
       // 10. Delete owner user
-      await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
+      await bypassClient.user.deleteMany({
+        where: { user_id: ownerUser.user_id },
+      });
     });
   },
 
@@ -2739,7 +2749,7 @@ export const test = base.extend<RBACFixture>({
       });
 
       // 7. Delete the user
-      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      await bypassClient.user.deleteMany({ where: { user_id: user.user_id } });
     });
   },
 
@@ -3217,7 +3227,7 @@ export const test = base.extend<RBACFixture>({
         },
       });
 
-      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      await bypassClient.user.deleteMany({ where: { user_id: user.user_id } });
 
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
 
@@ -3234,7 +3244,9 @@ export const test = base.extend<RBACFixture>({
         },
       });
 
-      await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
+      await bypassClient.user.deleteMany({
+        where: { user_id: ownerUser.user_id },
+      });
     });
   },
 });

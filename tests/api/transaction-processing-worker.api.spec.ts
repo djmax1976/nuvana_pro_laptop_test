@@ -18,17 +18,37 @@ import {
  *
  * BUSINESS RULES TESTED:
  * - Message consumption from RabbitMQ queue
- * - Transaction validation (shift exists, is OPEN, belongs to store)
+ * - Transaction validation (shift exists, is OPEN or ACTIVE, belongs to store)
  * - Database record creation (Transaction, LineItems, Payments)
  * - Cache invalidation (Redis shift summaries)
  * - Error handling with retry logic (max 5 retries)
  * - Dead-letter queue for failed messages
+ * - Idempotency via correlation_id as transaction_id
  *
  * SECURITY TESTS:
  * - Authentication bypass (missing/invalid/expired JWT)
  * - Authorization (TRANSACTION_CREATE permission, store access)
  * - Input validation (malformed payloads, injection attempts)
  * - Data leakage prevention (error responses)
+ * - SQL injection prevention via Prisma parameterized queries
+ *
+ * VALIDATION RULES (from Zod schema):
+ * - store_id: Required, valid UUID
+ * - shift_id: Required, valid UUID
+ * - subtotal: Required, non-negative number
+ * - tax: Optional, non-negative number (default: 0)
+ * - discount: Optional, non-negative number (default: 0)
+ * - line_items: Required, min 1 item
+ *   - sku: Required, min 1 character
+ *   - name: Required, min 1 character
+ *   - quantity: Required, positive integer
+ *   - unit_price: Required, non-negative number
+ *   - discount: Optional, non-negative (default: 0)
+ * - payments: Required, min 1 payment
+ *   - method: Required, enum (CASH, CREDIT, DEBIT, EBT, OTHER)
+ *   - amount: Required, positive number (must be > 0)
+ *   - reference: Optional string
+ * - Payment total >= transaction total (subtotal + tax - discount)
  *
  * NOTE: These tests verify the worker's behavior through API integration.
  * The worker processes messages from the queue after POST /api/transactions.
@@ -38,7 +58,14 @@ import {
  * Without the worker, tests that verify database record creation will timeout
  * waiting for records that are never created.
  *
+ * ARCHITECTURE NOTES:
+ * - API validates payload, checks permissions, validates shift status
+ * - If validation passes, message is queued to RabbitMQ with correlation_id
+ * - Worker consumes messages, re-validates, creates DB records atomically
+ * - Worker uses correlation_id as transaction_id for idempotency
+ *
  * Enhanced by Opus QA Workflow 9 - 2025-11-27
+ * Aligned with implementation - 2026-01-13
  */
 
 // =============================================================================
@@ -134,9 +161,8 @@ async function waitForTransactionProcessing(
       if (transaction) {
         return transaction;
       }
-    } catch (error) {
-      // Log error but continue polling
-      console.warn(`Error checking for transaction ${correlationId}:`, error);
+    } catch {
+      // Continue polling on error
     }
 
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
@@ -271,11 +297,13 @@ test.describe("Transaction Processing Worker - Core Processing", () => {
     );
 
     expect(item1).toBeDefined();
-    expect(item1.quantity).toBe(2);
+    // quantity is stored as Decimal(12,3) and returned as Prisma Decimal object
+    expect(Number(item1.quantity)).toBe(2);
     expect(Number(item1.unit_price)).toBe(10.0);
 
     expect(item2).toBeDefined();
-    expect(item2.quantity).toBe(1);
+    // quantity is stored as Decimal(12,3) and returned as Prisma Decimal object
+    expect(Number(item2.quantity)).toBe(1);
     expect(Number(item2.unit_price)).toBe(25.0);
   });
 
@@ -432,12 +460,14 @@ test.describe("Transaction Processing Worker - Validation", () => {
     }
   });
 
-  test("3.3-WKR-006: [P1] Worker should validate shift is OPEN status", async ({
+  test("3.3-WKR-006: [P1] Worker should validate shift is OPEN or ACTIVE status", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
   }) => {
-    // GIVEN: A closed shift
+    // GIVEN: A closed shift (CLOSED status blocks transactions)
+    // NOTE: The API accepts OPEN or ACTIVE shifts for transactions
+    // CLOSING, RECONCILING, and CLOSED statuses all block new transactions
     const { store } = await createTestStoreAndShift(
       prismaClient,
       corporateAdminUser.company_id,
@@ -474,20 +504,15 @@ test.describe("Transaction Processing Worker - Validation", () => {
       payload,
     );
 
-    // Note: API validates shift status before queuing
-    expect([409, 202]).toContain(response.status());
-
-    // If 202, worker should reject the message
-    if (response.status() === 202) {
-      const body = await response.json();
-      const correlationId = body.data?.correlation_id;
-
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      const transaction = await prismaClient.transaction.findUnique({
-        where: { transaction_id: correlationId },
-      });
-      expect(transaction).toBeNull();
-    }
+    // THEN: API should reject with 409 Conflict
+    // Error code should be SHIFT_CLOSING_TRANSACTION_BLOCKED for CLOSING/RECONCILING/CLOSED
+    // or SHIFT_NOT_ACTIVE for other non-OPEN/ACTIVE statuses
+    expect(response.status()).toBe(409);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(["SHIFT_CLOSING_TRANSACTION_BLOCKED", "SHIFT_NOT_ACTIVE"]).toContain(
+      body.error.code,
+    );
   });
 
   test("3.3-WKR-007: [P1] Worker should validate shift belongs to store", async ({
@@ -716,6 +741,7 @@ test.describe("Transaction Processing Worker - Audit", () => {
     expect(transaction).not.toBeNull();
 
     // THEN: AuditLog entry should exist
+    // Worker creates audit log with format: "Transaction processing - correlation_id: {id}"
     const auditLog = await prismaClient.auditLog.findFirst({
       where: {
         table_name: "transactions",
@@ -725,7 +751,15 @@ test.describe("Transaction Processing Worker - Audit", () => {
     });
 
     expect(auditLog, "AuditLog entry should be created").not.toBeNull();
+    // Verify audit log contains the correlation_id in the reason field
+    // Format: "Transaction processing - correlation_id: {correlation_id}"
+    expect(auditLog!.reason).toContain("correlation_id");
     expect(auditLog!.reason).toContain(correlationId);
+    // Verify new_values contains expected transaction data
+    expect(auditLog!.new_values).toBeDefined();
+    const newValues = auditLog!.new_values as any;
+    expect(newValues.store_id).toBe(store.store_id);
+    expect(newValues.shift_id).toBe(shift.shift_id);
   });
 });
 
@@ -773,17 +807,6 @@ test.describe("Transaction Processing Worker - Idempotency", () => {
       45000, // 45 seconds for burn-in stability
     );
 
-    // Provide helpful error message if processing times out
-    if (!transaction1) {
-      // Check if transaction is in queue or was rejected
-      const queuedCheck = await prismaClient.transaction.findFirst({
-        where: { store_id: store.store_id },
-        orderBy: { created_at: "desc" },
-      });
-      console.error(
-        `Transaction ${correlationId} not found. Most recent transaction for store: ${queuedCheck?.transaction_id || "none"}`,
-      );
-    }
     expect(transaction1).not.toBeNull();
 
     // THEN: Should have exactly one transaction record
@@ -1684,17 +1707,17 @@ test.describe("Transaction Processing Worker - Data Leakage Prevention", () => {
 // SECTION 12: P2 MEDIUM - ADDITIONAL EDGE CASES
 // =============================================================================
 
-test.describe("Transaction Processing Worker - Additional Edge Cases", () => {
-  test.skip(
-    !workerRunning,
-    "Worker process not running - set WORKER_RUNNING=true to enable",
-  );
-  test("3.3-WKR-015: [P2] Should handle zero subtotal with valid line items", async ({
+test.describe("Transaction Processing Worker - Additional Edge Cases (Validation)", () => {
+  // These tests verify API-level validation which doesn't require the worker
+  test("3.3-WKR-015: [P2] Should reject zero payment amount", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
   }) => {
-    // GIVEN: A transaction with $0 subtotal (e.g., 100% discount scenario)
+    // GIVEN: A transaction with $0 payment amount
+    // NOTE: Per Zod schema, payment.amount must be positive (> 0)
+    // This is a business rule: even free samples require a $0.01 min payment or
+    // the POS should not generate a payment record for $0 transactions
     const { store, shift } = await createTestStoreAndShift(
       prismaClient,
       corporateAdminUser.company_id,
@@ -1716,18 +1739,20 @@ test.describe("Transaction Processing Worker - Additional Edge Cases", () => {
           discount: 0,
         },
       ],
-      payments: [{ method: "CASH", amount: 0 }],
+      payments: [{ method: "CASH", amount: 0 }], // Invalid: amount must be > 0
     };
 
-    // WHEN: Zero-total transaction is submitted
+    // WHEN: Zero-payment transaction is submitted
     const response = await corporateAdminApiRequest.post(
       "/api/transactions",
       payload,
     );
 
-    // THEN: Should be accepted (valid transaction)
-    // Note: Payment amount > 0 is required per schema, so this may fail
-    expect([202, 400]).toContain(response.status());
+    // THEN: Should be rejected with 400 - payment amount must be positive
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
   test("3.3-WKR-016: [P2] Should handle overpayment (change scenario)", async ({
@@ -1763,6 +1788,14 @@ test.describe("Transaction Processing Worker - Additional Edge Cases", () => {
     const body = await response.json();
     expect(body.success).toBe(true);
   });
+});
+
+// Tests that require worker for DB verification
+test.describe("Transaction Processing Worker - Additional Edge Cases (Worker)", () => {
+  test.skip(
+    !workerRunning,
+    "Worker process not running - set WORKER_RUNNING=true to enable",
+  );
 
   test("3.3-WKR-017: [P2] Should handle line item with zero unit price", async ({
     corporateAdminApiRequest,

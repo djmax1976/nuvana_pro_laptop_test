@@ -92,8 +92,10 @@ async function waitForTransaction(
   pollIntervalMs: number = 500,
 ): Promise<any | null> {
   const startTime = Date.now();
+  let pollCount = 0;
 
   while (Date.now() - startTime < maxWaitMs) {
+    pollCount++;
     try {
       const transaction = await prismaClient.transaction.findUnique({
         where: { transaction_id: transactionId },
@@ -104,21 +106,133 @@ async function waitForTransaction(
       });
 
       if (transaction) {
+        console.log(
+          `[waitForTransaction] Found transaction ${transactionId} after ${pollCount} polls (${Date.now() - startTime}ms)`,
+        );
         return transaction;
       }
     } catch (error) {
       // Log error but continue polling
-      console.warn(`Error checking for transaction ${transactionId}:`, error);
+      console.warn(
+        `[waitForTransaction] Poll ${pollCount} error:`,
+        error instanceof Error ? error.message : "Unknown error",
+      );
     }
 
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 
+  console.warn(
+    `[waitForTransaction] Timeout waiting for transaction ${transactionId} after ${pollCount} polls (${maxWaitMs}ms). ` +
+      `Ensure the transaction worker is running: npm run worker:transaction`,
+  );
   return null;
+}
+
+/**
+ * Ensures a system-level tender type exists for testing.
+ * Creates it if it doesn't exist (enterprise-grade: tests should not skip).
+ *
+ * @param prismaClient - Prisma client
+ * @param code - Tender type code (e.g., "CASH", "CREDIT")
+ * @param displayName - Display name for the tender type
+ * @param options - Optional configuration
+ * @returns Tender type record
+ */
+async function ensureSystemTenderType(
+  prismaClient: any,
+  code: string,
+  displayName: string,
+  options: {
+    is_cash_equivalent?: boolean;
+    is_electronic?: boolean;
+    affects_cash_drawer?: boolean;
+  } = {},
+): Promise<any> {
+  let tenderType = await prismaClient.tenderType.findFirst({
+    where: { code, client_id: null, is_active: true },
+  });
+
+  if (!tenderType) {
+    tenderType = await prismaClient.tenderType.create({
+      data: {
+        code,
+        display_name: displayName,
+        description: `System tender type for ${code} (created by test)`,
+        is_cash_equivalent: options.is_cash_equivalent ?? code === "CASH",
+        requires_reference: false,
+        is_electronic: options.is_electronic ?? code !== "CASH",
+        affects_cash_drawer: options.affects_cash_drawer ?? code === "CASH",
+        sort_order: 0,
+        is_system: true,
+        is_active: true,
+        client_id: null, // System-level
+      },
+    });
+  }
+
+  return tenderType;
+}
+
+/**
+ * Ensures a system-level department exists for testing.
+ * Creates it if it doesn't exist (enterprise-grade: tests should not skip).
+ *
+ * @param prismaClient - Prisma client
+ * @param code - Department code (e.g., "GROCERY")
+ * @param displayName - Display name for the department
+ * @returns Department record
+ */
+async function ensureSystemDepartment(
+  prismaClient: any,
+  code: string,
+  displayName: string,
+): Promise<any> {
+  let department = await prismaClient.department.findFirst({
+    where: { code, client_id: null, is_active: true },
+  });
+
+  if (!department) {
+    department = await prismaClient.department.create({
+      data: {
+        code,
+        display_name: displayName,
+        description: `System department for ${code} (created by test)`,
+        is_active: true,
+        is_system: true,
+        is_taxable: true,
+        client_id: null, // System-level
+      },
+    });
+  }
+
+  return department;
 }
 
 // Skip tests if worker is not running - set WORKER_RUNNING=true to enable
 const workerRunning = process.env.WORKER_RUNNING === "true";
+
+/**
+ * Enterprise-grade assertion helper for transaction existence.
+ * Provides detailed diagnostic message when assertion fails.
+ *
+ * @param transaction - Transaction object from waitForTransaction
+ * @param correlationId - The correlation ID used for lookup
+ */
+function assertTransactionExists(
+  transaction: any,
+  correlationId: string,
+): asserts transaction is NonNullable<typeof transaction> {
+  if (transaction === null || transaction === undefined) {
+    throw new Error(
+      `Transaction not found for correlation_id ${correlationId}. ` +
+        `This typically means the transaction worker is not running. ` +
+        `Ensure you start the worker process: npm run worker:transaction\n` +
+        `The API returned 202 Accepted, meaning the message was queued for async processing, ` +
+        `but without a running worker, the transaction record is never created.`,
+    );
+  }
+}
 
 // =============================================================================
 // TEST SUITES
@@ -144,16 +258,17 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         corporateAdminUser.user_id,
       );
 
-      // Ensure tender type exists for CASH (should be seeded)
-      const cashTenderType = await prismaClient.tenderType.findFirst({
-        where: { code: "CASH", is_active: true },
-      });
-
-      // Skip if no tender types seeded
-      if (!cashTenderType) {
-        test.skip();
-        return;
-      }
+      // Enterprise-grade: Ensure tender type exists (don't skip tests)
+      const cashTenderType = await ensureSystemTenderType(
+        prismaClient,
+        "CASH",
+        "Cash",
+        {
+          is_cash_equivalent: true,
+          is_electronic: false,
+          affects_cash_drawer: true,
+        },
+      );
 
       // Create simple transaction with known amounts (payment must >= subtotal + tax - discount)
       const subtotal = 50.0;
@@ -194,13 +309,19 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       // Wait for worker to process transaction using correlation_id
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
-      // Verify FK fields were populated
-      expect(transaction).not.toBeNull();
+      // Enterprise-grade: Comprehensive verification
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.payments).toHaveLength(1);
 
       const payment = transaction?.payments[0];
+      // Verify FK resolution: tender_type_id should match resolved tender type
       expect(payment?.tender_type_id).toBe(cashTenderType.tender_type_id);
+      // Verify denormalized snapshot: tender_code should match resolved code
       expect(payment?.tender_code).toBe("CASH");
+      // Verify method field is preserved (backward compatibility)
+      expect(payment?.method).toBe("CASH");
+      // Verify amount is correct
+      expect(Number(payment?.amount)).toBe(total);
     });
 
     test("should use tender_code from payload when explicitly provided", async ({
@@ -215,15 +336,17 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         corporateAdminUser.user_id,
       );
 
-      // Ensure tender type exists for CREDIT (should be seeded)
-      const creditTenderType = await prismaClient.tenderType.findFirst({
-        where: { code: "CREDIT", is_active: true },
-      });
-
-      if (!creditTenderType) {
-        test.skip();
-        return;
-      }
+      // Enterprise-grade: Ensure tender type exists (don't skip tests)
+      const creditTenderType = await ensureSystemTenderType(
+        prismaClient,
+        "CREDIT",
+        "Credit Card",
+        {
+          is_cash_equivalent: false,
+          is_electronic: true,
+          affects_cash_drawer: false,
+        },
+      );
 
       // Create simple transaction with explicit tender_code
       const subtotal = 75.0;
@@ -250,7 +373,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
           {
             method: "CREDIT" as const,
             amount: total,
-            tender_code: "CREDIT",
+            tender_code: "CREDIT", // Explicit tender_code should take precedence
             reference: "1234",
           },
         ],
@@ -270,9 +393,21 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       // Wait for worker to process transaction using correlation_id
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
+      // Enterprise-grade: Comprehensive verification
+      assertTransactionExists(transaction, correlationId);
+      expect(transaction?.payments).toHaveLength(1);
+
       const payment = transaction?.payments[0];
+      // Verify FK resolution: tender_type_id should match resolved tender type
       expect(payment?.tender_type_id).toBe(creditTenderType.tender_type_id);
+      // Verify denormalized snapshot: tender_code should match resolved code
       expect(payment?.tender_code).toBe("CREDIT");
+      // Verify method field is preserved (backward compatibility)
+      expect(payment?.method).toBe("CREDIT");
+      // Verify reference is preserved
+      expect(payment?.reference).toBe("1234");
+      // Verify amount is correct
+      expect(Number(payment?.amount)).toBe(total);
     });
 
     test("should handle unknown tender_code gracefully", async ({
@@ -286,7 +421,13 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         corporateAdminUser.user_id,
       );
 
-      // Create simple transaction with OTHER method (which may not have a tender type seeded)
+      // Enterprise-grade: Verify no tender type exists for "UNKNOWN_TEST_CODE"
+      const unknownTenderType = await prismaClient.tenderType.findFirst({
+        where: { code: "UNKNOWN_TEST_CODE", is_active: true },
+      });
+      expect(unknownTenderType).toBeNull(); // Ensure it doesn't exist
+
+      // Create simple transaction with unknown tender code
       const subtotal = 25.0;
       const tax = 2.0;
       const total = subtotal + tax;
@@ -307,7 +448,13 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
             discount: 0,
           },
         ],
-        payments: [{ method: "OTHER" as const, amount: total }],
+        payments: [
+          {
+            method: "OTHER" as const,
+            amount: total,
+            tender_code: "UNKNOWN_TEST_CODE", // Unknown code that doesn't exist
+          },
+        ],
       };
 
       const response = await corporateAdminApiRequest.post(
@@ -315,7 +462,8 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         payload,
       );
 
-      // Transaction should still be accepted (202)
+      // Enterprise-grade: Transaction should still be accepted (202)
+      // FK resolution failure should NOT block transaction creation (graceful degradation)
       expect(response.status()).toBe(202);
 
       // Get correlation_id from response to wait for transaction
@@ -325,12 +473,19 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       // Wait for worker to process transaction using correlation_id
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
-      // Transaction should exist even if tender type wasn't resolved
-      // FK resolution failure should NOT block transaction creation
-      expect(transaction).not.toBeNull();
-
-      // Payment should exist but tender_type_id may be null
+      // Enterprise-grade: Comprehensive verification of graceful degradation
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.payments).toHaveLength(1);
+
+      const payment = transaction?.payments[0];
+      // Verify graceful degradation: tender_type_id should be null when resolution fails
+      expect(payment?.tender_type_id).toBeNull();
+      // Verify graceful degradation: tender_code should be null when resolution fails
+      expect(payment?.tender_code).toBeNull();
+      // Verify method field is preserved (backward compatibility)
+      expect(payment?.method).toBe("OTHER");
+      // Verify amount is correct
+      expect(Number(payment?.amount)).toBe(total);
     });
   });
 
@@ -347,22 +502,19 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         corporateAdminUser.user_id,
       );
 
-      // Find or create a test department (GROCERY should be seeded as system dept)
-      let testDepartment = await prismaClient.department.findFirst({
-        where: { code: "GROCERY", is_active: true },
-      });
+      // Enterprise-grade: Ensure system department exists (don't skip tests)
+      const testDepartment = await ensureSystemDepartment(
+        prismaClient,
+        "GROCERY",
+        "Grocery",
+      );
 
-      if (!testDepartment) {
-        testDepartment = await prismaClient.department.create({
-          data: {
-            code: "GROCERY",
-            display_name: "Grocery",
-            description: "Test grocery department",
-            is_active: true,
-            is_system: true,
-          },
-        });
-      }
+      // Ensure CASH tender type exists for payment
+      await ensureSystemTenderType(prismaClient, "CASH", "Cash", {
+        is_cash_equivalent: true,
+        is_electronic: false,
+        affects_cash_drawer: true,
+      });
 
       // Create transaction with department_code
       // NOTE: Omit cashier_id - worker will use authenticated user's ID
@@ -400,13 +552,22 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       // Wait for worker to process transaction using correlation_id
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
-      expect(transaction).not.toBeNull();
+      // Enterprise-grade: Comprehensive verification
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.line_items).toHaveLength(1);
 
       const lineItem = transaction?.line_items[0];
+      // Verify FK resolution: department_id should match resolved department
       expect(lineItem?.department_id).toBe(testDepartment.department_id);
+      // Verify denormalized snapshot: department_code should match resolved code
       expect(lineItem?.department_code).toBe("GROCERY");
+      // Verify tax_amount is stored per line item
       expect(Number(lineItem?.tax_amount)).toBe(0.8);
+      // Verify other line item fields
+      expect(lineItem?.sku).toBe("TEST-SKU-001");
+      expect(lineItem?.name).toBe("Test Product");
+      expect(Number(lineItem?.quantity)).toBe(1);
+      expect(Number(lineItem?.unit_price)).toBe(10.0);
     });
 
     test("should allow line items without department_code", async ({
@@ -419,6 +580,13 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         corporateAdminUser.company_id,
         corporateAdminUser.user_id,
       );
+
+      // Ensure CASH tender type exists for payment
+      await ensureSystemTenderType(prismaClient, "CASH", "Cash", {
+        is_cash_equivalent: true,
+        is_electronic: false,
+        affects_cash_drawer: true,
+      });
 
       // Create simple transaction without department_code
       const subtotal = 30.0;
@@ -439,7 +607,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
             quantity: 1,
             unit_price: subtotal,
             discount: 0,
-            // No department_code specified
+            // No department_code specified - should result in null FK fields
           },
         ],
         payments: [{ method: "CASH" as const, amount: total }],
@@ -459,11 +627,21 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       // Wait for worker to process transaction using correlation_id
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
-      // Verify line items have null department (no department_code was provided)
-      expect(transaction).not.toBeNull();
+      // Enterprise-grade: Comprehensive verification of optional department handling
+      assertTransactionExists(transaction, correlationId);
+      expect(transaction?.line_items).toHaveLength(1);
+
       transaction?.line_items.forEach((li: any) => {
+        // Verify FK fields are null when no department_code provided
         expect(li.department_id).toBeNull();
         expect(li.department_code).toBeNull();
+        // Verify other fields are still populated
+        expect(li.sku).toBe("TEST-NO-DEPT-001");
+        expect(li.name).toBe("No Department Product");
+        expect(Number(li.quantity)).toBe(1);
+        expect(Number(li.unit_price)).toBe(subtotal);
+        // Verify tax_amount defaults to 0 when not provided
+        expect(Number(li.tax_amount)).toBe(0);
       });
     });
   });
@@ -479,6 +657,18 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         prismaClient,
         corporateAdminUser.company_id,
         corporateAdminUser.user_id,
+      );
+
+      // Enterprise-grade: Ensure tender type exists
+      const cashTenderType = await ensureSystemTenderType(
+        prismaClient,
+        "CASH",
+        "Cash",
+        {
+          is_cash_equivalent: true,
+          is_electronic: false,
+          affects_cash_drawer: true,
+        },
       );
 
       // Create simple transaction for query test
@@ -517,7 +707,11 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const correlationId = responseBody.data.correlation_id;
 
       // Wait for worker to process transaction using correlation_id
-      await waitForTransaction(prismaClient, correlationId);
+      const processedTransaction = await waitForTransaction(
+        prismaClient,
+        correlationId,
+      );
+      assertTransactionExists(processedTransaction, correlationId);
 
       // Query transactions with include_payments=true
       const queryResponse = await corporateAdminApiRequest.get(
@@ -527,13 +721,32 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       expect(queryResponse.status()).toBe(200);
 
       const data = await queryResponse.json();
-      expect(data.data.transactions).toHaveLength(1);
+      expect(
+        data.data.transactions,
+        `Expected 1 transaction but got ${data.data.transactions?.length || 0}. ` +
+          `Worker may not have processed the transaction.`,
+      ).toHaveLength(1);
 
-      const payments = data.data.transactions[0].payments;
+      const transaction = data.data.transactions[0];
+      const payments = transaction.payments;
+
+      // Enterprise-grade: Comprehensive verification of query response
       expect(payments).toBeDefined();
-      expect(payments[0]).toHaveProperty("tender_type_id");
-      expect(payments[0]).toHaveProperty("tender_code");
-      // tender_name is optional (populated from join if available)
+      expect(payments).toHaveLength(1);
+
+      const payment = payments[0];
+      // Verify FK fields are included in response
+      expect(payment).toHaveProperty("tender_type_id");
+      expect(payment).toHaveProperty("tender_code");
+      // Verify FK fields have correct values
+      expect(payment.tender_type_id).toBe(cashTenderType.tender_type_id);
+      expect(payment.tender_code).toBe("CASH");
+      // Verify tender_name is populated from join (optional field)
+      expect(payment).toHaveProperty("tender_name");
+      expect(payment.tender_name).toBe(cashTenderType.display_name);
+      // Verify other payment fields
+      expect(payment.method).toBe("CASH");
+      expect(Number(payment.amount)).toBe(total);
     });
 
     test("should include department fields in query response", async ({
@@ -548,7 +761,21 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         corporateAdminUser.user_id,
       );
 
-      // Create transaction with line items (no department_code specified)
+      // Enterprise-grade: Ensure tender type exists
+      await ensureSystemTenderType(prismaClient, "CASH", "Cash", {
+        is_cash_equivalent: true,
+        is_electronic: false,
+        affects_cash_drawer: true,
+      });
+
+      // Enterprise-grade: Ensure department exists for this test
+      const testDepartment = await ensureSystemDepartment(
+        prismaClient,
+        "GROCERY",
+        "Grocery",
+      );
+
+      // Create transaction with line items including department_code
       // NOTE: Omit cashier_id - worker will use authenticated user's ID
       const payload = {
         store_id: store.store_id,
@@ -564,6 +791,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
             unit_price: 10.0,
             discount: 0,
             tax_amount: 0.8,
+            department_code: "GROCERY",
           },
         ],
         payments: [{ method: "CASH" as const, amount: 10.8 }],
@@ -581,7 +809,11 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const correlationId = responseBody.data.correlation_id;
 
       // Wait for worker to process transaction using correlation_id
-      await waitForTransaction(prismaClient, correlationId);
+      const processedTransaction = await waitForTransaction(
+        prismaClient,
+        correlationId,
+      );
+      assertTransactionExists(processedTransaction, correlationId);
 
       // Query with include_line_items=true
       const queryResponse = await corporateAdminApiRequest.get(
@@ -591,14 +823,37 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       expect(queryResponse.status()).toBe(200);
 
       const data = await queryResponse.json();
-      expect(data.data.transactions).toHaveLength(1);
+      expect(
+        data.data.transactions,
+        `Expected 1 transaction but got ${data.data.transactions?.length || 0}. ` +
+          `Worker may not have processed the transaction.`,
+      ).toHaveLength(1);
 
-      const lineItems = data.data.transactions[0].line_items;
+      const transaction = data.data.transactions[0];
+      const lineItems = transaction.line_items;
+
+      // Enterprise-grade: Comprehensive verification of query response
       expect(lineItems).toBeDefined();
-      // These fields should exist in the response even if null
-      expect(lineItems[0]).toHaveProperty("department_id");
-      expect(lineItems[0]).toHaveProperty("department_code");
-      expect(lineItems[0]).toHaveProperty("tax_amount");
+      expect(lineItems).toHaveLength(1);
+
+      const lineItem = lineItems[0];
+      // Verify FK fields are included in response
+      expect(lineItem).toHaveProperty("department_id");
+      expect(lineItem).toHaveProperty("department_code");
+      expect(lineItem).toHaveProperty("tax_amount");
+      // Verify FK fields have correct values
+      expect(lineItem.department_id).toBe(testDepartment.department_id);
+      expect(lineItem.department_code).toBe("GROCERY");
+      // Verify department_name is populated from join (optional field)
+      expect(lineItem).toHaveProperty("department_name");
+      expect(lineItem.department_name).toBe(testDepartment.display_name);
+      // Verify tax_amount is included
+      expect(Number(lineItem.tax_amount)).toBe(0.8);
+      // Verify other line item fields
+      expect(lineItem.sku).toBe("TEST-SKU-002");
+      expect(lineItem.name).toBe("Test Product 2");
+      expect(Number(lineItem.quantity)).toBe(1);
+      expect(Number(lineItem.unit_price)).toBe(10.0);
     });
   });
 
@@ -613,6 +868,13 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         corporateAdminUser.company_id,
         corporateAdminUser.user_id,
       );
+
+      // Enterprise-grade: Ensure tender type exists
+      await ensureSystemTenderType(prismaClient, "CASH", "Cash", {
+        is_cash_equivalent: true,
+        is_electronic: false,
+        affects_cash_drawer: true,
+      });
 
       // Create transaction with specific tax amounts per line item
       // NOTE: Omit cashier_id - worker will use authenticated user's ID
@@ -656,7 +918,8 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       // Wait for worker to process transaction using correlation_id
       const transaction = await waitForTransaction(prismaClient, correlationId);
 
-      // Verify tax amounts stored correctly
+      // Enterprise-grade: Comprehensive verification
+      assertTransactionExists(transaction, correlationId);
       expect(transaction?.line_items).toHaveLength(2);
 
       // Sort line items by SKU for predictable order
@@ -664,8 +927,273 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         (a: any, b: any) => a.sku.localeCompare(b.sku),
       );
 
+      // Verify tax amounts stored correctly per line item
       expect(Number(sortedLineItems[0]?.tax_amount)).toBe(0.8);
       expect(Number(sortedLineItems[1]?.tax_amount)).toBe(1.2);
+      // Verify tax amounts sum to transaction tax (0.8 + 1.2 = 2.0)
+      const totalTaxFromLineItems = sortedLineItems.reduce(
+        (sum, li) => sum + Number(li.tax_amount),
+        0,
+      );
+      expect(totalTaxFromLineItems).toBe(2.0);
+      expect(Number(transaction.tax)).toBe(2.0);
+    });
+  });
+
+  test.describe("P2 - Edge Cases and Security", () => {
+    test("should handle invalid department_id gracefully", async ({
+      corporateAdminApiRequest,
+      corporateAdminUser,
+      prismaClient,
+    }) => {
+      const { store, shift } = await createTestStoreAndShift(
+        prismaClient,
+        corporateAdminUser.company_id,
+        corporateAdminUser.user_id,
+      );
+
+      // Ensure CASH tender type exists
+      await ensureSystemTenderType(prismaClient, "CASH", "Cash", {
+        is_cash_equivalent: true,
+        is_electronic: false,
+        affects_cash_drawer: true,
+      });
+
+      // Create transaction with invalid department_id (non-existent UUID)
+      const invalidDepartmentId = "00000000-0000-0000-0000-000000000000";
+      const subtotal = 20.0;
+      const tax = 1.6;
+      const total = subtotal + tax;
+
+      const payload = {
+        store_id: store.store_id,
+        shift_id: shift.shift_id,
+        subtotal,
+        tax,
+        discount: 0,
+        line_items: [
+          {
+            sku: "TEST-INVALID-DEPT-ID",
+            name: "Invalid Department ID Product",
+            quantity: 1,
+            unit_price: subtotal,
+            discount: 0,
+            department_id: invalidDepartmentId, // Invalid/non-existent ID
+          },
+        ],
+        payments: [{ method: "CASH" as const, amount: total }],
+      };
+
+      const response = await corporateAdminApiRequest.post(
+        "/api/transactions",
+        payload,
+      );
+
+      // Enterprise-grade: Transaction should still be accepted (graceful degradation)
+      expect(response.status()).toBe(202);
+
+      const responseBody = await response.json();
+      const correlationId = responseBody.data.correlation_id;
+
+      const transaction = await waitForTransaction(prismaClient, correlationId);
+
+      // Enterprise-grade: Verify graceful degradation
+      assertTransactionExists(transaction, correlationId);
+      expect(transaction?.line_items).toHaveLength(1);
+
+      const lineItem = transaction?.line_items[0];
+      // Invalid department_id should result in null FK fields
+      expect(lineItem?.department_id).toBeNull();
+      expect(lineItem?.department_code).toBeNull();
+      // Verify other fields are still populated
+      expect(lineItem?.sku).toBe("TEST-INVALID-DEPT-ID");
+    });
+
+    test("should handle conflicting tender_code and method", async ({
+      corporateAdminApiRequest,
+      corporateAdminUser,
+      prismaClient,
+    }) => {
+      const { store, shift } = await createTestStoreAndShift(
+        prismaClient,
+        corporateAdminUser.company_id,
+        corporateAdminUser.user_id,
+      );
+
+      // Ensure both tender types exist
+      const cashTenderType = await ensureSystemTenderType(
+        prismaClient,
+        "CASH",
+        "Cash",
+        {
+          is_cash_equivalent: true,
+          is_electronic: false,
+          affects_cash_drawer: true,
+        },
+      );
+      const creditTenderType = await ensureSystemTenderType(
+        prismaClient,
+        "CREDIT",
+        "Credit Card",
+        {
+          is_cash_equivalent: false,
+          is_electronic: true,
+          affects_cash_drawer: false,
+        },
+      );
+
+      // Create transaction with method="CASH" but tender_code="CREDIT"
+      // Enterprise-grade: tender_code should take precedence per implementation
+      const subtotal = 30.0;
+      const tax = 2.4;
+      const total = subtotal + tax;
+
+      const payload = {
+        store_id: store.store_id,
+        shift_id: shift.shift_id,
+        subtotal,
+        tax,
+        discount: 0,
+        line_items: [
+          {
+            sku: "TEST-CONFLICT-001",
+            name: "Conflict Test Product",
+            quantity: 1,
+            unit_price: subtotal,
+            discount: 0,
+          },
+        ],
+        payments: [
+          {
+            method: "CASH" as const, // Method is CASH
+            amount: total,
+            tender_code: "CREDIT", // But tender_code is CREDIT (should take precedence)
+          },
+        ],
+      };
+
+      const response = await corporateAdminApiRequest.post(
+        "/api/transactions",
+        payload,
+      );
+
+      expect(response.status()).toBe(202);
+
+      const responseBody = await response.json();
+      const correlationId = responseBody.data.correlation_id;
+
+      const transaction = await waitForTransaction(prismaClient, correlationId);
+
+      // Enterprise-grade: Verify tender_code takes precedence
+      assertTransactionExists(transaction, correlationId);
+      expect(transaction?.payments).toHaveLength(1);
+
+      const payment = transaction?.payments[0];
+      // tender_code should take precedence over method
+      expect(payment?.tender_type_id).toBe(creditTenderType.tender_type_id);
+      expect(payment?.tender_code).toBe("CREDIT");
+      // method field should still reflect what was sent (backward compatibility)
+      expect(payment?.method).toBe("CASH");
+    });
+
+    test("should handle multiple payments with different tender types", async ({
+      corporateAdminApiRequest,
+      corporateAdminUser,
+      prismaClient,
+    }) => {
+      const { store, shift } = await createTestStoreAndShift(
+        prismaClient,
+        corporateAdminUser.company_id,
+        corporateAdminUser.user_id,
+      );
+
+      // Ensure both tender types exist
+      const cashTenderType = await ensureSystemTenderType(
+        prismaClient,
+        "CASH",
+        "Cash",
+        {
+          is_cash_equivalent: true,
+          is_electronic: false,
+          affects_cash_drawer: true,
+        },
+      );
+      const creditTenderType = await ensureSystemTenderType(
+        prismaClient,
+        "CREDIT",
+        "Credit Card",
+        {
+          is_cash_equivalent: false,
+          is_electronic: true,
+          affects_cash_drawer: false,
+        },
+      );
+
+      // Create transaction with split payment (cash + credit)
+      const subtotal = 100.0;
+      const tax = 8.0;
+      const total = subtotal + tax;
+      const cashAmount = 50.0;
+      const creditAmount = total - cashAmount;
+
+      const payload = {
+        store_id: store.store_id,
+        shift_id: shift.shift_id,
+        subtotal,
+        tax,
+        discount: 0,
+        line_items: [
+          {
+            sku: "TEST-SPLIT-001",
+            name: "Split Payment Product",
+            quantity: 1,
+            unit_price: subtotal,
+            discount: 0,
+          },
+        ],
+        payments: [
+          { method: "CASH" as const, amount: cashAmount },
+          { method: "CREDIT" as const, amount: creditAmount },
+        ],
+      };
+
+      const response = await corporateAdminApiRequest.post(
+        "/api/transactions",
+        payload,
+      );
+
+      expect(response.status()).toBe(202);
+
+      const responseBody = await response.json();
+      const correlationId = responseBody.data.correlation_id;
+
+      const transaction = await waitForTransaction(prismaClient, correlationId);
+
+      // Enterprise-grade: Verify both payments have correct FK resolution
+      assertTransactionExists(transaction, correlationId);
+      expect(transaction?.payments).toHaveLength(2);
+
+      // Sort payments by method for predictable order
+      const sortedPayments = [...transaction.payments].sort((a: any, b: any) =>
+        a.method.localeCompare(b.method),
+      );
+
+      const cashPayment = sortedPayments.find((p: any) => p.method === "CASH");
+      const creditPayment = sortedPayments.find(
+        (p: any) => p.method === "CREDIT",
+      );
+
+      // Verify CASH payment FK resolution
+      expect(cashPayment?.tender_type_id).toBe(cashTenderType.tender_type_id);
+      expect(cashPayment?.tender_code).toBe("CASH");
+      expect(Number(cashPayment?.amount)).toBe(cashAmount);
+
+      // Verify CREDIT payment FK resolution
+      expect(creditPayment?.tender_type_id).toBe(
+        creditTenderType.tender_type_id,
+      );
+      expect(creditPayment?.tender_code).toBe("CREDIT");
+      expect(Number(creditPayment?.amount)).toBe(creditAmount);
     });
   });
 });

@@ -64,6 +64,44 @@ export interface DashboardStats {
 }
 
 /**
+ * Today's sales data from DaySummary
+ * When today has no data, returns the most recent available date's data
+ */
+export interface TodaySalesData {
+  fuel_sales: number;
+  fuel_gallons: number;
+  net_sales: number;
+  gross_sales: number;
+  tax_collected: number;
+  lottery_sales: number | null;
+  lottery_net: number | null;
+  transaction_count: number;
+  avg_transaction: number;
+  /** The actual business date of the data (may differ from today if no data for today) */
+  business_date: string | null;
+}
+
+/**
+ * Daily sales data for trend charts
+ */
+export interface DailySalesData {
+  date: string;
+  fuel_sales: number;
+  net_sales: number;
+  gross_sales: number;
+  lottery_sales: number | null;
+  tax_collected: number;
+}
+
+/**
+ * Sales data response from /api/client/dashboard/sales
+ */
+export interface SalesDataResponse {
+  today: TodaySalesData;
+  week: DailySalesData[];
+}
+
+/**
  * Client dashboard response
  */
 export interface ClientDashboardResponse {
@@ -144,11 +182,24 @@ export async function getOwnedStore(storeId: string): Promise<OwnedStore> {
 // ============ TanStack Query Hooks ============
 
 /**
+ * Get dashboard sales data (today + 7-day trend)
+ * Returns fuel sales, net sales, lottery, and transaction metrics
+ * @returns Sales data for dashboard KPI cards
+ */
+export async function getDashboardSales(): Promise<SalesDataResponse> {
+  const response = await apiClient.get<ApiResponse<SalesDataResponse>>(
+    "/api/client/dashboard/sales",
+  );
+  return extractData(response);
+}
+
+/**
  * Query key factory for client dashboard queries
  */
 export const clientDashboardKeys = {
   all: ["client-dashboard"] as const,
   dashboard: () => [...clientDashboardKeys.all, "dashboard"] as const,
+  sales: () => [...clientDashboardKeys.all, "sales"] as const,
   companies: () => [...clientDashboardKeys.all, "companies"] as const,
   company: (id: string) => [...clientDashboardKeys.companies(), id] as const,
   stores: () => [...clientDashboardKeys.all, "stores"] as const,
@@ -157,9 +208,13 @@ export const clientDashboardKeys = {
   store: (id: string) => [...clientDashboardKeys.stores(), id] as const,
 };
 
+// Dashboard refresh interval: 5 minutes (300,000ms)
+const DASHBOARD_REFETCH_INTERVAL = 5 * 60 * 1000;
+
 /**
  * Hook to fetch client dashboard data
  * Returns user info, owned companies, stores, and stats
+ * Auto-refreshes every 5 minutes for near real-time updates
  * @param options - Query options (enabled, etc.)
  * @returns TanStack Query result with dashboard data
  */
@@ -170,7 +225,27 @@ export function useClientDashboard(options?: { enabled?: boolean }) {
     enabled: options?.enabled !== false,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
-    staleTime: 30000, // Consider data fresh for 30 seconds
+    staleTime: 60000, // Consider data fresh for 1 minute
+    refetchInterval: DASHBOARD_REFETCH_INTERVAL, // Auto-refresh every 5 minutes
+  });
+}
+
+/**
+ * Hook to fetch dashboard sales data (today + 7-day trend)
+ * Returns fuel sales, net sales, lottery, and transaction metrics
+ * Auto-refreshes every 5 minutes for near real-time updates
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with sales data
+ */
+export function useDashboardSales(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: clientDashboardKeys.sales(),
+    queryFn: getDashboardSales,
+    enabled: options?.enabled !== false,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 60000, // Consider data fresh for 1 minute
+    refetchInterval: DASHBOARD_REFETCH_INTERVAL, // Auto-refresh every 5 minutes
   });
 }
 

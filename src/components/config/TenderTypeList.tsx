@@ -127,7 +127,7 @@ export function TenderTypeList({ onEdit }: TenderTypeListProps) {
     const searchLower = search.toLowerCase();
     return (
       tt.code.toLowerCase().includes(searchLower) ||
-      tt.name.toLowerCase().includes(searchLower) ||
+      tt.display_name.toLowerCase().includes(searchLower) ||
       (tt.description && tt.description.toLowerCase().includes(searchLower))
     );
   });
@@ -282,19 +282,21 @@ export function TenderTypeList({ onEdit }: TenderTypeListProps) {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      {tenderType.is_cash ? (
+                      {tenderType.is_cash_equivalent ? (
                         <Banknote className="h-4 w-4 text-green-600" />
                       ) : (
                         <CreditCard className="h-4 w-4 text-blue-600" />
                       )}
-                      <span>{tenderType.name}</span>
+                      <span>{tenderType.display_name}</span>
                     </div>
                   </TableCell>
                   <TableCell>
                     <Badge
-                      variant={tenderType.is_cash ? "default" : "secondary"}
+                      variant={
+                        tenderType.is_cash_equivalent ? "default" : "secondary"
+                      }
                     >
-                      {tenderType.is_cash ? "Cash" : "Non-Cash"}
+                      {tenderType.is_cash_equivalent ? "Cash" : "Non-Cash"}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -389,7 +391,7 @@ export function TenderTypeList({ onEdit }: TenderTypeListProps) {
           open={!!deleteTarget}
           onOpenChange={() => setDeleteTarget(null)}
           title="Deactivate Tender Type?"
-          description={`Are you sure you want to deactivate "${deleteTarget.name}"? This will prevent it from being used in new transactions.`}
+          description={`Are you sure you want to deactivate "${deleteTarget.display_name}"? This will prevent it from being used in new transactions.`}
           confirmText="Deactivate"
           cancelText="Cancel"
           onConfirm={handleDelete}

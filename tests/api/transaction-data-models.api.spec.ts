@@ -230,8 +230,9 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
       "Line item should be linked to transaction",
     ).toBe(transaction.transaction_id);
     expect(lineItem.name, "Line item name should be defined").toBeDefined();
+    // quantity is stored as Decimal(12,3) and returned as string by Prisma
     expect(
-      lineItem.quantity,
+      Number(lineItem.quantity),
       "Quantity should be greater than 0",
     ).toBeGreaterThan(0);
     expect(lineItem.unit_price, "Unit price should be defined").toBeDefined();
@@ -356,6 +357,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
     await prismaClient.transactionLineItem.create({
       data: {
         transaction_id: transaction.transaction_id,
+        sku: "TEST-SKU-001",
         name: "Test Product",
         quantity: 1,
         unit_price: 100.0,
@@ -610,6 +612,7 @@ test.describe("Transaction Data Models - Query Operations", () => {
     await prismaClient.transactionLineItem.create({
       data: {
         transaction_id: transaction.transaction_id,
+        sku: "TEST-SKU-002",
         name: "Test Product",
         quantity: 2,
         unit_price: 50.0,
@@ -628,7 +631,8 @@ test.describe("Transaction Data Models - Query Operations", () => {
     });
 
     // WHEN: Loading transaction with relationships
-    const fullTransaction = await prismaClient.transaction.findUnique({
+    // Note: Transaction has composite PK (transaction_id, timestamp), so use findFirst
+    const fullTransaction = await prismaClient.transaction.findFirst({
       where: { transaction_id: transaction.transaction_id },
       include: {
         line_items: true,
@@ -726,6 +730,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
       data: [
         {
           transaction_id: transaction.transaction_id,
+          sku: "PROD-A-001",
           name: "Product A",
           quantity: 2,
           unit_price: 50.0,
@@ -734,6 +739,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
         },
         {
           transaction_id: transaction.transaction_id,
+          sku: "PROD-B-001",
           name: "Product B",
           quantity: 1,
           unit_price: 50.0,
@@ -1060,6 +1066,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     const lineItem = await prismaClient.transactionLineItem.create({
       data: {
         transaction_id: transaction.transaction_id,
+        sku: "CANCELLED-001",
         name: "Cancelled Item",
         quantity: 0,
         unit_price: 50.0,
@@ -1069,7 +1076,8 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     });
 
     // THEN: Zero quantity is stored
-    expect(lineItem.quantity, "Zero quantity should be stored").toBe(0);
+    // quantity is stored as Decimal(12,3) and returned as string by Prisma
+    expect(Number(lineItem.quantity), "Zero quantity should be stored").toBe(0);
   });
 
   test("[P2] should handle negative quantity line items (returns)", async ({
@@ -1101,6 +1109,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     const lineItem = await prismaClient.transactionLineItem.create({
       data: {
         transaction_id: transaction.transaction_id,
+        sku: "RETURN-001",
         name: "Returned Item",
         quantity: -1,
         unit_price: 50.0,
@@ -1110,8 +1119,9 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     });
 
     // THEN: Negative quantity is stored for returns
+    // quantity is stored as Decimal(12,3) and returned as string by Prisma
     expect(
-      lineItem.quantity,
+      Number(lineItem.quantity),
       "Negative quantity should be stored for returns",
     ).toBe(-1);
     expect(
@@ -1149,6 +1159,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     const lineItem = await prismaClient.transactionLineItem.create({
       data: {
         transaction_id: transaction.transaction_id,
+        sku: "BULK-001",
         name: "Bulk Item",
         quantity: 10000,
         unit_price: 10.0,
@@ -1158,7 +1169,10 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     });
 
     // THEN: Large quantity is stored correctly
-    expect(lineItem.quantity, "Large quantity should be stored").toBe(10000);
+    // quantity is stored as Decimal(12,3) and returned as string by Prisma
+    expect(Number(lineItem.quantity), "Large quantity should be stored").toBe(
+      10000,
+    );
   });
 
   test("[P2] should reject invalid UUID for foreign keys", async ({
@@ -1385,6 +1399,7 @@ test.describe("Transaction Data Models - Security", () => {
     const lineItem = await prismaClient.transactionLineItem.create({
       data: {
         transaction_id: transaction.transaction_id,
+        sku: "SQL-INJ-001",
         name: maliciousName,
         quantity: 1,
         unit_price: 100.0,

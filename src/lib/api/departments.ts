@@ -27,14 +27,17 @@ import apiClient from "./client";
 export interface Department {
   department_id: string;
   code: string;
-  name: string;
+  display_name: string;
   description: string | null;
   parent_id: string | null;
   is_lottery: boolean;
   is_system: boolean;
   is_active: boolean;
-  display_order: number;
+  sort_order: number;
   client_id: string | null;
+  store_id: string | null;
+  pos_code: string | null;
+  pos_source: string | null;
   created_at: string;
   updated_at: string;
   children?: Department[];
@@ -53,23 +56,23 @@ export interface DepartmentTreeNode extends Department {
  */
 export interface CreateDepartmentInput {
   code: string;
-  name: string;
+  display_name: string;
   description?: string;
   parent_id?: string;
   is_lottery?: boolean;
-  display_order?: number;
+  sort_order?: number;
 }
 
 /**
  * Update department input
  */
 export interface UpdateDepartmentInput {
-  name?: string;
+  display_name?: string;
   description?: string;
   parent_id?: string | null;
   is_lottery?: boolean;
   is_active?: boolean;
-  display_order?: number;
+  sort_order?: number;
 }
 
 /**

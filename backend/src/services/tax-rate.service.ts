@@ -76,7 +76,10 @@ export class OverlappingDateRangeError extends Error {
  */
 class TaxRateService {
   /**
-   * List all tax rates for a client/store (includes system defaults)
+   * List all tax rates for a client/store
+   *
+   * By default, only returns company/store-specific tax rates (no system defaults).
+   * POS-synced tax rates have both client_id and store_id set.
    *
    * @param options - Query options
    * @returns List of tax rates
@@ -88,7 +91,7 @@ class TaxRateService {
       client_id,
       store_id,
       include_inactive = false,
-      include_system = true,
+      include_system = false, // Changed: Don't include system defaults by default
       jurisdiction_level,
       effective_date,
       include_store = false,
@@ -117,9 +120,10 @@ class TaxRateService {
           OR: [
             // System defaults (client_id = null, store_id = null)
             ...(include_system ? [{ client_id: null, store_id: null }] : []),
-            // Client-specific (if client_id provided)
-            ...(client_id ? [{ client_id, store_id: null }] : []),
-            // Store-specific (if store_id provided)
+            // Client-specific entries (includes both company-wide and store-specific)
+            // POS-synced data has both client_id and store_id set
+            ...(client_id && !store_id ? [{ client_id }] : []),
+            // Store-specific (if store_id provided, filter to just that store)
             ...(store_id ? [{ store_id }] : []),
           ],
         },

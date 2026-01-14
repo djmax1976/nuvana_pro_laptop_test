@@ -62,6 +62,10 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
     }
 
     // Create test data: game, bins, packs
+    // NOTE: Games MUST be scoped to the store to avoid game_code collisions
+    // when tests run in parallel. The unique constraint on (game_code, store_id)
+    // with NULLS NOT DISTINCT means global games (store_id = NULL) with same
+    // game_code will conflict. Store-scoped games are isolated per store.
     const gameCode = generateUniqueGameCode();
     const game = await withBypassClient(async (tx) => {
       return await tx.lotteryGame.create({
@@ -71,6 +75,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
           price: 5.0,
           pack_value: 150,
           status: "ACTIVE",
+          store_id: store.store_id, // Scope to store for test isolation
         },
       });
     });
@@ -264,6 +269,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
           price: 10.0,
           pack_value: 300,
           status: "ACTIVE",
+          store_id: store.store_id, // Scope to store for test isolation
         },
       });
     });
@@ -473,6 +479,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
           price: 2.0,
           pack_value: 60,
           status: "ACTIVE",
+          store_id: store.store_id, // Scope to store for test isolation
         },
       });
     });
@@ -885,6 +892,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
           price: 3.0,
           pack_value: 90,
           status: "ACTIVE",
+          store_id: store.store_id, // Scope to store for test isolation
         },
       });
     });

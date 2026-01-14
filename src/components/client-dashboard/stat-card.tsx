@@ -356,7 +356,9 @@ export function StatCard({
                   if (
                     typeof cx !== "number" ||
                     typeof cy !== "number" ||
-                    typeof index !== "number"
+                    typeof index !== "number" ||
+                    index < 0 ||
+                    index >= validChartData.length
                   ) {
                     return <g key="dot-invalid" />;
                   }

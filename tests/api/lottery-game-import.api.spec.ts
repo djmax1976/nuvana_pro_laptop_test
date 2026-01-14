@@ -453,14 +453,6 @@ ${uniqueCode2},Commit Test Game 2,10.00,300.00`;
 
       const validateBody = await validateResponse.json();
 
-      // Debug: log validation response if it fails
-      if (validateResponse.status() !== 200) {
-        console.error(
-          "Validation failed:",
-          JSON.stringify(validateBody, null, 2),
-        );
-      }
-
       expect(validateResponse.status()).toBe(200);
       expect(validateBody.data?.validation_token).toBeDefined();
 
@@ -488,11 +480,6 @@ ${uniqueCode2},Commit Test Game 2,10.00,300.00`;
       );
 
       const commitBody = await commitResponse.json();
-
-      // Debug: log the response if it's not 200
-      if (commitResponse.status() !== 200) {
-        console.error("Commit failed:", JSON.stringify(commitBody, null, 2));
-      }
 
       expect(commitResponse.status()).toBe(200);
       expect(commitBody.success).toBe(true);

@@ -271,10 +271,6 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     );
 
     // THEN: I receive a success response
-    if (response.status() !== 200) {
-      const errorBody = await response.json();
-      console.log("Error response:", JSON.stringify(errorBody, null, 2));
-    }
     expect(response.status(), "Expected 200 OK status").toBe(200);
     const body = await response.json();
     expect(body.success, "Response should indicate success").toBe(true);
@@ -2256,10 +2252,6 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     );
 
     // THEN: I receive a success response (no shift blocking)
-    if (response.status() !== 200) {
-      const errorBody = await response.json();
-      console.log("Unexpected error:", JSON.stringify(errorBody, null, 2));
-    }
     expect(response.status(), "Expected 200 OK").toBe(200);
     const body = await response.json();
     expect(body.success, "Response should indicate success").toBe(true);

@@ -126,10 +126,6 @@ async function loginAndWaitForMyStore(
       lastError = error instanceof Error ? error : new Error(String(error));
 
       if (attempt < maxRetries) {
-        // Log retry attempt (useful for debugging)
-        console.log(
-          `Login attempt ${attempt} failed for ${email}: ${lastError.message}. Retrying...`,
-        );
         // Longer pause before retry to allow backend to stabilize
         await page.waitForTimeout(2000);
       }

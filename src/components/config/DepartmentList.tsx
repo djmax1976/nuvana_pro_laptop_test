@@ -134,7 +134,7 @@ export function DepartmentList({ onEdit }: DepartmentListProps) {
     const searchLower = search.toLowerCase();
     return (
       dept.code.toLowerCase().includes(searchLower) ||
-      dept.name.toLowerCase().includes(searchLower) ||
+      dept.display_name.toLowerCase().includes(searchLower) ||
       (dept.description && dept.description.toLowerCase().includes(searchLower))
     );
   });
@@ -144,7 +144,7 @@ export function DepartmentList({ onEdit }: DepartmentListProps) {
     (parentId: string | null): string => {
       if (!parentId || !departments) return "—";
       const parent = departments.find((d) => d.department_id === parentId);
-      return parent?.name || "Unknown";
+      return parent?.display_name || "Unknown";
     },
     [departments],
   );
@@ -314,7 +314,7 @@ export function DepartmentList({ onEdit }: DepartmentListProps) {
                       ) : (
                         <FolderTree className="h-4 w-4 text-blue-600" />
                       )}
-                      <span>{department.name}</span>
+                      <span>{department.display_name}</span>
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
@@ -415,7 +415,7 @@ export function DepartmentList({ onEdit }: DepartmentListProps) {
           open={!!deleteTarget}
           onOpenChange={() => setDeleteTarget(null)}
           title="Deactivate Department?"
-          description={`Are you sure you want to deactivate "${deleteTarget.name}"? This will prevent it from being used in new transactions.`}
+          description={`Are you sure you want to deactivate "${deleteTarget.display_name}"? This will prevent it from being used in new transactions.`}
           confirmText="Deactivate"
           cancelText="Cancel"
           onConfirm={handleDelete}

@@ -115,7 +115,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
 
         // Role-based redirect (unless we have a saved redirect path):
         // - Store-level users (CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER) go to /mystore
-        // - CLIENT_OWNER goes to /client-dashboard (client owner dashboard)
+        // - COMPANY scope users (CLIENT_OWNER, SUPPORT) go to /client-dashboard
         // - Admin users (SUPERADMIN) go to /dashboard (admin dashboard)
         if (redirectPath && !redirectPath.includes("/login")) {
           // Validate redirect path matches user's role
@@ -123,12 +123,14 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
           const isClientRedirect = redirectPath.startsWith("/client-dashboard");
           const isAdminRedirect = redirectPath.startsWith("/dashboard");
 
+          // Check if user has COMPANY scope (CLIENT_OWNER or SUPPORT)
+          const isCompanyScopeUser =
+            currentUserRole === "CLIENT_OWNER" || currentUserRole === "SUPPORT";
+
           if (
             (currentIsStoreUser && isStoreRedirect) ||
-            (currentUserRole === "CLIENT_OWNER" && isClientRedirect) ||
-            (!currentIsStoreUser &&
-              currentUserRole !== "CLIENT_OWNER" &&
-              isAdminRedirect)
+            (isCompanyScopeUser && isClientRedirect) ||
+            (!currentIsStoreUser && !isCompanyScopeUser && isAdminRedirect)
           ) {
             router.push(redirectPath);
             return;
@@ -138,7 +140,11 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         // Default role-based redirect
         if (currentIsStoreUser) {
           router.push("/mystore");
-        } else if (currentUserRole === "CLIENT_OWNER") {
+        } else if (
+          currentUserRole === "CLIENT_OWNER" ||
+          currentUserRole === "SUPPORT"
+        ) {
+          // COMPANY scope users go to client dashboard
           router.push("/client-dashboard");
         } else {
           router.push("/dashboard");

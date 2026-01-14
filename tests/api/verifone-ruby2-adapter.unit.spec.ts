@@ -45,6 +45,11 @@ import * as os from "os";
  * | VRB2-041      | Move error files                      | moveToError               | P1       |
  * | VRB2-050      | Error class and codes                 | VerifoneRuby2Error        | P0       |
  * | VRB2-060      | Get adapter capabilities              | getCapabilities           | P1       |
+ * | VRB2-070      | Adapter registration in registry      | posAdapterRegistry        | P0       |
+ * | VRB2-080      | Security: Export path validation      | exportDepartments         | P0       |
+ * | VRB2-081      | Security: Path traversal error codes  | validatePath              | P0       |
+ * | VRB2-082      | Security: Malicious filename handling | syncDepartments           | P0       |
+ * | VRB2-083      | Security: Special char file patterns  | getXmlFiles               | P1       |
  *
  * ================================================================================
  */
@@ -194,6 +199,38 @@ const SAMPLE_TRANSACTION_XML = `<?xml version="1.0" encoding="UTF-8"?>
     <ChangeDue>0.00</ChangeDue>
   </TransactionTotal>
 </NAXMLTransactionDocument>`;
+
+const SAMPLE_CASHIER_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<NAXMLEmployeeMaintenance version="3.4">
+  <MaintenanceHeader>
+    <StoreLocationID>RUBY001</StoreLocationID>
+    <MaintenanceDate>2025-12-19T10:00:00Z</MaintenanceDate>
+    <MaintenanceType>Full</MaintenanceType>
+  </MaintenanceHeader>
+  <Employees>
+    <Employee ID="EMP001" Action="AddUpdate">
+      <FirstName>John</FirstName>
+      <LastName>Smith</LastName>
+      <IsActive>Y</IsActive>
+      <JobTitle>Cashier</JobTitle>
+      <AccessLevel>1</AccessLevel>
+    </Employee>
+    <Employee ID="EMP002" Action="AddUpdate">
+      <FirstName>Jane</FirstName>
+      <LastName>Doe</LastName>
+      <IsActive>Y</IsActive>
+      <JobTitle>Shift Manager</JobTitle>
+      <AccessLevel>2</AccessLevel>
+    </Employee>
+    <Employee ID="EMP003" Action="AddUpdate">
+      <FirstName>Robert</FirstName>
+      <LastName>Johnson</LastName>
+      <IsActive>N</IsActive>
+      <JobTitle>Cashier</JobTitle>
+      <AccessLevel>1</AccessLevel>
+    </Employee>
+  </Employees>
+</NAXMLEmployeeMaintenance>`;
 
 // =============================================================================
 // TEST HELPERS
@@ -388,6 +425,38 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Sync Tests", () => {
       expect(tenders[0].isCashEquivalent).toBe(true);
       expect(tenders[1].posCode).toBe("CREDIT");
       expect(tenders[2].posCode).toBe("DEBIT");
+    } finally {
+      await cleanupTestDirectories(dirs.basePath);
+    }
+  });
+
+  test("VRB2-012: [P0] Should sync cashiers from Out folder", async () => {
+    // GIVEN: Out folder with cashier/employee file
+    const dirs = await createTestDirectories();
+    await fs.writeFile(
+      path.join(dirs.outPath, "EmpMaint_2025-12-19.xml"),
+      SAMPLE_CASHIER_XML,
+    );
+
+    try {
+      const { createVerifoneRuby2Adapter } =
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
+      const adapter = createVerifoneRuby2Adapter();
+      const config = createMockConfig(dirs.basePath);
+
+      // WHEN: Syncing cashiers
+      const cashiers = await adapter.syncCashiers(config);
+
+      // THEN: Cashiers should be imported
+      expect(cashiers.length).toBe(3);
+      expect(cashiers[0].posCode).toBe("EMP001");
+      expect(cashiers[0].firstName).toBe("John");
+      expect(cashiers[0].lastName).toBe("Smith");
+      expect(cashiers[0].isActive).toBe(true);
+      expect(cashiers[1].posCode).toBe("EMP002");
+      expect(cashiers[1].firstName).toBe("Jane");
+      expect(cashiers[2].posCode).toBe("EMP003");
+      expect(cashiers[2].isActive).toBe(false);
     } finally {
       await cleanupTestDirectories(dirs.basePath);
     }
@@ -980,6 +1049,137 @@ test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Error Handling Tests", () =
     expect(VERIFONE_RUBY2_ERROR_CODES.REGISTER_ERROR).toBe(
       "VERIFONE_RUBY2_REGISTER_ERROR",
     );
+  });
+});
+
+// =============================================================================
+// SECURITY TESTS - Path Traversal Prevention
+// =============================================================================
+
+test.describe("Phase3-Unit: Verifone Ruby2 Adapter - Security Tests", () => {
+  test("VRB2-080: [P0] Should reject export with path traversal attempt in filename", async () => {
+    // GIVEN: Valid directories but malicious filename attempt
+    const dirs = await createTestDirectories();
+
+    try {
+      const { createVerifoneRuby2Adapter, VERIFONE_RUBY2_ERROR_CODES } =
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
+      const adapter = createVerifoneRuby2Adapter();
+
+      // Create config with valid base path
+      const config = createMockConfig(dirs.basePath);
+
+      // WHEN/THEN: Export should work normally (path is internally generated)
+      // The adapter generates safe filenames internally, so exports should succeed
+      const result = await adapter.exportDepartments(config, [
+        {
+          posCode: "001",
+          displayName: "Test Dept",
+          isTaxable: true,
+          minimumAge: 0,
+          isLottery: false,
+          isActive: true,
+          sortOrder: 1,
+        },
+      ]);
+
+      // Verify export succeeded and file is in correct directory
+      expect(result.success).toBe(true);
+      expect(result.filePath).toContain(
+        dirs.inPath.replace(/\\/g, "/").split("/").pop() || "In",
+      );
+      expect(result.filePath).not.toContain("..");
+    } finally {
+      await cleanupTestDirectories(dirs.basePath);
+    }
+  });
+
+  test("VRB2-081: [P0] Should validate file paths prevent directory escape", async () => {
+    // GIVEN: Valid directories
+    const dirs = await createTestDirectories();
+
+    try {
+      const { VerifoneRuby2Error, VERIFONE_RUBY2_ERROR_CODES } =
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
+
+      // THEN: PATH_TRAVERSAL error code should be defined and available
+      expect(VERIFONE_RUBY2_ERROR_CODES.PATH_TRAVERSAL).toBe(
+        "VERIFONE_RUBY2_PATH_TRAVERSAL",
+      );
+
+      // Verify error can be constructed
+      const pathError = new VerifoneRuby2Error(
+        VERIFONE_RUBY2_ERROR_CODES.PATH_TRAVERSAL,
+        "Path traversal attempt detected",
+        { basePath: dirs.basePath, targetPath: "../../../etc/passwd" },
+      );
+
+      expect(pathError.code).toBe("VERIFONE_RUBY2_PATH_TRAVERSAL");
+      expect(pathError.message).toContain("traversal");
+      expect(pathError.details?.basePath).toBe(dirs.basePath);
+    } finally {
+      await cleanupTestDirectories(dirs.basePath);
+    }
+  });
+
+  test("VRB2-082: [P0] Should not process files with malicious names in Out folder", async () => {
+    // GIVEN: Out folder with files that have suspicious patterns
+    const dirs = await createTestDirectories();
+
+    // Create files that don't match expected patterns - should be ignored
+    await fs.writeFile(
+      path.join(dirs.outPath, "..secret.xml"),
+      SAMPLE_DEPARTMENT_XML,
+    );
+    await fs.writeFile(
+      path.join(dirs.outPath, "not_a_dept_file.xml"),
+      SAMPLE_DEPARTMENT_XML,
+    );
+
+    try {
+      const { createVerifoneRuby2Adapter } =
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
+      const adapter = createVerifoneRuby2Adapter();
+      const config = createMockConfig(dirs.basePath);
+
+      // WHEN: Syncing departments
+      const departments = await adapter.syncDepartments(config);
+
+      // THEN: Should return empty array (files don't match expected patterns)
+      expect(departments).toEqual([]);
+    } finally {
+      await cleanupTestDirectories(dirs.basePath);
+    }
+  });
+
+  test("VRB2-083: [P1] Should safely handle special characters in file patterns", async () => {
+    // GIVEN: Out folder with valid department files using allowed naming patterns
+    const dirs = await createTestDirectories();
+
+    // Files with valid naming patterns should be processed
+    await fs.writeFile(
+      path.join(dirs.outPath, "DeptMaint_123.xml"),
+      SAMPLE_DEPARTMENT_XML,
+    );
+    await fs.writeFile(
+      path.join(dirs.outPath, "Department_export.xml"),
+      SAMPLE_DEPARTMENT_XML,
+    );
+
+    try {
+      const { createVerifoneRuby2Adapter } =
+        await import("../../backend/dist/services/pos/adapters/verifone-ruby2.adapter");
+      const adapter = createVerifoneRuby2Adapter();
+      const config = createMockConfig(dirs.basePath);
+
+      // WHEN: Syncing departments
+      const departments = await adapter.syncDepartments(config);
+
+      // THEN: Should process files matching valid patterns
+      expect(departments.length).toBe(6); // 3 departments per file x 2 files
+    } finally {
+      await cleanupTestDirectories(dirs.basePath);
+    }
   });
 });
 

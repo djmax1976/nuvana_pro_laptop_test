@@ -36,12 +36,12 @@ test.describe("Employee Email Update API", () => {
     prismaClient,
   }) => {
     // GIVEN: A client owner with an employee
-    // Get a STORE scope role for employee assignment
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     // Create employee via API using factory pattern
@@ -135,11 +135,12 @@ test.describe("Employee Email Update API", () => {
     prismaClient,
   }) => {
     // GIVEN: A client owner with an employee
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     const createResponse = await clientUserApiRequest.post(
@@ -192,11 +193,12 @@ test.describe("Employee Email Update API", () => {
     prismaClient,
   }) => {
     // GIVEN: Two employees with different emails
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     const employee1Data = createEmployeeRequest({
@@ -292,11 +294,12 @@ test.describe("Employee Email Update API", () => {
     prismaClient,
   }) => {
     // GIVEN: A client owner with an employee
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     const createResponse = await clientUserApiRequest.post(
@@ -336,11 +339,12 @@ test.describe("Employee Email Update API", () => {
     prismaClient,
   }) => {
     // GIVEN: An employee with email
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     const employee1Email = `employee1-${Date.now()}@test.nuvana.local`;
@@ -412,11 +416,12 @@ test.describe("Employee Email Update API", () => {
     });
 
     // Create employee for owner2's company (not accessible by clientUser)
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     // Create employee directly in database for owner2's store
@@ -469,11 +474,12 @@ test.describe("Employee Password Reset API", () => {
     prismaClient,
   }) => {
     // GIVEN: A client owner with an employee
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     const createResponse = await clientUserApiRequest.post(
@@ -525,11 +531,12 @@ test.describe("Employee Password Reset API", () => {
     prismaClient,
   }) => {
     // GIVEN: A client owner with an employee
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     const createResponse = await clientUserApiRequest.post(
@@ -605,11 +612,12 @@ test.describe("Employee Password Reset API", () => {
     prismaClient,
   }) => {
     // GIVEN: A client owner with an employee
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     const createResponse = await clientUserApiRequest.post(
@@ -658,11 +666,12 @@ test.describe("Employee Password Reset API", () => {
     });
 
     // Create employee for owner2's company (not accessible by clientUser)
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     // Create employee directly in database for owner2's store
@@ -778,11 +787,12 @@ test.describe("Employee Password Reset API", () => {
       prismaClient,
     }) => {
       // GIVEN: Employee
+      // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
       const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+        where: { code: "CASHIER" },
       });
       if (!storeRole) {
-        throw new Error("No STORE scope role found");
+        throw new Error("CASHIER role not found in database");
       }
 
       const createResponse = await clientUserApiRequest.post(
@@ -818,11 +828,12 @@ test.describe("Employee Password Reset API", () => {
       prismaClient,
     }) => {
       // GIVEN: Employee
+      // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
       const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+        where: { code: "CASHIER" },
       });
       if (!storeRole) {
-        throw new Error("No STORE scope role found");
+        throw new Error("CASHIER role not found in database");
       }
 
       const createResponse = await clientUserApiRequest.post(
@@ -867,11 +878,12 @@ test.describe("Employee Password Reset API", () => {
       prismaClient,
     }) => {
       // GIVEN: Employee and very long email (300+ chars)
+      // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
       const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+        where: { code: "CASHIER" },
       });
       if (!storeRole) {
-        throw new Error("No STORE scope role found");
+        throw new Error("CASHIER role not found in database");
       }
 
       const createResponse = await clientUserApiRequest.post(
@@ -908,11 +920,12 @@ test.describe("Employee Password Reset API", () => {
       prismaClient,
     }) => {
       // GIVEN: Employee
+      // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
       const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+        where: { code: "CASHIER" },
       });
       if (!storeRole) {
-        throw new Error("No STORE scope role found");
+        throw new Error("CASHIER role not found in database");
       }
 
       const createResponse = await clientUserApiRequest.post(
@@ -951,11 +964,12 @@ test.describe("Employee Password Reset API", () => {
       prismaClient,
     }) => {
       // GIVEN: Employee
+      // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
       const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+        where: { code: "CASHIER" },
       });
       if (!storeRole) {
-        throw new Error("No STORE scope role found");
+        throw new Error("CASHIER role not found in database");
       }
 
       const createResponse = await clientUserApiRequest.post(
@@ -994,11 +1008,12 @@ test.describe("Employee Password Reset API", () => {
       prismaClient,
     }) => {
       // GIVEN: Employee
+      // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
       const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+        where: { code: "CASHIER" },
       });
       if (!storeRole) {
-        throw new Error("No STORE scope role found");
+        throw new Error("CASHIER role not found in database");
       }
 
       const createResponse = await clientUserApiRequest.post(
@@ -1037,11 +1052,12 @@ test.describe("Employee Password Reset API", () => {
       prismaClient,
     }) => {
       // GIVEN: Employee
+      // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
       const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+        where: { code: "CASHIER" },
       });
       if (!storeRole) {
-        throw new Error("No STORE scope role found");
+        throw new Error("CASHIER role not found in database");
       }
 
       const createResponse = await clientUserApiRequest.post(
@@ -1054,7 +1070,14 @@ test.describe("Employee Password Reset API", () => {
           password: "TestPass123!",
         },
       );
-      const employeeId = (await createResponse.json()).data.user_id;
+
+      const createBody = await createResponse.json();
+      if (createResponse.status() !== 201) {
+        throw new Error(
+          `Employee creation failed: ${JSON.stringify(createBody)}`,
+        );
+      }
+      const employeeId = createBody.data.user_id;
 
       // WHEN: Resetting with password without number
       const response = await clientUserApiRequest.put(
@@ -1080,11 +1103,12 @@ test.describe("Employee Password Reset API", () => {
       prismaClient,
     }) => {
       // GIVEN: Employee
+      // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
       const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+        where: { code: "CASHIER" },
       });
       if (!storeRole) {
-        throw new Error("No STORE scope role found");
+        throw new Error("CASHIER role not found in database");
       }
 
       const createResponse = await clientUserApiRequest.post(
@@ -1123,11 +1147,12 @@ test.describe("Employee Password Reset API", () => {
       prismaClient,
     }) => {
       // GIVEN: Employee and very long password (1000+ chars)
+      // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
       const storeRole = await prismaClient.role.findFirst({
-        where: { scope: "STORE" },
+        where: { code: "CASHIER" },
       });
       if (!storeRole) {
-        throw new Error("No STORE scope role found");
+        throw new Error("CASHIER role not found in database");
       }
 
       const createResponse = await clientUserApiRequest.post(

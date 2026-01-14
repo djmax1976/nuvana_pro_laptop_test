@@ -48,28 +48,28 @@ interface DepartmentFormProps {
 
 interface FormData {
   code: string;
-  name: string;
+  display_name: string;
   description: string;
   parent_id: string | null;
   is_lottery: boolean;
-  display_order: number;
+  sort_order: number;
 }
 
 interface FormErrors {
   code?: string;
-  name?: string;
+  display_name?: string;
   description?: string;
   parent_id?: string;
-  display_order?: string;
+  sort_order?: string;
 }
 
 const initialFormData: FormData = {
   code: "",
-  name: "",
+  display_name: "",
   description: "",
   parent_id: null,
   is_lottery: false,
-  display_order: 0,
+  sort_order: 0,
 };
 
 /**
@@ -87,18 +87,18 @@ function validateForm(data: FormData, mode: "create" | "edit"): FormErrors {
     }
   }
 
-  if (!data.name.trim()) {
-    errors.name = "Name is required";
-  } else if (data.name.length > 100) {
-    errors.name = "Name must be 100 characters or less";
+  if (!data.display_name.trim()) {
+    errors.display_name = "Name is required";
+  } else if (data.display_name.length > 100) {
+    errors.display_name = "Name must be 100 characters or less";
   }
 
   if (data.description && data.description.length > 500) {
     errors.description = "Description must be 500 characters or less";
   }
 
-  if (data.display_order < 0 || data.display_order > 9999) {
-    errors.display_order = "Display order must be between 0 and 9999";
+  if (data.sort_order < 0 || data.sort_order > 9999) {
+    errors.sort_order = "Sort order must be between 0 and 9999";
   }
 
   return errors;
@@ -141,11 +141,11 @@ export function DepartmentForm({ departmentId, mode }: DepartmentFormProps) {
     if (mode === "edit" && existingDepartment) {
       setFormData({
         code: existingDepartment.code,
-        name: existingDepartment.name,
+        display_name: existingDepartment.display_name,
         description: existingDepartment.description || "",
         parent_id: existingDepartment.parent_id,
         is_lottery: existingDepartment.is_lottery,
-        display_order: existingDepartment.display_order,
+        sort_order: existingDepartment.sort_order,
       });
     }
   }, [mode, existingDepartment]);
@@ -204,11 +204,11 @@ export function DepartmentForm({ departmentId, mode }: DepartmentFormProps) {
       if (mode === "create") {
         const input: CreateDepartmentInput = {
           code: formData.code.trim(),
-          name: formData.name.trim(),
+          display_name: formData.display_name.trim(),
           description: formData.description.trim() || undefined,
           parent_id: formData.parent_id || undefined,
           is_lottery: formData.is_lottery,
-          display_order: formData.display_order,
+          sort_order: formData.sort_order,
         };
 
         await createMutation.mutateAsync(input);
@@ -218,11 +218,11 @@ export function DepartmentForm({ departmentId, mode }: DepartmentFormProps) {
         });
       } else {
         const input: UpdateDepartmentInput = {
-          name: formData.name.trim(),
+          display_name: formData.display_name.trim(),
           description: formData.description.trim() || undefined,
           parent_id: formData.parent_id,
           is_lottery: formData.is_lottery,
-          display_order: formData.display_order,
+          sort_order: formData.sort_order,
         };
 
         await updateMutation.mutateAsync({
@@ -300,7 +300,7 @@ export function DepartmentForm({ departmentId, mode }: DepartmentFormProps) {
           <p className="text-sm text-muted-foreground">
             {mode === "create"
               ? "Add a new product category"
-              : `Editing ${existingDepartment?.name}`}
+              : `Editing ${existingDepartment?.display_name}`}
           </p>
         </div>
       </div>
@@ -340,21 +340,23 @@ export function DepartmentForm({ departmentId, mode }: DepartmentFormProps) {
 
             {/* Name */}
             <div className="space-y-2">
-              <Label htmlFor="name">
+              <Label htmlFor="display_name">
                 Name <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="name"
-                name="name"
-                value={formData.name}
+                id="display_name"
+                name="display_name"
+                value={formData.display_name}
                 onChange={handleChange}
                 placeholder="e.g., Grocery Items"
                 maxLength={100}
-                className={errors.name ? "border-destructive" : ""}
+                className={errors.display_name ? "border-destructive" : ""}
                 data-testid="department-name-input"
               />
-              {errors.name && (
-                <p className="text-sm text-destructive">{errors.name}</p>
+              {errors.display_name && (
+                <p className="text-sm text-destructive">
+                  {errors.display_name}
+                </p>
               )}
             </div>
 
@@ -397,7 +399,7 @@ export function DepartmentForm({ departmentId, mode }: DepartmentFormProps) {
                       key={dept.department_id}
                       value={dept.department_id}
                     >
-                      {dept.name} ({dept.code})
+                      {dept.display_name} ({dept.code})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -407,26 +409,24 @@ export function DepartmentForm({ departmentId, mode }: DepartmentFormProps) {
               </p>
             </div>
 
-            {/* Display Order */}
+            {/* Sort Order */}
             <div className="space-y-2">
-              <Label htmlFor="display_order">Display Order</Label>
+              <Label htmlFor="sort_order">Sort Order</Label>
               <Input
-                id="display_order"
-                name="display_order"
+                id="sort_order"
+                name="sort_order"
                 type="number"
-                value={formData.display_order}
+                value={formData.sort_order}
                 onChange={handleChange}
                 min={0}
                 max={9999}
                 className={
-                  errors.display_order ? "border-destructive w-32" : "w-32"
+                  errors.sort_order ? "border-destructive w-32" : "w-32"
                 }
-                data-testid="department-display-order-input"
+                data-testid="department-sort-order-input"
               />
-              {errors.display_order && (
-                <p className="text-sm text-destructive">
-                  {errors.display_order}
-                </p>
+              {errors.sort_order && (
+                <p className="text-sm text-destructive">{errors.sort_order}</p>
               )}
               <p className="text-xs text-muted-foreground">
                 Lower numbers appear first in lists

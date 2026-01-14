@@ -37,12 +37,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     // GIVEN: I am authenticated as a Client User with a company and store
     // (clientUser fixture provides user with company and store)
 
-    // Get a STORE scope role for employee assignment
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     const employeeData = createEmployeeRequest({
@@ -222,12 +222,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
       data: createStore({ company_id: otherCompany.company_id }),
     });
 
-    // Get a STORE scope role
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     const employeeData = createEmployeeRequest({
@@ -262,12 +262,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
       data: createUser({ email: "existing_dup_test@test.nuvana.local" }),
     });
 
-    // Get a STORE scope role
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     // WHEN: Creating another employee with the same email
@@ -308,12 +308,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
       data: createUser({ email: "emp1_list_test@test.nuvana.local" }),
     });
 
-    // Get STORE scope role
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     // Assign employee to client's store
@@ -381,12 +381,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
       data: createUser({ email: "other_isolation@test.nuvana.local" }),
     });
 
-    // Get STORE scope role
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     await prismaClient.userRole.create({
@@ -428,12 +428,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
       data: createUser({ email: "employee_delete@test.nuvana.local" }),
     });
 
-    // Get STORE scope role
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     await prismaClient.userRole.create({
@@ -533,12 +533,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
       data: createUser({ email: "other_del_protect@test.nuvana.local" }),
     });
 
-    // Get STORE scope role
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     await prismaClient.userRole.create({
@@ -592,12 +592,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     clientUser,
     prismaClient,
   }) => {
-    // GIVEN: I am authenticated as a Client User
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     // WHEN: Creating employee with invalid email format
@@ -620,12 +620,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     clientUser,
     prismaClient,
   }) => {
-    // GIVEN: I am authenticated as a Client User
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     // WHEN: Creating employee with whitespace-only name
@@ -650,12 +650,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     clientUserApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: I am authenticated as a Client User
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     // WHEN: Creating employee with invalid UUID format for store_id
@@ -828,11 +828,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
       data: createUser({ email: "sensitive_test@test.nuvana.local" }),
     });
 
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     await prismaClient.userRole.create({
@@ -873,12 +874,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     clientUser,
     prismaClient,
   }) => {
-    // GIVEN: I am authenticated as a Client User
+    // Get CASHIER role (STORE scope but doesn't require PIN, unlike STORE_MANAGER)
     const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
+      where: { code: "CASHIER" },
     });
     if (!storeRole) {
-      throw new Error("No STORE scope role found in database");
+      throw new Error("CASHIER role not found in database");
     }
 
     // WHEN: Creating employee with SQL injection attempt in email

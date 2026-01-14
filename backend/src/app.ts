@@ -44,6 +44,8 @@ import { zReportRoutes } from "./routes/z-reports";
 import { reconciliationRoutes } from "./routes/reconciliation";
 import documentScanningRoutes from "./routes/document-scanning";
 import { geographicRoutes } from "./routes/geographic";
+import { apiKeyRoutes } from "./routes/api-keys";
+import { deviceApiRoutes } from "./routes/device-api";
 import { rlsPlugin } from "./middleware/rls.middleware";
 
 const PORT = parseInt(
@@ -446,6 +448,15 @@ app.register(documentScanningRoutes, { prefix: "/api/documents" });
 // Register geographic reference routes (State-Scoped Lottery Games Phase)
 app.register(geographicRoutes);
 
+// Register API Key management routes (Desktop POS Authentication)
+// Admin routes: /api/v1/admin/api-keys/* - Superadmin-only key management
+app.register(apiKeyRoutes);
+
+// Register device API routes (Desktop POS Communication)
+// Device routes: /api/v1/keys/* - Key activation, heartbeat
+// Sync routes: /api/v1/sync/* - Offline data synchronization
+app.register(deviceApiRoutes);
+
 // Root endpoint - API information and status
 app.get("/", async () => {
   return {
@@ -494,9 +505,6 @@ app.get("/", async () => {
       //        POST /api/stores/:storeId/naxml/export/departments - Export departments
       //        POST /api/stores/:storeId/naxml/export/tender-types - Export tender types
       //        POST /api/stores/:storeId/naxml/export/tax-rates - Export tax rates
-      //        GET/POST/PATCH /api/stores/:storeId/naxml/watcher - Watcher config
-      //        POST /api/stores/:storeId/naxml/watcher/start - Start watcher
-      //        POST /api/stores/:storeId/naxml/watcher/stop - Stop watcher
       naxml: "/api/stores/:storeId/naxml",
       // Query Metrics (Phase 6.1): GET /api/health/query-metrics - Database query performance metrics (admin only)
       //                           PATCH /api/health/query-metrics/config - Update metrics configuration (admin only)

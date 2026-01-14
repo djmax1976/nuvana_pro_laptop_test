@@ -34,7 +34,38 @@ import {
   type NAXMLMaintenanceHeader,
   type NAXMLValidationResult,
   type NAXMLValidationError,
+  // Movement Report types (FGM, FPM, MSM, TLM, MCM, ISM, TPM)
+  type NAXMLFuelGradeMovementData,
+  type NAXMLMovementHeader,
+  type NAXMLSalesMovementHeader,
+  type NAXMLFGMDetail,
+  type NAXMLFGMTenderSummary,
+  type NAXMLFGMTender,
+  type NAXMLFGMSellPriceSummary,
+  type NAXMLFGMServiceLevelSummary,
+  type NAXMLFGMSalesTotals,
+  type NAXMLFGMPumpTestTotals,
+  type NAXMLFGMPositionSummary,
+  type NAXMLFGMNonResettableTotal,
+  type NAXMLFGMPriceTierSummary,
+  type NAXMLPrimaryReportPeriod,
+  VALID_FUEL_TENDER_CODES,
+  type NAXMLFuelTenderCode,
+  // MSM types
+  type NAXMLMiscellaneousSummaryMovementData,
+  type NAXMLMSMDetail,
+  type NAXMLMiscellaneousSummaryCodes,
+  type NAXMLMSMSalesTotals,
+  // FPM types
+  type NAXMLFuelProductMovementData,
+  type NAXMLFPMDetail,
+  type NAXMLFPMNonResettableTotals,
 } from "../../types/naxml.types";
+import {
+  NAXMLFuelGradeMovementDataSchema,
+  NAXMLMiscellaneousSummaryMovementDataSchema,
+  NAXMLFuelProductMovementDataSchema,
+} from "../../schemas/naxml.schema";
 
 // ============================================================================
 // Error Codes
@@ -47,6 +78,25 @@ export const NAXML_PARSER_ERROR_CODES = {
   MISSING_REQUIRED_FIELD: "NAXML_MISSING_REQUIRED_FIELD",
   INVALID_FIELD_VALUE: "NAXML_INVALID_FIELD_VALUE",
   PARSE_ERROR: "NAXML_PARSE_ERROR",
+  // FGM-specific error codes
+  FGM_MISSING_FUEL_GRADE_ID: "FGM_MISSING_FUEL_GRADE_ID",
+  FGM_INVALID_TENDER_CODE: "FGM_INVALID_TENDER_CODE",
+  FGM_INVALID_SALES_VOLUME: "FGM_INVALID_SALES_VOLUME",
+  FGM_INVALID_SALES_AMOUNT: "FGM_INVALID_SALES_AMOUNT",
+  FGM_INVALID_REPORT_PERIOD: "FGM_INVALID_REPORT_PERIOD",
+  FGM_MISSING_MOVEMENT_HEADER: "FGM_MISSING_MOVEMENT_HEADER",
+  FGM_VALIDATION_FAILED: "FGM_VALIDATION_FAILED",
+  // MSM-specific error codes
+  MSM_MISSING_MOVEMENT_HEADER: "MSM_MISSING_MOVEMENT_HEADER",
+  MSM_MISSING_SUMMARY_CODES: "MSM_MISSING_SUMMARY_CODES",
+  MSM_INVALID_TENDER_CODE: "MSM_INVALID_TENDER_CODE",
+  MSM_VALIDATION_FAILED: "MSM_VALIDATION_FAILED",
+  // FPM-specific error codes
+  FPM_MISSING_MOVEMENT_HEADER: "FPM_MISSING_MOVEMENT_HEADER",
+  FPM_MISSING_PRODUCT_ID: "FPM_MISSING_PRODUCT_ID",
+  FPM_MISSING_POSITION_ID: "FPM_MISSING_POSITION_ID",
+  FPM_INVALID_METER_READING: "FPM_INVALID_METER_READING",
+  FPM_VALIDATION_FAILED: "FPM_VALIDATION_FAILED",
 } as const;
 
 export type NAXMLParserErrorCode =
@@ -114,8 +164,10 @@ function createSecureXMLParser(options: NAXMLParserOptions): XMLParser {
 
 /**
  * Elements that should always be parsed as arrays
+ * SEC-014: Explicit allowlist of array element names
  */
 const ARRAY_ELEMENT_NAMES = [
+  // Standard NAXML elements
   "LineItem",
   "Tender",
   "Tax",
@@ -125,6 +177,18 @@ const ARRAY_ELEMENT_NAMES = [
   "TaxRate",
   "ModifierCode",
   "Error",
+  // Movement Report elements (FGM, MSM, FPM, TLM, MCM, ISM, TPM)
+  "FGMDetail",
+  "FGMTenderSummary",
+  "FGMPositionSummary",
+  "FGMPriceTierSummary",
+  "FPMDetail",
+  "FPMNonResettableTotals",
+  "MSMDetail",
+  "TLMDetail",
+  "MCMDetail",
+  "ISMDetail",
+  "TPMDetail",
 ];
 
 // ============================================================================
@@ -240,6 +304,130 @@ export class NAXMLParser {
   }
 
   /**
+   * Parse a Fuel Grade Movement (FGM) document.
+   *
+   * Parses FGM files containing fuel sales data broken down by grade, tender type,
+   * and/or fuel position. This method handles both "by tender" (Period 2) and
+   * "by position" (Period 98) FGM variants.
+   *
+   * @param xml - The FGM XML string to parse
+   * @returns Parsed FGM document with Zod-validated data
+   * @throws NAXMLParserError with code FGM_VALIDATION_FAILED if Zod validation fails
+   *
+   * @example
+   * ```typescript
+   * const parser = createNAXMLParser();
+   * const result = parser.parseFuelGradeMovement(fgmXmlString);
+   * console.log(result.data.movementHeader.businessDate);
+   * console.log(result.data.fgmDetails.length);
+   * ```
+   */
+  parseFuelGradeMovement(
+    xml: string,
+  ): NAXMLDocument<NAXMLFuelGradeMovementData> {
+    const result = this.parse<NAXMLFuelGradeMovementData>(xml);
+
+    // Validate with Zod schema
+    const validationResult = NAXMLFuelGradeMovementDataSchema.safeParse(
+      result.data,
+    );
+    if (!validationResult.success) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FGM_VALIDATION_FAILED,
+        `FGM validation failed: ${validationResult.error.message}`,
+        { zodErrors: validationResult.error.issues },
+      );
+    }
+
+    return result;
+  }
+
+  /**
+   * Parse a Miscellaneous Summary Movement (MSM) document.
+   *
+   * Parses MSM files containing summary data including:
+   * - Grand totals (sales, non-taxable, fuel/merchandise breakdowns)
+   * - Drawer operations (safe drops, loans, payouts, payins)
+   * - Transaction statistics (counts, voids, refunds, driveoffs)
+   * - Fuel sales by grade (aggregated by grade)
+   * - Tax totals by code
+   * - Tender breakdown by method of payment
+   *
+   * @param xml - The MSM XML string to parse
+   * @returns Parsed MSM document with Zod-validated data
+   * @throws NAXMLParserError with code MSM_VALIDATION_FAILED if Zod validation fails
+   *
+   * @example
+   * ```typescript
+   * const parser = createNAXMLParser();
+   * const result = parser.parseMiscellaneousSummaryMovement(msmXmlString);
+   * console.log(result.data.movementHeader.businessDate);
+   * console.log(result.data.msmDetails.length);
+   * ```
+   */
+  parseMiscellaneousSummaryMovement(
+    xml: string,
+  ): NAXMLDocument<NAXMLMiscellaneousSummaryMovementData> {
+    const result = this.parse<NAXMLMiscellaneousSummaryMovementData>(xml);
+
+    // Validate with Zod schema
+    const validationResult =
+      NAXMLMiscellaneousSummaryMovementDataSchema.safeParse(result.data);
+    if (!validationResult.success) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.MSM_VALIDATION_FAILED,
+        `MSM validation failed: ${validationResult.error.message}`,
+        { zodErrors: validationResult.error.issues },
+      );
+    }
+
+    return result;
+  }
+
+  /**
+   * Parse a Fuel Product Movement (FPM) document.
+   *
+   * Parses FPM files containing non-resettable pump meter readings used for
+   * fuel reconciliation. Each FPM file contains cumulative totalizer readings
+   * for all fuel products across all dispensing positions.
+   *
+   * @param xml - The FPM XML string to parse
+   * @returns Parsed FPM document with Zod-validated data
+   * @throws NAXMLParserError with code FPM_VALIDATION_FAILED if Zod validation fails
+   *
+   * @example
+   * ```typescript
+   * const parser = createNAXMLParser();
+   * const result = parser.parseFuelProductMovement(fpmXmlString);
+   * console.log(result.data.movementHeader.businessDate);
+   * console.log(result.data.fpmDetails.length);
+   * // Access meter readings for product 1, position 1:
+   * const product1 = result.data.fpmDetails.find(d => d.fuelProductId === '1');
+   * const pos1Reading = product1?.fpmNonResettableTotals.find(t => t.fuelPositionId === '1');
+   * console.log(pos1Reading?.fuelProductNonResettableVolumeNumber);
+   * ```
+   */
+  parseFuelProductMovement(
+    xml: string,
+  ): NAXMLDocument<NAXMLFuelProductMovementData> {
+    const result = this.parse<NAXMLFuelProductMovementData>(xml);
+
+    // Validate with Zod schema
+    const validationResult = NAXMLFuelProductMovementDataSchema.safeParse(
+      result.data,
+    );
+    if (!validationResult.success) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FPM_VALIDATION_FAILED,
+        `FPM validation failed: ${validationResult.error.message}`,
+        { zodErrors: validationResult.error.issues },
+      );
+    }
+
+    return result;
+  }
+
+  /**
    * Validate XML without full parsing
    */
   validate(xml: string): NAXMLValidationResult {
@@ -307,6 +495,7 @@ export class NAXMLParser {
 
   /**
    * Detect the NAXML document type from parsed XML
+   * SEC-014: Uses strict allowlist matching for document type detection
    */
   private detectDocumentType(
     parsed: Record<string, unknown>,
@@ -314,6 +503,27 @@ export class NAXMLParser {
     const rootKeys = Object.keys(parsed);
 
     for (const key of rootKeys) {
+      // POSJournal (Gilbarco Passport PJR files) - NAXML-POSJournal root element
+      if (key.includes("NAXML-POSJournal") || key.includes("POSJournal")) {
+        return "POSJournal";
+      }
+      // Movement Report types (Gilbarco Passport) - check NAXML-MovementReport first
+      if (
+        key.includes("NAXML-MovementReport") ||
+        key.includes("MovementReport")
+      ) {
+        // Need to inspect child elements to determine specific type
+        const root = parsed[key] as Record<string, unknown>;
+        if (root?.FuelGradeMovement) return "FuelGradeMovement";
+        if (root?.FuelProductMovement) return "FuelProductMovement";
+        if (root?.MiscellaneousSummaryMovement)
+          return "MiscellaneousSummaryMovement";
+        if (root?.TaxLevelMovement) return "TaxLevelMovement";
+        if (root?.MerchandiseCodeMovement) return "MerchandiseCodeMovement";
+        if (root?.ItemSalesMovement) return "ItemSalesMovement";
+        if (root?.TankProductMovement) return "TankProductMovement";
+      }
+      // Standard NAXML document types
       if (key.includes("TransactionDocument")) return "TransactionDocument";
       if (key.includes("DepartmentMaintenance")) return "DepartmentMaintenance";
       if (key.includes("TenderMaintenance")) return "TenderMaintenance";
@@ -354,19 +564,64 @@ export class NAXMLParser {
 
   /**
    * Get the root element key for a document type
+   * SEC-014: Handles MovementReport and POSJournal special cases
    */
   private getRootKey(
     parsed: Record<string, unknown>,
     documentType: NAXMLDocumentType,
   ): string {
     const keys = Object.keys(parsed);
+
+    // POSJournal uses NAXML-POSJournal as root
+    if (documentType === "POSJournal") {
+      const journalKey = keys.find(
+        (k) => k.includes("NAXML-POSJournal") || k.includes("POSJournal"),
+      );
+      if (journalKey) return journalKey;
+    }
+
+    // Movement Report types use NAXML-MovementReport as root
+    const movementReportTypes = [
+      "FuelGradeMovement",
+      "FuelProductMovement",
+      "MiscellaneousSummaryMovement",
+      "TaxLevelMovement",
+      "MerchandiseCodeMovement",
+      "ItemSalesMovement",
+      "TankProductMovement",
+    ];
+
+    if (movementReportTypes.includes(documentType)) {
+      const movementKey = keys.find(
+        (k) =>
+          k.includes("NAXML-MovementReport") || k.includes("MovementReport"),
+      );
+      if (movementKey) return movementKey;
+    }
+
     return (
       keys.find((k) => k.includes(documentType)) || keys[0] || documentType
     );
   }
 
   /**
+   * Check if document type is a Movement Report type
+   */
+  private isMovementReportType(documentType: NAXMLDocumentType): boolean {
+    return [
+      "FuelGradeMovement",
+      "FuelProductMovement",
+      "MiscellaneousSummaryMovement",
+      "TaxLevelMovement",
+      "MerchandiseCodeMovement",
+      "ItemSalesMovement",
+      "TankProductMovement",
+    ].includes(documentType);
+  }
+
+  /**
    * Extract metadata (timestamp, store ID) from document
+   * SEC-014: Handles MovementReport special case (TransmissionHeader)
    */
   private extractMetadata(
     parsed: Record<string, unknown>,
@@ -378,8 +633,31 @@ export class NAXMLParser {
     let storeLocationId = "";
     let timestamp = new Date();
 
-    // Try to extract from TransactionHeader or MaintenanceHeader
-    if (documentType === "TransactionDocument") {
+    // Movement Report types use TransmissionHeader and MovementHeader
+    if (this.isMovementReportType(documentType)) {
+      const transmissionHeader = root?.TransmissionHeader as Record<
+        string,
+        unknown
+      >;
+      storeLocationId = String(transmissionHeader?.StoreLocationID || "");
+
+      // Get the specific movement type container
+      const movementContainer = root?.[documentType] as Record<string, unknown>;
+      const movementHeader = movementContainer?.MovementHeader as Record<
+        string,
+        unknown
+      >;
+
+      if (movementHeader?.BusinessDate) {
+        const dateStr = String(movementHeader.BusinessDate);
+        const timeStr = movementHeader?.BeginTime
+          ? String(movementHeader.BeginTime)
+          : "00:00:00";
+        // eslint-disable-next-line no-restricted-syntax -- Parsing NAXML business dates in ISO format
+        timestamp = new Date(`${dateStr}T${timeStr}`);
+      }
+    } else if (documentType === "TransactionDocument") {
+      // Transaction documents
       const header = root?.TransactionHeader as Record<string, unknown>;
       storeLocationId = String(header?.StoreLocationID || "");
       const dateStr = header?.TransactionDate as string;
@@ -387,6 +665,7 @@ export class NAXMLParser {
         timestamp = new Date(dateStr);
       }
     } else {
+      // Maintenance documents
       const header = root?.MaintenanceHeader as Record<string, unknown>;
       storeLocationId = String(header?.StoreLocationID || "");
       const dateStr = header?.MaintenanceDate as string;
@@ -400,6 +679,7 @@ export class NAXMLParser {
 
   /**
    * Parse document data based on type
+   * SEC-014: Routes Movement Report types to specialized parsers
    */
   private parseDocumentData<T>(
     parsed: Record<string, unknown>,
@@ -421,6 +701,13 @@ export class NAXMLParser {
         return this.parsePriceBookData(root) as T;
       case "EmployeeMaintenance":
         return this.parseEmployeeData(root) as T;
+      // Movement Report types
+      case "FuelGradeMovement":
+        return this.parseFuelGradeMovementData(root) as T;
+      case "FuelProductMovement":
+        return this.parseFuelProductMovementData(root) as T;
+      case "MiscellaneousSummaryMovement":
+        return this.parseMiscellaneousSummaryMovementData(root) as T;
       default:
         return root as T;
     }
@@ -757,7 +1044,7 @@ export class NAXMLParser {
   ): NAXMLEmployee[] {
     const employees = this.ensureArray(container?.Employee);
     return employees.map((emp: Record<string, unknown>) => ({
-      employeeId: String(emp?.EmployeeID || emp?.ID || ""),
+      employeeId: String(emp?.EmployeeID || emp?.["@_ID"] || emp?.ID || ""),
       firstName: String(emp?.FirstName || ""),
       lastName: String(emp?.LastName || ""),
       isActive: this.parseBoolean(emp?.IsActive, true),
@@ -775,6 +1062,815 @@ export class NAXMLParser {
         | "AddUpdate"
         | undefined,
     }));
+  }
+
+  // ============================================================================
+  // Movement Report Parsing Methods (FGM, FPM, MSM, TLM, MCM, ISM, TPM)
+  // ============================================================================
+
+  /**
+   * Parse Fuel Grade Movement (FGM) document data.
+   *
+   * This method parses the root NAXML-MovementReport element containing
+   * FuelGradeMovement data. Handles both "by tender" and "by position" variants.
+   *
+   * @param root - The parsed NAXML-MovementReport root element
+   * @returns Parsed FGM data structure
+   * @throws NAXMLParserError if required fields are missing
+   *
+   * SEC-014: Validates required fields and uses strict type parsing
+   */
+  private parseFuelGradeMovementData(
+    root: Record<string, unknown>,
+  ): NAXMLFuelGradeMovementData {
+    const fgmContainer = root.FuelGradeMovement as Record<string, unknown>;
+
+    if (!fgmContainer) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.MISSING_REQUIRED_FIELD,
+        "FuelGradeMovement element not found in document",
+      );
+    }
+
+    const movementHeaderRaw = fgmContainer.MovementHeader as Record<
+      string,
+      unknown
+    >;
+    if (!movementHeaderRaw) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FGM_MISSING_MOVEMENT_HEADER,
+        "MovementHeader not found in FuelGradeMovement",
+      );
+    }
+
+    const movementHeader = this.parseMovementHeader(movementHeaderRaw);
+
+    // SalesMovementHeader is optional (present only for shift reports, Period 98)
+    const salesMovementHeaderRaw = fgmContainer.SalesMovementHeader as
+      | Record<string, unknown>
+      | undefined;
+    const salesMovementHeader = salesMovementHeaderRaw
+      ? this.parseSalesMovementHeader(salesMovementHeaderRaw)
+      : undefined;
+
+    // Parse FGMDetail array
+    const fgmDetailArray = this.ensureArray(fgmContainer.FGMDetail);
+    const fgmDetails = fgmDetailArray.map((detail) =>
+      this.parseFGMDetail(detail as Record<string, unknown>),
+    );
+
+    return {
+      movementHeader,
+      salesMovementHeader,
+      fgmDetails,
+    };
+  }
+
+  /**
+   * Parse MovementHeader element.
+   *
+   * This is the shared header structure used by all movement report types.
+   * Contains period information, business date, and report timing.
+   *
+   * @param header - Raw MovementHeader element
+   * @returns Parsed movement header
+   *
+   * SEC-014: Validates PrimaryReportPeriod against allowed values (2 or 98)
+   */
+  private parseMovementHeader(
+    header: Record<string, unknown>,
+  ): NAXMLMovementHeader {
+    const primaryReportPeriod = this.parseNumber(header.PrimaryReportPeriod, 2);
+
+    // Validate PrimaryReportPeriod is one of the allowed values
+    if (primaryReportPeriod !== 2 && primaryReportPeriod !== 98) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FGM_INVALID_REPORT_PERIOD,
+        `Invalid PrimaryReportPeriod: ${primaryReportPeriod}. Must be 2 (day close) or 98 (shift close)`,
+        { primaryReportPeriod },
+      );
+    }
+
+    return {
+      reportSequenceNumber: this.parseNumber(header.ReportSequenceNumber, 1),
+      primaryReportPeriod: primaryReportPeriod as NAXMLPrimaryReportPeriod,
+      secondaryReportPeriod: this.parseNumber(header.SecondaryReportPeriod, 0),
+      businessDate: String(header.BusinessDate || ""),
+      beginDate: String(header.BeginDate || ""),
+      beginTime: String(header.BeginTime || "00:00:00"),
+      endDate: String(header.EndDate || ""),
+      endTime: String(header.EndTime || "00:00:00"),
+    };
+  }
+
+  /**
+   * Parse SalesMovementHeader element.
+   *
+   * Present in shift-level reports (Period 98) to identify the specific
+   * register, cashier, and till for the shift.
+   *
+   * @param header - Raw SalesMovementHeader element
+   * @returns Parsed sales movement header
+   */
+  private parseSalesMovementHeader(
+    header: Record<string, unknown>,
+  ): NAXMLSalesMovementHeader {
+    return {
+      registerId: String(header.RegisterID || ""),
+      cashierId: String(header.CashierID || ""),
+      tillId: String(header.TillID || ""),
+    };
+  }
+
+  /**
+   * Parse FGMDetail element.
+   *
+   * Each FGMDetail contains data for a single fuel grade. The structure varies:
+   * - "By Tender" variant contains FGMTenderSummary elements
+   * - "By Position" variant contains FGMPositionSummary elements
+   *
+   * @param detail - Raw FGMDetail element
+   * @returns Parsed FGM detail
+   * @throws NAXMLParserError if FuelGradeID is missing
+   *
+   * SEC-014: Validates FuelGradeID presence
+   */
+  private parseFGMDetail(detail: Record<string, unknown>): NAXMLFGMDetail {
+    const fuelGradeId = String(detail.FuelGradeID || "");
+
+    if (!fuelGradeId) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FGM_MISSING_FUEL_GRADE_ID,
+        "FuelGradeID is required in FGMDetail",
+      );
+    }
+
+    // Check for "by tender" variant (array of FGMTenderSummary)
+    const tenderSummaryRaw = detail.FGMTenderSummary;
+    const fgmTenderSummary = tenderSummaryRaw
+      ? this.parseFGMTenderSummary(
+          Array.isArray(tenderSummaryRaw)
+            ? (tenderSummaryRaw[0] as Record<string, unknown>)
+            : (tenderSummaryRaw as Record<string, unknown>),
+        )
+      : undefined;
+
+    // Check for "by position" variant (array of FGMPositionSummary)
+    const positionSummaryArray = this.ensureArray(detail.FGMPositionSummary);
+    const fgmPositionSummaries =
+      positionSummaryArray.length > 0
+        ? positionSummaryArray.map((ps) =>
+            this.parseFGMPositionSummary(ps as Record<string, unknown>),
+          )
+        : undefined;
+
+    // Return based on which variant is present
+    // Note: FGMDetail can have multiple position summaries but the type
+    // only supports a single fgmPositionSummary, so we take the first
+    // For the "by position" variant, we'll return all position summaries
+    const result: NAXMLFGMDetail = {
+      fuelGradeId,
+    };
+
+    if (fgmTenderSummary) {
+      result.fgmTenderSummary = fgmTenderSummary;
+    }
+
+    // For position summaries, return first one as the main summary
+    // (the type interface has single fgmPositionSummary)
+    if (fgmPositionSummaries && fgmPositionSummaries.length > 0) {
+      result.fgmPositionSummary = fgmPositionSummaries[0];
+    }
+
+    return result;
+  }
+
+  /**
+   * Parse FGMTenderSummary element.
+   *
+   * Contains fuel sales for a specific grade broken down by tender type.
+   * Present in "by tender" variant of FGM files.
+   *
+   * @param summary - Raw FGMTenderSummary element
+   * @returns Parsed tender summary
+   */
+  private parseFGMTenderSummary(
+    summary: Record<string, unknown>,
+  ): NAXMLFGMTenderSummary {
+    // Tender may be an array (from ARRAY_ELEMENT_NAMES) - take first element
+    const tenderArray = this.ensureArray(summary.Tender);
+    const tenderRaw = (tenderArray[0] || {}) as Record<string, unknown>;
+    const sellPriceSummaryRaw = summary.FGMSellPriceSummary as Record<
+      string,
+      unknown
+    >;
+
+    return {
+      tender: this.parseFGMTender(tenderRaw),
+      fgmSellPriceSummary: this.parseFGMSellPriceSummary(
+        sellPriceSummaryRaw || {},
+      ),
+    };
+  }
+
+  /**
+   * Parse FGM Tender element.
+   *
+   * @param tender - Raw Tender element
+   * @returns Parsed tender
+   *
+   * SEC-014: Validates TenderCode against allowlist of valid fuel tender codes
+   */
+  private parseFGMTender(tender: Record<string, unknown>): NAXMLFGMTender {
+    const tenderCode = String(tender.TenderCode || "cash");
+
+    // Validate tender code against allowlist
+    if (!VALID_FUEL_TENDER_CODES.includes(tenderCode as NAXMLFuelTenderCode)) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FGM_INVALID_TENDER_CODE,
+        `Invalid TenderCode: ${tenderCode}. Must be one of: ${VALID_FUEL_TENDER_CODES.join(", ")}`,
+        { tenderCode },
+      );
+    }
+
+    return {
+      tenderCode: tenderCode as NAXMLFuelTenderCode,
+      tenderSubCode: String(tender.TenderSubCode || "generic"),
+    };
+  }
+
+  /**
+   * Parse FGMSellPriceSummary element.
+   *
+   * @param summary - Raw FGMSellPriceSummary element
+   * @returns Parsed sell price summary
+   */
+  private parseFGMSellPriceSummary(
+    summary: Record<string, unknown>,
+  ): NAXMLFGMSellPriceSummary {
+    const serviceLevelSummaryRaw = summary.FGMServiceLevelSummary as
+      | Record<string, unknown>
+      | undefined;
+
+    return {
+      actualSalesPrice: this.parseNumber(summary.ActualSalesPrice, 0),
+      fgmServiceLevelSummary: this.parseFGMServiceLevelSummary(
+        serviceLevelSummaryRaw || {},
+      ),
+    };
+  }
+
+  /**
+   * Parse FGMServiceLevelSummary element.
+   *
+   * @param summary - Raw FGMServiceLevelSummary element
+   * @returns Parsed service level summary
+   */
+  private parseFGMServiceLevelSummary(
+    summary: Record<string, unknown>,
+  ): NAXMLFGMServiceLevelSummary {
+    const salesTotalsRaw = summary.FGMSalesTotals as
+      | Record<string, unknown>
+      | undefined;
+
+    return {
+      serviceLevelCode: String(summary.ServiceLevelCode || "1"),
+      fgmSalesTotals: this.parseFGMSalesTotals(salesTotalsRaw || {}),
+    };
+  }
+
+  /**
+   * Parse FGMPositionSummary element.
+   *
+   * Contains fuel sales for a specific grade at a specific fuel position.
+   * Present in "by position" variant of FGM files.
+   *
+   * @param summary - Raw FGMPositionSummary element
+   * @returns Parsed position summary
+   */
+  private parseFGMPositionSummary(
+    summary: Record<string, unknown>,
+  ): NAXMLFGMPositionSummary {
+    const fuelPositionId = String(summary.FuelPositionID || "");
+
+    // Parse optional non-resettable total
+    const nonResettableTotalRaw = summary.FGMNonResettableTotal as
+      | Record<string, unknown>
+      | undefined;
+    const fgmNonResettableTotal = nonResettableTotalRaw
+      ? this.parseFGMNonResettableTotal(nonResettableTotalRaw)
+      : undefined;
+
+    // Parse price tier summaries
+    const priceTierArray = this.ensureArray(summary.FGMPriceTierSummary);
+    const fgmPriceTierSummaries = priceTierArray.map((pt) =>
+      this.parseFGMPriceTierSummary(pt as Record<string, unknown>),
+    );
+
+    return {
+      fuelPositionId,
+      fgmNonResettableTotal,
+      fgmPriceTierSummaries,
+    };
+  }
+
+  /**
+   * Parse FGMNonResettableTotal element.
+   *
+   * Contains cumulative (lifetime) meter readings that never reset.
+   * Used for reconciliation and variance detection.
+   *
+   * @param total - Raw FGMNonResettableTotal element
+   * @returns Parsed non-resettable total
+   */
+  private parseFGMNonResettableTotal(
+    total: Record<string, unknown>,
+  ): NAXMLFGMNonResettableTotal {
+    return {
+      fuelGradeNonResettableTotalVolume: this.parseNumber(
+        total.FuelGradeNonResettableTotalVolume,
+        0,
+      ),
+      fuelGradeNonResettableTotalAmount: this.parseNumber(
+        total.FuelGradeNonResettableTotalAmount,
+        0,
+      ),
+    };
+  }
+
+  /**
+   * Parse FGMPriceTierSummary element.
+   *
+   * Fuel may be sold at different prices based on payment method.
+   * Common tiers: "0001" (cash), "0002" (credit).
+   *
+   * @param summary - Raw FGMPriceTierSummary element
+   * @returns Parsed price tier summary
+   */
+  private parseFGMPriceTierSummary(
+    summary: Record<string, unknown>,
+  ): NAXMLFGMPriceTierSummary {
+    const salesTotalsRaw = summary.FGMSalesTotals as
+      | Record<string, unknown>
+      | undefined;
+
+    return {
+      priceTierCode: String(summary.PriceTierCode || "0001"),
+      fgmSalesTotals: this.parseFGMSalesTotals(salesTotalsRaw || {}),
+    };
+  }
+
+  /**
+   * Parse FGMSalesTotals element.
+   *
+   * This is the core sales data structure containing volume, amount,
+   * and discount information. Used throughout FGM documents.
+   *
+   * @param totals - Raw FGMSalesTotals element
+   * @returns Parsed sales totals
+   *
+   * SEC-014: Validates that sales volume and amount are non-negative
+   */
+  private parseFGMSalesTotals(
+    totals: Record<string, unknown>,
+  ): NAXMLFGMSalesTotals {
+    const fuelGradeSalesVolume = this.parseNumber(
+      totals.FuelGradeSalesVolume,
+      0,
+    );
+    const fuelGradeSalesAmount = this.parseNumber(
+      totals.FuelGradeSalesAmount,
+      0,
+    );
+
+    // Validate non-negative values (SEC-014)
+    if (fuelGradeSalesVolume < 0) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FGM_INVALID_SALES_VOLUME,
+        `Invalid FuelGradeSalesVolume: ${fuelGradeSalesVolume}. Value must be non-negative`,
+        { fuelGradeSalesVolume },
+      );
+    }
+
+    if (fuelGradeSalesAmount < 0) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FGM_INVALID_SALES_AMOUNT,
+        `Invalid FuelGradeSalesAmount: ${fuelGradeSalesAmount}. Value must be non-negative`,
+        { fuelGradeSalesAmount },
+      );
+    }
+
+    // Parse optional pump test totals
+    const pumpTestTotalsRaw = totals.PumpTestTotals as
+      | Record<string, unknown>
+      | undefined;
+    const pumpTestTotals = pumpTestTotalsRaw
+      ? this.parseFGMPumpTestTotals(pumpTestTotalsRaw)
+      : undefined;
+
+    return {
+      fuelGradeSalesVolume,
+      fuelGradeSalesAmount,
+      discountAmount: this.parseNumber(totals.DiscountAmount, 0),
+      discountCount: this.parseNumber(totals.DiscountCount, 0),
+      taxExemptSalesVolume:
+        totals.TaxExemptSalesVolume !== undefined
+          ? this.parseNumber(totals.TaxExemptSalesVolume, 0)
+          : undefined,
+      dispenserDiscountAmount:
+        totals.DispenserDiscountAmount !== undefined
+          ? this.parseNumber(totals.DispenserDiscountAmount, 0)
+          : undefined,
+      dispenserDiscountCount:
+        totals.DispenserDiscountCount !== undefined
+          ? this.parseNumber(totals.DispenserDiscountCount, 0)
+          : undefined,
+      pumpTestTotals,
+    };
+  }
+
+  /**
+   * Parse FGMPumpTestTotals element.
+   *
+   * Tracks fuel dispensed during pump calibration tests.
+   * This fuel is not sold and should be excluded from sales calculations.
+   *
+   * @param totals - Raw PumpTestTotals element
+   * @returns Parsed pump test totals
+   */
+  private parseFGMPumpTestTotals(
+    totals: Record<string, unknown>,
+  ): NAXMLFGMPumpTestTotals {
+    return {
+      pumpTestAmount: this.parseNumber(totals.PumpTestAmount, 0),
+      pumpTestVolume: this.parseNumber(totals.PumpTestVolume, 0),
+      returnTankId:
+        totals.ReturnTankID && String(totals.ReturnTankID).trim()
+          ? String(totals.ReturnTankID)
+          : undefined,
+    };
+  }
+
+  // ============================================================================
+  // MSM (Miscellaneous Summary Movement) Parsing Methods
+  // ============================================================================
+
+  /**
+   * Parse Miscellaneous Summary Movement (MSM) document data.
+   *
+   * This method parses the root NAXML-MovementReport element containing
+   * MiscellaneousSummaryMovement data. MSM files contain various summary data
+   * including grand totals, drawer operations, statistics, fuel sales by grade,
+   * tax totals, and tender breakdowns.
+   *
+   * @param root - The parsed NAXML-MovementReport root element
+   * @returns Parsed MSM data structure
+   * @throws NAXMLParserError if required fields are missing
+   *
+   * SEC-014: Validates required fields and uses strict type parsing
+   */
+  private parseMiscellaneousSummaryMovementData(
+    root: Record<string, unknown>,
+  ): NAXMLMiscellaneousSummaryMovementData {
+    const msmContainer = root.MiscellaneousSummaryMovement as Record<
+      string,
+      unknown
+    >;
+
+    if (!msmContainer) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.MISSING_REQUIRED_FIELD,
+        "MiscellaneousSummaryMovement element not found in document",
+      );
+    }
+
+    const movementHeaderRaw = msmContainer.MovementHeader as Record<
+      string,
+      unknown
+    >;
+    if (!movementHeaderRaw) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.MSM_MISSING_MOVEMENT_HEADER,
+        "MovementHeader not found in MiscellaneousSummaryMovement",
+      );
+    }
+
+    const movementHeader = this.parseMovementHeader(movementHeaderRaw);
+
+    // SalesMovementHeader is optional (present only for shift reports, Period 98)
+    const salesMovementHeaderRaw = msmContainer.SalesMovementHeader as
+      | Record<string, unknown>
+      | undefined;
+    const salesMovementHeader = salesMovementHeaderRaw
+      ? this.parseSalesMovementHeader(salesMovementHeaderRaw)
+      : undefined;
+
+    // Parse MSMDetail array - MSM documents contain MSMDetail elements both inside
+    // and potentially outside the MiscellaneousSummaryMovement container
+    // (for outside terminal summaries in production files)
+    const msmDetailArrayInContainer = this.ensureArray(msmContainer.MSMDetail);
+
+    // Also check for MSMDetail elements at root level (outside the container)
+    // These are typically outside terminal/pump tender summaries
+    const msmDetailArrayAtRoot = this.ensureArray(root.MSMDetail);
+
+    // Combine both arrays, parsing each detail
+    const msmDetails = [
+      ...msmDetailArrayInContainer.map((detail) =>
+        this.parseMSMDetail(detail as Record<string, unknown>),
+      ),
+      ...msmDetailArrayAtRoot.map((detail) =>
+        this.parseMSMDetail(detail as Record<string, unknown>),
+      ),
+    ];
+
+    return {
+      movementHeader,
+      salesMovementHeader,
+      msmDetails,
+    };
+  }
+
+  /**
+   * Parse MSMDetail element.
+   *
+   * Each MSMDetail represents a specific type of summary data,
+   * identified by the combination of code, subCode, and optional modifier.
+   *
+   * Common summary codes include:
+   * - safeDrop, safeLoan - Drawer operations
+   * - refunds, payouts, payins - Transaction adjustments
+   * - statistics (with subCodes: transactions, voids, noSales, etc.)
+   * - totalizer (sales, tax breakdowns)
+   * - fuelSalesByGrade (fuel + grade modifier)
+   * - openingBalance, closingBalance - Till balances
+   * - taxTotals (by tax code)
+   *
+   * @param detail - Raw MSMDetail element
+   * @returns Parsed MSM detail
+   *
+   * SEC-014: Validates summary codes presence
+   */
+  private parseMSMDetail(detail: Record<string, unknown>): NAXMLMSMDetail {
+    const codesRaw = detail.MiscellaneousSummaryCodes as Record<
+      string,
+      unknown
+    >;
+
+    // Parse summary codes (required)
+    const miscellaneousSummaryCodes = this.parseMSMSummaryCodes(codesRaw || {});
+
+    // Parse optional register/cashier/till IDs
+    // Note: In production files, these may appear as REGISTERID (uppercase)
+    const registerId =
+      detail.RegisterID || detail.REGISTERID || detail.registerId;
+    const cashierId = detail.CashierID || detail.CASHIERID || detail.cashierId;
+    const tillId = detail.TillID || detail.TILLID || detail.tillId;
+
+    // Parse sales totals
+    const salesTotalsRaw = detail.MSMSalesTotals as Record<string, unknown>;
+    const msmSalesTotals = this.parseMSMSalesTotals(salesTotalsRaw || {});
+
+    return {
+      miscellaneousSummaryCodes,
+      registerId: registerId ? String(registerId) : undefined,
+      cashierId: cashierId ? String(cashierId) : undefined,
+      tillId: tillId ? String(tillId) : undefined,
+      msmSalesTotals,
+    };
+  }
+
+  /**
+   * Parse MiscellaneousSummaryCodes element.
+   *
+   * The combination of code, subCode, and modifier uniquely identifies
+   * what data is being reported.
+   *
+   * @param codes - Raw MiscellaneousSummaryCodes element
+   * @returns Parsed summary codes
+   */
+  private parseMSMSummaryCodes(
+    codes: Record<string, unknown>,
+  ): NAXMLMiscellaneousSummaryCodes {
+    return {
+      miscellaneousSummaryCode: String(codes.MiscellaneousSummaryCode || ""),
+      miscellaneousSummarySubCode: codes.MiscellaneousSummarySubCode
+        ? String(codes.MiscellaneousSummarySubCode)
+        : undefined,
+      miscellaneousSummarySubCodeModifier:
+        codes.MiscellaneousSummarySubCodeModifier
+          ? String(codes.MiscellaneousSummarySubCodeModifier)
+          : undefined,
+    };
+  }
+
+  /**
+   * Parse MSMSalesTotals element.
+   *
+   * Contains the summary amount and count, plus optional tender information.
+   * Note: For fuelSalesByGrade entries, the "count" field actually contains
+   * the volume in gallons, not a transaction count.
+   *
+   * @param totals - Raw MSMSalesTotals element
+   * @returns Parsed MSM sales totals
+   *
+   * SEC-014: Validates tender code if present
+   */
+  private parseMSMSalesTotals(
+    totals: Record<string, unknown>,
+  ): NAXMLMSMSalesTotals {
+    // Parse optional tender - may be array (from ARRAY_ELEMENT_NAMES)
+    const tenderArray = this.ensureArray(totals.Tender);
+    const tenderRaw =
+      tenderArray.length > 0
+        ? (tenderArray[0] as Record<string, unknown>)
+        : undefined;
+
+    let tender: NAXMLFGMTender | undefined;
+    if (tenderRaw) {
+      const tenderCode = String(tenderRaw.TenderCode || "");
+      const tenderSubCode = String(tenderRaw.TenderSubCode || "");
+
+      // Only validate non-empty tender codes
+      if (tenderCode && tenderCode.trim().length > 0) {
+        // Validate tender code against allowlist (SEC-014)
+        if (
+          !VALID_FUEL_TENDER_CODES.includes(tenderCode as NAXMLFuelTenderCode)
+        ) {
+          throw new NAXMLParserError(
+            NAXML_PARSER_ERROR_CODES.MSM_INVALID_TENDER_CODE,
+            `Invalid TenderCode in MSM: ${tenderCode}. Must be one of: ${VALID_FUEL_TENDER_CODES.join(", ")}`,
+            { tenderCode },
+          );
+        }
+
+        tender = {
+          tenderCode: tenderCode as NAXMLFuelTenderCode,
+          tenderSubCode: tenderSubCode || "generic",
+        };
+      }
+    }
+
+    return {
+      tender,
+      miscellaneousSummaryAmount: this.parseNumber(
+        totals.MiscellaneousSummaryAmount,
+        0,
+      ),
+      miscellaneousSummaryCount: this.parseNumber(
+        totals.MiscellaneousSummaryCount,
+        0,
+      ),
+    };
+  }
+
+  // ============================================================================
+  // FPM (Fuel Product Movement) Parsing Methods
+  // ============================================================================
+
+  /**
+   * Parse Fuel Product Movement (FPM) document data.
+   *
+   * This method parses the root NAXML-MovementReport element containing
+   * FuelProductMovement data. FPM files contain non-resettable meter readings
+   * from fuel dispensers used for reconciliation.
+   *
+   * @param root - The parsed NAXML-MovementReport root element
+   * @returns Parsed FPM data structure
+   * @throws NAXMLParserError if required fields are missing
+   *
+   * SEC-014: Validates required fields and uses strict type parsing
+   */
+  private parseFuelProductMovementData(
+    root: Record<string, unknown>,
+  ): NAXMLFuelProductMovementData {
+    const fpmContainer = root.FuelProductMovement as Record<string, unknown>;
+
+    if (!fpmContainer) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.MISSING_REQUIRED_FIELD,
+        "FuelProductMovement element not found in document",
+      );
+    }
+
+    const movementHeaderRaw = fpmContainer.MovementHeader as Record<
+      string,
+      unknown
+    >;
+    if (!movementHeaderRaw) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FPM_MISSING_MOVEMENT_HEADER,
+        "MovementHeader not found in FuelProductMovement",
+      );
+    }
+
+    const movementHeader = this.parseMovementHeader(movementHeaderRaw);
+
+    // Parse FPMDetail array
+    const fpmDetailArray = this.ensureArray(fpmContainer.FPMDetail);
+    const fpmDetails = fpmDetailArray.map((detail) =>
+      this.parseFPMDetail(detail as Record<string, unknown>),
+    );
+
+    return {
+      movementHeader,
+      fpmDetails,
+    };
+  }
+
+  /**
+   * Parse FPMDetail element.
+   *
+   * Each FPMDetail contains meter readings for a single fuel product
+   * across all dispensing positions that carry that product.
+   *
+   * @param detail - Raw FPMDetail element
+   * @returns Parsed FPM detail
+   * @throws NAXMLParserError if FuelProductID is missing
+   *
+   * SEC-014: Validates FuelProductID presence
+   */
+  private parseFPMDetail(detail: Record<string, unknown>): NAXMLFPMDetail {
+    const fuelProductId = String(detail.FuelProductID || "");
+
+    if (!fuelProductId) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FPM_MISSING_PRODUCT_ID,
+        "FuelProductID is required in FPMDetail",
+      );
+    }
+
+    // Parse FPMNonResettableTotals array
+    const nonResettableTotalsArray = this.ensureArray(
+      detail.FPMNonResettableTotals,
+    );
+    const fpmNonResettableTotals = nonResettableTotalsArray.map((totals) =>
+      this.parseFPMNonResettableTotals(totals as Record<string, unknown>),
+    );
+
+    return {
+      fuelProductId,
+      fpmNonResettableTotals,
+    };
+  }
+
+  /**
+   * Parse FPMNonResettableTotals element.
+   *
+   * Contains cumulative (lifetime) meter readings for a specific
+   * fuel product at a specific dispenser position. These readings
+   * never reset and are used for reconciliation and variance detection.
+   *
+   * @param totals - Raw FPMNonResettableTotals element
+   * @returns Parsed non-resettable totals
+   * @throws NAXMLParserError if FuelPositionID is missing or meter readings are invalid
+   *
+   * SEC-014: Validates FuelPositionID presence and non-negative meter readings
+   */
+  private parseFPMNonResettableTotals(
+    totals: Record<string, unknown>,
+  ): NAXMLFPMNonResettableTotals {
+    const fuelPositionId = String(totals.FuelPositionID || "");
+
+    if (!fuelPositionId) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FPM_MISSING_POSITION_ID,
+        "FuelPositionID is required in FPMNonResettableTotals",
+      );
+    }
+
+    const volumeNumber = this.parseNumber(
+      totals.FuelProductNonResettableVolumeNumber,
+      0,
+    );
+    const amountNumber = this.parseNumber(
+      totals.FuelProductNonResettableAmountNumber,
+      0,
+    );
+
+    // Validate non-negative meter readings (SEC-014)
+    // Meter readings are cumulative and should never be negative
+    if (volumeNumber < 0) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FPM_INVALID_METER_READING,
+        `Invalid FuelProductNonResettableVolumeNumber: ${volumeNumber}. Meter readings must be non-negative`,
+        { fuelPositionId, volumeNumber },
+      );
+    }
+
+    if (amountNumber < 0) {
+      throw new NAXMLParserError(
+        NAXML_PARSER_ERROR_CODES.FPM_INVALID_METER_READING,
+        `Invalid FuelProductNonResettableAmountNumber: ${amountNumber}. Meter readings must be non-negative`,
+        { fuelPositionId, amountNumber },
+      );
+    }
+
+    return {
+      fuelPositionId,
+      fuelProductNonResettableVolumeNumber: volumeNumber,
+      fuelProductNonResettableAmountNumber: amountNumber,
+    };
   }
 
   // ============================================================================
@@ -847,4 +1943,104 @@ export function validateNAXML(
 ): NAXMLValidationResult {
   const parser = createNAXMLParser(options);
   return parser.validate(xml);
+}
+
+/**
+ * Parse Fuel Grade Movement (FGM) XML string (convenience function).
+ *
+ * This function provides a convenient way to parse FGM documents with
+ * Zod schema validation. Handles both "by tender" and "by position" variants.
+ *
+ * @param xml - The FGM XML string to parse
+ * @param options - Optional parser options
+ * @returns Parsed and validated FGM document
+ * @throws NAXMLParserError on parsing or validation failure
+ *
+ * @example
+ * ```typescript
+ * const result = parseFuelGradeMovement(fgmXmlString);
+ * console.log(result.data.movementHeader.businessDate);
+ * console.log(result.data.fgmDetails.length);
+ * ```
+ */
+export function parseFuelGradeMovement(
+  xml: string,
+  options?: Partial<NAXMLParserOptions>,
+): NAXMLDocument<NAXMLFuelGradeMovementData> {
+  const parser = createNAXMLParser(options);
+  return parser.parseFuelGradeMovement(xml);
+}
+
+/**
+ * Parse Miscellaneous Summary Movement (MSM) XML string (convenience function).
+ *
+ * This function provides a convenient way to parse MSM documents with
+ * Zod schema validation. MSM files contain various summary data including:
+ * - Grand totals (sales, non-taxable, fuel/merchandise breakdowns)
+ * - Drawer operations (safe drops, loans, payouts, payins)
+ * - Transaction statistics (counts, voids, refunds, driveoffs)
+ * - Fuel sales by grade (aggregated by grade)
+ * - Tax totals by code
+ * - Tender breakdown by method of payment
+ *
+ * @param xml - The MSM XML string to parse
+ * @param options - Optional parser options
+ * @returns Parsed and validated MSM document
+ * @throws NAXMLParserError on parsing or validation failure
+ *
+ * @example
+ * ```typescript
+ * const result = parseMiscellaneousSummaryMovement(msmXmlString);
+ * console.log(result.data.movementHeader.businessDate);
+ * console.log(result.data.msmDetails.length);
+ *
+ * // Filter for fuel sales by grade
+ * const fuelSales = result.data.msmDetails.filter(
+ *   d => d.miscellaneousSummaryCodes.miscellaneousSummaryCode === 'fuelSalesByGrade'
+ * );
+ * ```
+ */
+export function parseMiscellaneousSummaryMovement(
+  xml: string,
+  options?: Partial<NAXMLParserOptions>,
+): NAXMLDocument<NAXMLMiscellaneousSummaryMovementData> {
+  const parser = createNAXMLParser(options);
+  return parser.parseMiscellaneousSummaryMovement(xml);
+}
+
+/**
+ * Parse Fuel Product Movement (FPM) XML string (convenience function).
+ *
+ * This function provides a convenient way to parse FPM documents with
+ * Zod schema validation. FPM files contain non-resettable pump meter readings
+ * used for fuel reconciliation between book sales and actual fuel dispensed.
+ *
+ * Key data in FPM files:
+ * - Fuel product identifiers (mapping to grades)
+ * - Position-level cumulative volume readings
+ * - Position-level cumulative amount readings (often 0 in Gilbarco systems)
+ *
+ * @param xml - The FPM XML string to parse
+ * @param options - Optional parser options
+ * @returns Parsed and validated FPM document
+ * @throws NAXMLParserError on parsing or validation failure
+ *
+ * @example
+ * ```typescript
+ * const result = parseFuelProductMovement(fpmXmlString);
+ * console.log(result.data.movementHeader.businessDate);
+ * console.log(result.data.fpmDetails.length);
+ *
+ * // Get meter readings for product 1, position 1:
+ * const product1 = result.data.fpmDetails.find(d => d.fuelProductId === '1');
+ * const pos1Reading = product1?.fpmNonResettableTotals.find(t => t.fuelPositionId === '1');
+ * console.log(`Volume: ${pos1Reading?.fuelProductNonResettableVolumeNumber} gallons`);
+ * ```
+ */
+export function parseFuelProductMovement(
+  xml: string,
+  options?: Partial<NAXMLParserOptions>,
+): NAXMLDocument<NAXMLFuelProductMovementData> {
+  const parser = createNAXMLParser(options);
+  return parser.parseFuelProductMovement(xml);
 }

@@ -51,6 +51,8 @@ next-env.d.ts
 nul
 NUL
 null
+tmpclaude-*-cwd
+**/tmpclaude-*-cwd
 
 # Test results and reports (generated files)
 playwright-report/
@@ -82,3 +84,4 @@ docs/
 
 # Uploaded files (user data)
 backend/uploads/
+nuvana-sync/

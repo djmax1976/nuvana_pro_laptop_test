@@ -197,9 +197,8 @@ async function cleanupTestUser(
         where: { user_id: userId },
       });
     });
-  } catch (error) {
-    // Log but don't fail - cleanup errors shouldn't mask test failures
-    console.warn(`Cleanup warning for user ${userId}:`, error);
+  } catch {
+    // Cleanup errors shouldn't mask test failures - silently continue
   }
 }
 

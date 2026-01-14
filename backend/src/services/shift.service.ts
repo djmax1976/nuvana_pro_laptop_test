@@ -2273,14 +2273,26 @@ export class ShiftService {
     }
 
     // Check Redis cache for existing report data
+    // Use user-specific cache key to prevent cache pollution in CI/parallel tests
     const redis = await getRedisClient();
-    const cacheKey = this.getReportCacheKey(shiftId);
+    const cacheKey = this.getReportCacheKey(shiftId, userId);
     if (redis) {
       try {
         const cachedData = await redis.get(cacheKey);
         if (cachedData) {
-          // Return cached data
-          return JSON.parse(cachedData) as ShiftReportData;
+          // Validate cached data matches current user's access before returning
+          const cachedReport = JSON.parse(cachedData) as ShiftReportData;
+          // Verify user still has access to this shift's store
+          const hasAccess = await this.checkUserStoreAccess(
+            userId,
+            cachedReport.shift.store_id,
+          );
+          if (hasAccess) {
+            // Return cached data
+            return cachedReport;
+          }
+          // Access changed - invalidate cache and regenerate
+          await redis.del(cacheKey);
         }
       } catch (error) {
         // Log but continue - cache miss is acceptable
@@ -2352,13 +2364,23 @@ export class ShiftService {
 
     // Query all transactions for this shift with line items and payments
     // RLS policies automatically filter by user access
+    // Note: cashier relation may be null if RLS blocks access to the user,
+    // but we handle this gracefully in the formatting step
     const transactions = await prisma.transaction.findMany({
       where: {
         shift_id: shiftId,
       },
       include: {
-        line_items: true,
-        payments: true,
+        line_items: {
+          orderBy: {
+            created_at: "asc",
+          },
+        },
+        payments: {
+          orderBy: {
+            created_at: "asc",
+          },
+        },
         cashier: {
           select: {
             user_id: true,
@@ -2399,14 +2421,14 @@ export class ShiftService {
       });
     });
 
-    // Convert payment method map to array
-    const paymentMethods = Array.from(paymentMethodMap.entries()).map(
-      ([method, data]) => ({
+    // Convert payment method map to array and sort by method name for consistency
+    const paymentMethods = Array.from(paymentMethodMap.entries())
+      .map(([method, data]) => ({
         method,
         total: data.total,
         count: data.count,
-      }),
-    );
+      }))
+      .sort((a, b) => a.method.localeCompare(b.method));
 
     // Get variance approval details if applicable
     let approvedByUser = null;
@@ -2427,27 +2449,33 @@ export class ShiftService {
     }
 
     // Format transaction list for report
-    const formattedTransactions = transactions.map((tx) => ({
-      transaction_id: tx.transaction_id,
-      timestamp: tx.timestamp.toISOString(),
-      total: Number(tx.total),
-      cashier: tx.cashier
+    // Ensure all fields match the expected structure exactly
+    const formattedTransactions = transactions.map((tx) => {
+      // Handle cashier - may be null if RLS blocks access, but that's acceptable
+      const cashierData = tx.cashier
         ? {
             user_id: tx.cashier.user_id,
             name: tx.cashier.name,
           }
-        : null,
-      line_items: tx.line_items.map((li) => ({
-        product_name: li.name,
-        quantity: li.quantity,
-        price: Number(li.unit_price),
-        subtotal: Number(li.line_total),
-      })),
-      payments: tx.payments.map((p) => ({
-        method: p.method,
-        amount: Number(p.amount),
-      })),
-    }));
+        : null;
+
+      return {
+        transaction_id: tx.transaction_id,
+        timestamp: tx.timestamp.toISOString(),
+        total: Number(tx.total),
+        cashier: cashierData,
+        line_items: tx.line_items.map((li) => ({
+          product_name: li.name || "",
+          quantity: Number(li.quantity),
+          price: Number(li.unit_price),
+          subtotal: Number(li.line_total),
+        })),
+        payments: tx.payments.map((p) => ({
+          method: p.method,
+          amount: Number(p.amount),
+        })),
+      };
+    });
 
     // Calculate variance amount and percentage
     const varianceAmount = shift.variance ? Number(shift.variance) : 0;
@@ -2502,13 +2530,14 @@ export class ShiftService {
     };
 
     // Cache report data in Redis with 1 hour expiration
+    // In test mode, use shorter TTL to prevent cache pollution between test runs
     if (redis) {
       try {
-        await redis.setEx(
-          cacheKey,
-          3600, // 1 hour expiration
-          JSON.stringify(reportData),
-        );
+        const ttl =
+          process.env.NODE_ENV === "test" || process.env.CI === "true"
+            ? 60 // 1 minute in test mode
+            : 3600; // 1 hour in production
+        await redis.setEx(cacheKey, ttl, JSON.stringify(reportData));
       } catch (error) {
         // Log but don't fail - caching is best effort
         console.warn("Failed to cache report data:", error);
@@ -2521,22 +2550,44 @@ export class ShiftService {
   /**
    * Get Redis cache key for shift report
    * @param shiftId - Shift UUID
+   * @param userId - User UUID (for cache isolation in CI/parallel tests)
    * @returns Cache key string
    */
-  private getReportCacheKey(shiftId: string): string {
+  private getReportCacheKey(shiftId: string, userId?: string): string {
+    // Include userId in cache key to prevent cache pollution in parallel test runs
+    // In production, this ensures users don't see each other's cached reports
+    if (userId) {
+      return `shift:report:${shiftId}:user:${userId}`;
+    }
     return `shift:report:${shiftId}`;
   }
 
   /**
    * Invalidate cached report data for a shift
    * @param shiftId - Shift UUID
+   * @param userId - Optional user ID to invalidate user-specific cache
    */
-  async invalidateReportCache(shiftId: string): Promise<void> {
+  async invalidateReportCache(shiftId: string, userId?: string): Promise<void> {
     const redis = await getRedisClient();
     if (redis) {
       try {
-        const cacheKey = this.getReportCacheKey(shiftId);
-        await redis.del(cacheKey);
+        // Invalidate user-specific cache if userId provided
+        if (userId) {
+          const userCacheKey = this.getReportCacheKey(shiftId, userId);
+          await redis.del(userCacheKey);
+        }
+        // Also invalidate legacy cache key (for backward compatibility)
+        const legacyCacheKey = this.getReportCacheKey(shiftId);
+        await redis.del(legacyCacheKey);
+        // In CI/test environments, invalidate all user-specific caches for this shift
+        // This prevents cache pollution between parallel test runs
+        if (process.env.NODE_ENV === "test" || process.env.CI === "true") {
+          const pattern = `shift:report:${shiftId}:user:*`;
+          const keys = await redis.keys(pattern);
+          if (keys.length > 0) {
+            await redis.del(keys);
+          }
+        }
       } catch (error) {
         // Log but don't fail - cache invalidation is best effort
         console.warn("Failed to invalidate report cache:", error);

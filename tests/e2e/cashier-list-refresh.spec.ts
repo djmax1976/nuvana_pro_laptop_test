@@ -38,12 +38,7 @@ test.describe("4.9-E2E: Cashier List Refresh After Create", () => {
   test("should show new cashier in list immediately after creation without page refresh", async ({
     page,
   }) => {
-    // Enable console logging for debugging
-    page.on("console", (msg) => {
-      console.log(`Browser ${msg.type()}: ${msg.text()}`);
-    });
-
-    // Track network requests to see cache invalidation
+    // Track network requests for cache invalidation verification
     const apiRequests: string[] = [];
     page.on("request", (request) => {
       const url = request.url();
@@ -86,8 +81,6 @@ test.describe("4.9-E2E: Cashier List Refresh After Create", () => {
       .waitForLoadState("networkidle", { timeout: 15000 })
       .catch(() => {});
 
-    console.log("Login successful, navigating to cashiers page...");
-
     // Step 3: Navigate to cashiers page
     await page.goto(`${FRONTEND_URL}/client-dashboard/cashiers`, {
       waitUntil: "domcontentloaded",
@@ -109,7 +102,6 @@ test.describe("4.9-E2E: Cashier List Refresh After Create", () => {
     const initialRows = await page
       .locator('tr[data-testid^="cashier-row-"]')
       .count();
-    console.log(`Initial cashier count: ${initialRows}`);
 
     // Clear API request log before opening dialog
     apiRequests.length = 0;
@@ -140,11 +132,9 @@ test.describe("4.9-E2E: Cashier List Refresh After Create", () => {
     // Check if store dropdown has a value or shows placeholder
     const storeDropdown = page.locator('[data-testid="cashier-store"]');
     const storeDropdownText = await storeDropdown.textContent();
-    console.log("Store dropdown text:", storeDropdownText);
 
     // If store shows "Select a store" placeholder, we need to select one
     if (storeDropdownText?.includes("Select a store")) {
-      console.log("Store not auto-selected, clicking to select first store...");
       await storeDropdown.click();
 
       // Wait for dropdown content to appear
@@ -155,14 +145,10 @@ test.describe("4.9-E2E: Cashier List Refresh After Create", () => {
 
       // Select the first store
       const firstOption = page.locator('[role="option"]').first();
-      const firstOptionText = await firstOption.textContent();
-      console.log("Selecting store:", firstOptionText);
       await firstOption.click();
 
       // Wait for dropdown to close
       await page.waitForTimeout(500);
-    } else {
-      console.log("Store already selected:", storeDropdownText);
     }
 
     // Step 5: Fill in form - "cashier 4" with PIN "0829"
@@ -173,27 +159,10 @@ test.describe("4.9-E2E: Cashier List Refresh After Create", () => {
     const pinInput = page.locator('[data-testid="cashier-pin"]');
     await pinInput.fill("0829");
 
-    console.log("Form filled, submitting...");
-    console.log("API requests before submit:", apiRequests);
     apiRequests.length = 0;
 
     // Step 6: Submit the form
     const createButton = page.locator('[data-testid="submit-cashier"]');
-
-    // Debug: Check if there are any validation errors before submitting
-    const formErrors = await page
-      .locator('[class*="text-destructive"], [class*="FormMessage"], .text-red')
-      .allTextContents();
-    console.log("Form validation errors before submit:", formErrors);
-
-    // Debug: Get the store dropdown value
-    const storeValue = await page.evaluate(() => {
-      const hiddenSelect = document.querySelector(
-        'select[aria-hidden="true"]',
-      ) as HTMLSelectElement | null;
-      return hiddenSelect?.value || "NOT_FOUND";
-    });
-    console.log("Store dropdown value:", storeValue);
 
     // Watch for the cashier create POST request
     const createResponsePromise = page
@@ -217,31 +186,13 @@ test.describe("4.9-E2E: Cashier List Refresh After Create", () => {
       )
       .catch(() => null);
 
-    console.log("Clicking submit button...");
     await createButton.click();
-    console.log("Submit button clicked");
 
     // Wait a moment for any validation errors to appear
     await page.waitForTimeout(1000);
 
-    // Check for validation errors after submit
-    const formErrorsAfter = await page
-      .locator('[class*="text-destructive"], [class*="FormMessage"], .text-red')
-      .allTextContents();
-    console.log("Form validation errors after submit:", formErrorsAfter);
-
-    // Check if POST was successful
-    const createResponse = await createResponsePromise;
-    if (createResponse) {
-      console.log("Create POST response status:", createResponse.status());
-      const responseBody = await createResponse.json().catch(() => null);
-      console.log(
-        "Create POST response body:",
-        JSON.stringify(responseBody, null, 2),
-      );
-    } else {
-      console.log("Create POST response: NOT received");
-    }
+    // Wait for POST to complete
+    await createResponsePromise;
 
     // Wait for success toast
     await page
@@ -259,14 +210,8 @@ test.describe("4.9-E2E: Cashier List Refresh After Create", () => {
       })
       .catch(() => {});
 
-    console.log("Form submitted, API requests after submit:", apiRequests);
-
     // Wait for list refetch
-    const refetchResponse = await listRefetchPromise;
-    console.log(
-      "List refetch response:",
-      refetchResponse ? "received" : "NOT received",
-    );
+    await listRefetchPromise;
 
     // Give React a moment to update the UI
     await page.waitForTimeout(2000);
@@ -283,14 +228,10 @@ test.describe("4.9-E2E: Cashier List Refresh After Create", () => {
       .isVisible({ timeout: 5000 })
       .catch(() => false);
 
-    console.log(`New cashier "${cashierName}" visible in list: ${isVisible}`);
-    console.log("All API requests during test:", apiRequests);
-
     // Get final cashier count
     const finalRows = await page
       .locator('tr[data-testid^="cashier-row-"]')
       .count();
-    console.log(`Final cashier count: ${finalRows}`);
 
     // The assertion - this should pass if the fix works
     expect(isVisible).toBe(true);

@@ -342,13 +342,6 @@ test.describe("Day Close Next Day Creation", () => {
         },
       );
 
-      if (prepareResponse.status() !== 200) {
-        const errorBody = await prepareResponse.json();
-        console.log(
-          "Prepare-close error response:",
-          JSON.stringify(errorBody, null, 2),
-        );
-      }
       expect(
         prepareResponse.status(),
         "Expected 200 OK from prepare-close",
@@ -361,13 +354,6 @@ test.describe("Day Close Next Day Creation", () => {
       );
 
       // THEN: The commit should succeed
-      if (commitResponse.status() !== 200) {
-        const errorBody = await commitResponse.json();
-        console.log(
-          "Commit-close error response:",
-          JSON.stringify(errorBody, null, 2),
-        );
-      }
       expect(commitResponse.status(), "Expected 200 OK from commit-close").toBe(
         200,
       );

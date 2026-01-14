@@ -44,6 +44,19 @@ const createEmployeeSchema = z.object({
       "Password must contain at least one special character",
     )
     .optional(),
+  /** 4-digit PIN required for STORE_MANAGER and SHIFT_MANAGER roles */
+  pin: z
+    .string()
+    .regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits")
+    .optional(),
+});
+
+/**
+ * Zod schema for setting employee PIN
+ */
+const setEmployeePINSchema = z.object({
+  pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits"),
+  store_id: z.string().uuid("Invalid store ID format"),
 });
 
 /**
@@ -142,12 +155,13 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
         const user = (request as unknown as { user: UserIdentity }).user;
 
         // Get validated body from middleware (already validated in preHandler)
-        const { email, name, store_id, role_id, password } = (request as any)
-          .validatedBody;
+        const { email, name, store_id, role_id, password, pin } = (
+          request as any
+        ).validatedBody;
         const auditContext = getAuditContext(request, user);
 
         const employee = await clientEmployeeService.createEmployee(
-          { email, name, store_id, role_id, password },
+          { email, name, store_id, role_id, password, pin },
           user.id,
           auditContext,
         );
@@ -167,7 +181,10 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
           message.includes("Invalid email") ||
           message.includes("required") ||
           message.includes("whitespace") ||
-          message.includes("already exists")
+          message.includes("already exists") ||
+          message.includes("PIN must be") ||
+          message.includes("PIN is required") ||
+          message.includes("PIN already in use")
         ) {
           reply.code(400);
           return {
@@ -686,6 +703,311 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to reset employee password",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /api/client/employees/:userId/pin
+   * Set or update employee PIN
+   * Required for STORE_MANAGER and SHIFT_MANAGER roles
+   *
+   * @security Requires CLIENT_EMPLOYEE_MANAGE permission
+   * @param userId - Employee user UUID
+   * @body { pin: string, store_id: string }
+   * @returns Success message
+   */
+  fastify.put(
+    "/api/client/employees/:userId/pin",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.CLIENT_EMPLOYEE_MANAGE),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as unknown as { user: UserIdentity }).user;
+        const { userId } = request.params as { userId: string };
+
+        // Validate userId format
+        if (!isValidUUID(userId)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          };
+        }
+
+        // Validate request body
+        const parseResult = setEmployeePINSchema.safeParse(request.body);
+        if (!parseResult.success) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
+          };
+        }
+
+        const { pin, store_id } = parseResult.data;
+        const auditContext = getAuditContext(request, user);
+
+        await clientEmployeeService.setEmployeePIN(
+          userId,
+          pin,
+          store_id,
+          user.id,
+          auditContext,
+        );
+
+        reply.code(200);
+        return {
+          success: true,
+          message: "PIN set successfully",
+        };
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        fastify.log.error({ error }, "Error setting employee PIN");
+
+        // Handle validation errors
+        if (
+          message.includes("PIN must be") ||
+          message.includes("PIN already in use") ||
+          message.includes("4 numeric digits")
+        ) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
+          };
+        }
+
+        // Handle authorization errors
+        if (
+          message.includes("does not belong") ||
+          message.includes("Forbidden") ||
+          message.includes("not a store employee")
+        ) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: "You can only set PIN for employees in your stores",
+            },
+          };
+        }
+
+        // Handle not found errors
+        if (message.includes("not found")) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Employee not found",
+            },
+          };
+        }
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to set employee PIN",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * DELETE /api/client/employees/:userId/pin
+   * Clear employee PIN
+   *
+   * @security Requires CLIENT_EMPLOYEE_MANAGE permission
+   * @param userId - Employee user UUID
+   * @returns Success message
+   */
+  fastify.delete(
+    "/api/client/employees/:userId/pin",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.CLIENT_EMPLOYEE_MANAGE),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as unknown as { user: UserIdentity }).user;
+        const { userId } = request.params as { userId: string };
+
+        // Validate userId format
+        if (!isValidUUID(userId)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          };
+        }
+
+        const auditContext = getAuditContext(request, user);
+
+        await clientEmployeeService.clearEmployeePIN(
+          userId,
+          user.id,
+          auditContext,
+        );
+
+        reply.code(200);
+        return {
+          success: true,
+          message: "PIN cleared successfully",
+        };
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        fastify.log.error({ error }, "Error clearing employee PIN");
+
+        // Handle authorization errors
+        if (
+          message.includes("does not belong") ||
+          message.includes("Forbidden") ||
+          message.includes("not a store employee")
+        ) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: "You can only clear PIN for employees in your stores",
+            },
+          };
+        }
+
+        // Handle not found errors
+        if (message.includes("not found")) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Employee not found",
+            },
+          };
+        }
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to clear employee PIN",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/client/employees/:userId/pin/status
+   * Get PIN status for an employee
+   *
+   * @security Requires CLIENT_EMPLOYEE_READ permission
+   * @param userId - Employee user UUID
+   * @returns { has_pin: boolean }
+   */
+  fastify.get(
+    "/api/client/employees/:userId/pin/status",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.CLIENT_EMPLOYEE_READ),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as unknown as { user: UserIdentity }).user;
+        const { userId } = request.params as { userId: string };
+
+        // Validate userId format
+        if (!isValidUUID(userId)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          };
+        }
+
+        const pinStatus = await clientEmployeeService.getEmployeePINStatus(
+          userId,
+          user.id,
+        );
+
+        reply.code(200);
+        return {
+          success: true,
+          data: pinStatus,
+        };
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        fastify.log.error({ error }, "Error getting employee PIN status");
+
+        // Handle authorization errors
+        if (
+          message.includes("does not belong") ||
+          message.includes("Forbidden") ||
+          message.includes("not a store employee")
+        ) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message:
+                "You can only check PIN status for employees in your stores",
+            },
+          };
+        }
+
+        // Handle not found errors
+        if (message.includes("not found")) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Employee not found",
+            },
+          };
+        }
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to get employee PIN status",
           },
         };
       }

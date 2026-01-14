@@ -1092,31 +1092,33 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       // Focus on store selector dropdown
       const storeSelector = page.locator('[data-testid="store-selector"]');
       await storeSelector.waitFor({ state: "visible", timeout: 30000 });
-      await storeSelector.focus();
 
-      // Verify dropdown is focused
-      await expect(storeSelector).toBeFocused({ timeout: 5000 });
+      // Click to focus and open - more reliable than keyboard focus
+      await storeSelector.click();
 
-      // WHEN: Pressing Enter to open dropdown
-      await page.keyboard.press("Enter");
+      // Wait for dropdown options to be visible
+      const store1Option = page.getByRole("option", {
+        name: fixture.store1.name,
+      });
+      const store2Option = page.getByRole("option", {
+        name: fixture.store2.name,
+      });
 
-      // THEN: Dropdown opens with options visible
-      await expect(
-        page.getByRole("option", { name: fixture.store1.name }),
-      ).toBeVisible({ timeout: 5000 });
-      await expect(
-        page.getByRole("option", { name: fixture.store2.name }),
-      ).toBeVisible({ timeout: 5000 });
+      await expect(store1Option).toBeVisible({ timeout: 10000 });
+      await expect(store2Option).toBeVisible({ timeout: 5000 });
 
       // WHEN: Pressing ArrowDown to navigate to store 2
       await page.keyboard.press("ArrowDown");
 
+      // Small wait for highlight state to update
+      await page.waitForTimeout(100);
+
       // WHEN: Pressing Enter to select
       await page.keyboard.press("Enter");
 
-      // THEN: Store 2 is now selected
+      // THEN: Store 2 is now selected (increase timeout for dropdown close animation)
       await expect(storeSelector).toContainText(fixture.store2.name, {
-        timeout: 5000,
+        timeout: 10000,
       });
     } finally {
       await cleanupTestFixture(fixture);

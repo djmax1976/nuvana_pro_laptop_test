@@ -47,18 +47,11 @@ test.describe("Store Management E2E", () => {
   let testStore: any;
 
   test.beforeAll(async () => {
-    console.log("[beforeAll] Starting test setup...");
-    console.log(
-      "[beforeAll] DATABASE_URL:",
-      process.env.DATABASE_URL || "not set",
-    );
-
     // Clean up existing test data (delete userRoles before users to avoid FK violations)
     const existingUsers = await getPrisma().user.findMany({
       where: { email: "store-e2e@test.com" },
       select: { user_id: true },
     });
-    console.log("[beforeAll] Found existing users:", existingUsers.length);
 
     for (const user of existingUsers) {
       await getPrisma().userRole.deleteMany({
@@ -72,31 +65,20 @@ test.describe("Store Management E2E", () => {
 
     // Create superadmin user
     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
-    console.log(
-      "[beforeAll] Creating user with password hash:",
-      hashedPassword.substring(0, 20) + "...",
-    );
-    try {
-      superadminUser = await getPrisma().user.create({
-        data: {
-          public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-          email: "store-e2e@test.com",
-          name: "Store E2E Tester",
-          password_hash: hashedPassword,
-          status: "ACTIVE",
-        },
-      });
-      console.log("[beforeAll] Created user:", superadminUser.user_id);
-    } catch (err) {
-      console.error("[beforeAll] Failed to create user:", err);
-      throw err;
-    }
+    superadminUser = await getPrisma().user.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        email: "store-e2e@test.com",
+        name: "Store E2E Tester",
+        password_hash: hashedPassword,
+        status: "ACTIVE",
+      },
+    });
 
     // Assign SUPERADMIN role
     const superadminRole = await getPrisma().role.findUnique({
       where: { code: "SUPERADMIN" },
     });
-    console.log("[beforeAll] Found superadmin role:", superadminRole?.code);
 
     if (superadminRole) {
       await getPrisma().userRole.create({

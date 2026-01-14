@@ -15,6 +15,7 @@ import { z } from "zod";
  */
 export const POSSystemTypeSchema = z.enum([
   "GILBARCO_PASSPORT",
+  "GILBARCO_NAXML", // Gilbarco Passport NAXML file-based exchange (XMLGateway)
   "GILBARCO_COMMANDER",
   "VERIFONE_RUBY2",
   "VERIFONE_COMMANDER",
@@ -219,6 +220,16 @@ export const POSIntegrationUpdateSchema = z.object({
     .min(1000, "Timeout must be at least 1000ms")
     .max(120000, "Timeout must be at most 120000ms")
     .optional(),
+  // File paths for file-based POS systems (Gilbarco NAXML, Verifone, etc.)
+  // SEC-014: INPUT_VALIDATION - Path length validation
+  export_path: z
+    .string()
+    .max(1024, "Export path must be at most 1024 characters")
+    .optional(),
+  import_path: z
+    .string()
+    .max(1024, "Import path must be at most 1024 characters")
+    .optional(),
   // Sync settings
   sync_enabled: z.boolean().optional(),
   sync_interval_minutes: z
@@ -270,6 +281,71 @@ export const POSSyncTriggerSchema = z.object({
 });
 
 /**
+ * Connection Test Request Schema
+ *
+ * Validates the optional request body for POST /api/stores/:storeId/pos-integration/test
+ *
+ * SEC-014: INPUT_VALIDATION - Schema validation for connection test parameters
+ * API-001: VALIDATION - Schema validation before business logic
+ *
+ * Two modes:
+ * 1. Empty body: Test existing saved integration
+ * 2. Body with config: Test new configuration before saving (pre-save validation)
+ *
+ * This enables the setup wizard flow where users test connection BEFORE saving.
+ * Note: Uses .passthrough() to allow extra fields (like sync options) from the
+ * CreatePOSIntegrationRequest that may be sent by the frontend during setup.
+ * These extra fields are simply ignored - only connection-relevant fields are used.
+ */
+export const POSConnectionTestSchema = z
+  .object({
+    /** POS system type - required for pre-save testing */
+    pos_type: POSSystemTypeSchema,
+    /**
+     * Host/IP address or file path for file-based POS
+     * SEC-014: Validated for max length to prevent buffer overflow attacks
+     */
+    host: z
+      .string()
+      .min(1, "Host is required")
+      .max(1024, "Host must be at most 1024 characters"),
+    /** Port number for network-based connections */
+    port: z
+      .number()
+      .int()
+      .min(1, "Port must be between 1 and 65535")
+      .max(65535, "Port must be between 1 and 65535")
+      .optional()
+      .default(8080),
+    /** Whether to use SSL/TLS */
+    use_ssl: z.boolean().optional().default(true),
+    /** Authentication type */
+    auth_type: POSAuthTypeSchema.optional().default("NONE"),
+    /** Authentication credentials (optional, depends on auth_type) */
+    credentials: POSCredentialsSchema.optional(),
+    /**
+     * File paths for file-based POS systems (Gilbarco NAXML, Verifone, etc.)
+     * SEC-014: These are validated but actual path traversal protection
+     * is handled by the adapter layer
+     */
+    export_path: z
+      .string()
+      .max(1024, "Export path must be at most 1024 characters")
+      .optional(),
+    import_path: z
+      .string()
+      .max(1024, "Import path must be at most 1024 characters")
+      .optional(),
+  })
+  .passthrough() // Allow extra fields (sync options, etc.) - they're ignored
+  .optional(); // Entire body is optional (empty = test existing integration)
+
+/**
+ * Type inference for connection test schema
+ */
+export type POSConnectionTest = z.infer<typeof POSConnectionTestSchema>;
+
+/**
  * Type inference from schemas
  */
 export type POSSystemType = z.infer<typeof POSSystemTypeSchema>;
@@ -280,6 +356,7 @@ export type POSIntegrationCreate = z.infer<typeof POSIntegrationCreateSchema>;
 export type POSIntegrationUpdate = z.infer<typeof POSIntegrationUpdateSchema>;
 export type POSSyncLogQuery = z.infer<typeof POSSyncLogQuerySchema>;
 export type POSSyncTrigger = z.infer<typeof POSSyncTriggerSchema>;
+export type POSConnectionTestInput = z.infer<typeof POSConnectionTestSchema>;
 export type StoreIdParam = z.infer<typeof StoreIdParamSchema>;
 export type IntegrationIdParam = z.infer<typeof IntegrationIdParamSchema>;
 

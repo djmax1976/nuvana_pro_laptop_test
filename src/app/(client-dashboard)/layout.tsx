@@ -183,7 +183,7 @@ function StoreContextProviderWrapper({
 
 /**
  * Inner layout component that uses client auth context
- * Only CLIENT_OWNER role users can access /client-dashboard
+ * COMPANY scope users (CLIENT_OWNER, SUPPORT) can access /client-dashboard
  *
  * Session Expiration: Handled automatically by api-client.ts
  * When any API returns 401, user is redirected to login
@@ -200,8 +200,9 @@ function ClientDashboardLayoutInner({
   const { isAuthenticated, isLoading, userRole, isStoreUser } = useClientAuth();
   const router = useRouter();
 
-  // CLIENT_OWNER is the only role that can access /client-dashboard
-  const isClientOwner = userRole === "CLIENT_OWNER";
+  // COMPANY scope roles (CLIENT_OWNER, SUPPORT) can access /client-dashboard
+  const isCompanyScopeUser =
+    userRole === "CLIENT_OWNER" || userRole === "SUPPORT";
 
   useEffect(() => {
     if (!isLoading) {
@@ -211,12 +212,12 @@ function ClientDashboardLayoutInner({
       } else if (isStoreUser) {
         // Store-level users should go to /mystore
         router.push("/mystore");
-      } else if (!isClientOwner) {
-        // Authenticated but not CLIENT_OWNER - redirect to appropriate dashboard
+      } else if (!isCompanyScopeUser) {
+        // Authenticated but not COMPANY scope - redirect to appropriate dashboard
         router.push("/dashboard");
       }
     }
-  }, [isAuthenticated, isLoading, isClientOwner, isStoreUser, router]);
+  }, [isAuthenticated, isLoading, isCompanyScopeUser, isStoreUser, router]);
 
   // Show loading state while checking auth
   // FE-005: UI_SECURITY - Generic loading message, no sensitive data
@@ -231,8 +232,8 @@ function ClientDashboardLayoutInner({
     );
   }
 
-  // Don't render dashboard if not authenticated, not CLIENT_OWNER, or is store user
-  if (!isAuthenticated || !isClientOwner || isStoreUser) {
+  // Don't render dashboard if not authenticated, not COMPANY scope, or is store user
+  if (!isAuthenticated || !isCompanyScopeUser || isStoreUser) {
     return null;
   }
 
@@ -248,7 +249,7 @@ function ClientDashboardLayoutInner({
 /**
  * Client Dashboard route layout
  * Protects all routes under (client-dashboard) from unauthorized access
- * Only allows users who are authenticated with CLIENT_OWNER role
+ * Only allows COMPANY scope users (CLIENT_OWNER, SUPPORT)
  * Redirects store-level users to /mystore, non-client users to /dashboard
  *
  * Session Expiration Handling:
@@ -256,7 +257,7 @@ function ClientDashboardLayoutInner({
  * When any API returns 401, user is automatically redirected to /login.
  *
  * @requirements
- * - AC #3: Redirect if not authenticated as CLIENT_OWNER
+ * - AC #3: Redirect if not authenticated with COMPANY scope role
  * - Route protection with proper loading states
  */
 export default function ClientDashboardRouteLayout({

@@ -634,6 +634,7 @@ test.describe("Reconciliation API - Admin Validate Endpoint", () => {
     storeManagerUser,
   }) => {
     // GIVEN: Test data for a specific date
+    // eslint-disable-next-line no-restricted-syntax -- test fixture date, not production business date
     const testDate = new Date("2024-06-15");
     testDate.setHours(0, 0, 0, 0);
     const dateString = "2024-06-15";
@@ -755,6 +756,10 @@ test.describe("Reconciliation API - Store Validate Endpoint", () => {
 // =============================================================================
 
 test.describe("Reconciliation API - Report Endpoint", () => {
+  // Some tests in this block create data and query global state, so run serially
+  // to avoid cross-test interference
+  test.describe.configure({ mode: "serial" });
+
   test("RECON-REPORT-001: should return full reconciliation report structure", async ({
     storeManagerApiRequest,
   }) => {
@@ -883,6 +888,10 @@ test.describe("Reconciliation API - Report Endpoint", () => {
 // =============================================================================
 
 test.describe("Reconciliation API - Discrepancy Detection", () => {
+  // These tests create shifts/summaries and query global state, so must run serially
+  // to avoid cross-test interference
+  test.describe.configure({ mode: "serial" });
+
   test("RECON-DISCREPANCY-001: should detect shift summary discrepancies", async ({
     storeManagerApiRequest,
     prismaClient,
@@ -964,6 +973,7 @@ test.describe("Reconciliation API - Discrepancy Detection", () => {
     storeManagerUser,
   }) => {
     // GIVEN: Create shift summary and day summary with mismatched values
+    // eslint-disable-next-line no-restricted-syntax -- test fixture date, not production business date
     const businessDate = new Date("2024-07-01");
     businessDate.setHours(0, 0, 0, 0);
 
@@ -1046,6 +1056,10 @@ test.describe("Reconciliation API - Discrepancy Detection", () => {
 // =============================================================================
 
 test.describe("Reconciliation API - Orphan Detection", () => {
+  // These tests create shifts/summaries and query global state, so must run serially
+  // to avoid cross-test interference
+  test.describe.configure({ mode: "serial" });
+
   test("RECON-ORPHAN-003: should detect closed shifts without summaries", async ({
     storeManagerApiRequest,
     prismaClient,

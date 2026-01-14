@@ -249,15 +249,17 @@ test.describe("Authentication & RBAC Integration", () => {
       // In a properly seeded database, there should be at least 1 role assignment
       // This would have caught the bug where user_roles was empty
       if (totalRoleAssignments === 0) {
-        // Log warning but check if there are users
+        // Check if there are users
         const totalUsers = await prismaClient.user.count();
         if (totalUsers > 0) {
           // CRITICAL: Users exist but no role assignments - this is the bug!
-          console.warn(
-            `WARNING: ${totalUsers} users exist but user_roles table is empty!`,
-          );
-          // Don't fail the test as this might be a fresh test database
-          // But log it prominently
+          // Use soft assertion to warn but not fail (might be a fresh test database)
+          expect
+            .soft(
+              false,
+              `${totalUsers} users exist but user_roles table is empty!`,
+            )
+            .toBe(true);
         }
       }
 
@@ -276,11 +278,12 @@ test.describe("Authentication & RBAC Integration", () => {
       for (const user of activeUsers) {
         // Each active non-test user should have at least one role
         // This catches the scenario where production users have no roles
-        if (user.user_roles.length === 0) {
-          console.warn(
-            `WARNING: Active user ${user.email} has no role assignments!`,
-          );
-        }
+        expect
+          .soft(
+            user.user_roles.length > 0,
+            `Active user ${user.email} has no role assignments!`,
+          )
+          .toBe(true);
       }
     });
 

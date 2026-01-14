@@ -425,46 +425,26 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
     superadminUser,
   }) => {
     // GIVEN: Multiple stores (at least 5)
+    // Create stores sequentially to ensure deterministic ordering by created_at
+    // This prevents flakiness from parallel creation causing identical timestamps
     const company = await createCompany(prismaClient, {
       name: "Test Pagination Test Company",
       owner_user_id: superadminUser.user_id,
     });
 
-    const stores = await Promise.all([
-      createStore(prismaClient, {
+    const stores = [];
+    for (let i = 1; i <= 5; i++) {
+      const store = await createStore(prismaClient, {
         company_id: company.company_id,
-        name: "Test Store 1",
-      }),
-      createStore(prismaClient, {
-        company_id: company.company_id,
-        name: "Test Store 2",
-      }),
-      createStore(prismaClient, {
-        company_id: company.company_id,
-        name: "Test Store 3",
-      }),
-      createStore(prismaClient, {
-        company_id: company.company_id,
-        name: "Test Store 4",
-      }),
-      createStore(prismaClient, {
-        company_id: company.company_id,
-        name: "Test Store 5",
-      }),
-    ]);
+        name: `Test Store ${i}`,
+      });
+      stores.push(store);
+      // Small delay to ensure different timestamps (even if DB has millisecond precision)
+      // This makes the test deterministic and prevents flakiness
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
 
-    // First, get the total count to understand the current state
-    const countResponse = await superadminApiRequest.get(
-      "/api/stores?limit=1&offset=0",
-    );
-    expect(countResponse.status()).toBe(200);
-    const countBody = await countResponse.json();
-    const totalStores = countBody.meta.total;
-
-    // Ensure we have at least 4 stores for pagination test to be meaningful
-    expect(totalStores).toBeGreaterThanOrEqual(4);
-
-    // WHEN: Requesting with limit=2
+    // WHEN: Requesting with limit=2, offset=0 (first page)
     const response1 = await superadminApiRequest.get(
       "/api/stores?limit=2&offset=0",
     );
@@ -475,21 +455,21 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
     expect(body1.data).toHaveLength(2);
     expect(body1.meta.limit).toBe(2);
     expect(body1.meta.offset).toBe(0);
+    expect(body1.meta.total).toBeGreaterThanOrEqual(5);
 
-    // WHEN: Requesting with offset=2
+    // WHEN: Requesting with limit=2, offset=2 (second page)
     const response2 = await superadminApiRequest.get(
       "/api/stores?limit=2&offset=2",
     );
 
-    // THEN: Response succeeds and returns stores (may be fewer if near end of list)
+    // THEN: Response succeeds and returns stores
     expect(response2.status()).toBe(200);
     const body2 = await response2.json();
-    // Second page should have stores (at least 2 if total >= 4, or remaining stores)
-    const expectedSecondPageLength = Math.min(2, Math.max(0, totalStores - 2));
-    expect(body2.data.length).toBeGreaterThanOrEqual(expectedSecondPageLength);
+    expect(body2.data.length).toBeGreaterThanOrEqual(2);
     expect(body2.data.length).toBeLessThanOrEqual(2);
     expect(body2.meta.limit).toBe(2);
     expect(body2.meta.offset).toBe(2);
+    expect(body2.meta.total).toBe(body1.meta.total); // Total should be consistent
 
     // AND: Different stores are returned (pagination works - no overlap)
     const firstPageIds = body1.data.map((s: any) => s.store_id);
@@ -498,6 +478,16 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
       secondPageIds.includes(id),
     );
     expect(overlap).toHaveLength(0); // No overlap = pagination works
+
+    // AND: Verify pagination metadata is consistent
+    // The total count should be the same across requests
+    expect(body1.meta.total).toBe(body2.meta.total);
+
+    // AND: Verify limit and offset are correctly applied
+    // If we have enough stores, second page should have items
+    if (body1.meta.total >= 4) {
+      expect(body2.data.length).toBe(2);
+    }
   });
 
   /**

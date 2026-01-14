@@ -848,8 +848,9 @@ test.describe("Phase 5.2 - Backfill Calculation Logic", () => {
 
       let items_sold_count = 0;
       for (const li of lineItems) {
-        if (li.quantity > 0) {
-          items_sold_count += li.quantity;
+        const qty = Number(li.quantity);
+        if (qty > 0) {
+          items_sold_count += qty;
         }
       }
 
@@ -991,7 +992,8 @@ test.describe("Phase 5.3 - Validation Discrepancy Detection", () => {
         calculated_tax += Number(tx.tax);
         calculated_discounts += Number(tx.discount);
         for (const li of tx.line_items) {
-          if (li.quantity > 0) calculated_items += li.quantity;
+          const qty = Number(li.quantity);
+          if (qty > 0) calculated_items += qty;
         }
       }
 
@@ -1482,7 +1484,8 @@ test.describe("Phase 5 - Integration Tests", () => {
         discounts_total += Number(tx.discount);
         tax_collected += Number(tx.tax);
         for (const li of tx.line_items) {
-          if (li.quantity > 0) items_sold_count += li.quantity;
+          const qty = Number(li.quantity);
+          if (qty > 0) items_sold_count += qty;
         }
       }
 

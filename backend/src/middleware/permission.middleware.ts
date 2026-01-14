@@ -150,6 +150,13 @@ async function verifyStoreCompanyAccessFromJWT(
  * Fast-path store access verification (legacy - used as fallback)
  * Verifies user has access to a store with minimal database queries
  * Uses explicit user_id in WHERE clause to bypass RLS (no session variable needed)
+ *
+ * Scope Hierarchy:
+ * - SYSTEM: Access to all stores
+ * - SUPPORT: Access to stores within assigned company (COMPANY + STORE access)
+ * - COMPANY: Access to stores within assigned company
+ * - STORE: Access to directly assigned store only
+ *
  * @param userId - User ID
  * @param storeId - Store ID to verify access to
  * @returns true if user has access, false otherwise
@@ -166,6 +173,16 @@ async function verifyStoreAccessFast(
       OR: [
         // SYSTEM scope (superadmin) - access to all stores
         { role: { scope: "SYSTEM" } },
+        // SUPPORT scope - access if store belongs to user's assigned company
+        // SUPPORT has COMPANY + STORE level access (but NOT SYSTEM)
+        {
+          role: { scope: "SUPPORT" },
+          company: {
+            stores: {
+              some: { store_id: storeId },
+            },
+          },
+        },
         // COMPANY scope - access if store belongs to user's company
         {
           role: { scope: "COMPANY" },
@@ -189,6 +206,13 @@ async function verifyStoreAccessFast(
  * Fast-path company access verification
  * Verifies user has access to a company with minimal database queries
  * Uses explicit user_id in WHERE clause to bypass RLS (no session variable needed)
+ *
+ * Scope Hierarchy:
+ * - SYSTEM: Access to all companies
+ * - SUPPORT: Access to assigned company (COMPANY + STORE level access)
+ * - COMPANY: Access to directly assigned company
+ * - STORE: Access if user has role in a store belonging to this company
+ *
  * @param userId - User ID
  * @param companyId - Company ID to verify access to
  * @returns true if user has access, false otherwise
@@ -205,6 +229,12 @@ async function verifyCompanyAccessFast(
       OR: [
         // SYSTEM scope (superadmin) - access to all companies
         { role: { scope: "SYSTEM" } },
+        // SUPPORT scope - direct company assignment
+        // SUPPORT has COMPANY + STORE level access (but NOT SYSTEM)
+        {
+          role: { scope: "SUPPORT" },
+          company_id: companyId,
+        },
         // COMPANY scope - direct company assignment
         // The role must be COMPANY scope AND the user_role must have matching company_id
         {

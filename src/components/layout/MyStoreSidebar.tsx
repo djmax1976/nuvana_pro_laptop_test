@@ -14,8 +14,10 @@ import {
   Loader2,
   AlertCircle,
   Ticket,
+  Plug,
 } from "lucide-react";
 import { TerminalAuthModal } from "@/components/terminals/TerminalAuthModal";
+import { POSAuthModal } from "@/components/pos-integration";
 
 interface MyStoreSidebarProps {
   className?: string;
@@ -32,7 +34,7 @@ interface MyStoreSidebarProps {
  */
 export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
   const pathname = usePathname();
-  const { user, permissions } = useClientAuth();
+  const { permissions } = useClientAuth();
   const { canAccessMenuByKey } = useMenuPermissions(permissions);
   const { data: dashboardData, isLoading: dashboardLoading } =
     useClientDashboard();
@@ -41,6 +43,9 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
   const [selectedTerminal, setSelectedTerminal] =
     useState<TerminalWithStatus | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // State for POS Integration authentication modal
+  const [isPOSAuthModalOpen, setIsPOSAuthModalOpen] = useState(false);
 
   // Get first store ID from user's accessible stores
   const firstStoreId =
@@ -66,6 +71,9 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
   // Determine if Lottery link is active
   const isLotteryActive = pathname === "/mystore/lottery";
 
+  // Determine if POS Integration link is active
+  const isPOSIntegrationActive = pathname === "/mystore/pos-integration";
+
   // Extract terminal ID from pathname if on a terminal page
   // Matches: /terminal/{terminalId}/shift or /terminal/{terminalId}/*
   const activeTerminalId = pathname.startsWith("/terminal/")
@@ -75,6 +83,9 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
   // Show lottery link using centralized menu permission configuration
   // Uses the same permission logic as ClientSidebar for consistency
   const showLotteryLink = canAccessMenuByKey("lottery");
+
+  // POS Integration link is always visible - authentication modal handles access control
+  // The POSAuthModal validates POS_SYNC_TRIGGER permission after re-authentication
 
   // Handle terminal click - open authentication modal
   const handleTerminalClick = (terminal: TerminalWithStatus) => {
@@ -89,6 +100,13 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
     if (!open) {
       setSelectedTerminal(null);
     }
+  };
+
+  // Handle POS Integration click - open authentication modal instead of navigating
+  const handlePOSIntegrationClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsPOSAuthModalOpen(true);
+    onNavigate?.();
   };
 
   return (
@@ -152,6 +170,22 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
             <span>Lottery</span>
           </Link>
         )}
+
+        {/* POS Integration Link - Always visible, requires re-authentication */}
+        <button
+          type="button"
+          data-testid="pos-integration-link"
+          onClick={handlePOSIntegrationClick}
+          className={cn(
+            "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+            isPOSIntegrationActive
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+          )}
+        >
+          <Plug className="h-5 w-5" />
+          <span>POS Integration</span>
+        </button>
 
         {/* Terminal Links Section */}
         <div className="mt-4 space-y-1">
@@ -233,6 +267,18 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
           onOpenChange={handleModalClose}
         />
       )}
+
+      {/* POS Integration Authentication Modal */}
+      {/* Pass storeId via URL to preserve store context after re-authentication */}
+      <POSAuthModal
+        open={isPOSAuthModalOpen}
+        onOpenChange={setIsPOSAuthModalOpen}
+        targetUrl={
+          firstStoreId
+            ? `/mystore/pos-integration?storeId=${firstStoreId}`
+            : "/mystore/pos-integration"
+        }
+      />
     </div>
   );
 }

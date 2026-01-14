@@ -46,6 +46,7 @@ export interface UserRoleWithScope {
 export interface TokenPairWithMeta extends TokenPair {
   roles: string[];
   userRoles: UserRoleWithScope[];
+  permissions: string[];
 }
 
 /**
@@ -83,6 +84,7 @@ export class AuthService {
   /**
    * Determine access token expiry based on user roles
    * - SUPERADMIN: 8 hours (configurable via SUPER_ADMIN_TOKEN_EXPIRY)
+   * - SUPPORT: 8 hours (same as SUPERADMIN - internal support staff)
    * - CLIENT_USER: 30 days (configurable via CLIENT_USER_TOKEN_EXPIRY) - effectively "indefinite"
    * - All others (CLIENT_OWNER): 1 hour (configurable via ACCESS_TOKEN_EXPIRY)
    * @param roles - User roles array
@@ -90,6 +92,10 @@ export class AuthService {
    */
   private getAccessTokenExpiry(roles: string[] = []): string {
     if (roles.includes("SUPERADMIN")) {
+      return this.superAdminAccessTokenExpiry;
+    }
+    // SUPPORT role gets same expiry as SUPERADMIN (internal staff)
+    if (roles.includes("SUPPORT")) {
       return this.superAdminAccessTokenExpiry;
     }
     if (roles.includes("CLIENT_USER")) {
@@ -101,6 +107,7 @@ export class AuthService {
   /**
    * Get cookie maxAge in seconds based on user roles
    * - SUPERADMIN: 8 hours (28800 seconds)
+   * - SUPPORT: 8 hours (same as SUPERADMIN - internal support staff)
    * - CLIENT_USER: 30 days (2592000 seconds) - effectively "indefinite" for long-term login
    * - All others (CLIENT_OWNER): 1 hour (3600 seconds)
    * @param roles - User roles array
@@ -109,6 +116,10 @@ export class AuthService {
   static getCookieMaxAge(roles: string[] = []): number {
     // SUPERADMIN gets 8 hours
     if (roles.includes("SUPERADMIN")) {
+      return 8 * 60 * 60; // 8 hours in seconds
+    }
+    // SUPPORT gets same as SUPERADMIN (internal staff)
+    if (roles.includes("SUPPORT")) {
       return 8 * 60 * 60; // 8 hours in seconds
     }
     // CLIENT_USER gets 30 days - effectively "indefinite" for long-term login
@@ -354,6 +365,7 @@ export class AuthService {
         company_id: ur.company_id,
         store_id: ur.store_id,
       })), // Include full role data for routing logic
+      permissions, // Include permissions for frontend permission checks
     };
   }
 

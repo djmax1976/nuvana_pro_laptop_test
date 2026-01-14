@@ -27,14 +27,19 @@ import apiClient from "./client";
 export interface TenderType {
   tender_type_id: string;
   code: string;
-  name: string;
+  display_name: string;
   description: string | null;
-  is_cash: boolean;
+  is_cash_equivalent: boolean;
   requires_reference: boolean;
+  is_electronic: boolean;
+  affects_cash_drawer: boolean;
   is_system: boolean;
   is_active: boolean;
-  display_order: number;
+  sort_order: number;
   client_id: string | null;
+  store_id: string | null;
+  pos_code: string | null;
+  pos_source: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -44,23 +49,23 @@ export interface TenderType {
  */
 export interface CreateTenderTypeInput {
   code: string;
-  name: string;
+  display_name: string;
   description?: string;
-  is_cash?: boolean;
+  is_cash_equivalent?: boolean;
   requires_reference?: boolean;
-  display_order?: number;
+  sort_order?: number;
 }
 
 /**
  * Update tender type input
  */
 export interface UpdateTenderTypeInput {
-  name?: string;
+  display_name?: string;
   description?: string;
-  is_cash?: boolean;
+  is_cash_equivalent?: boolean;
   requires_reference?: boolean;
   is_active?: boolean;
-  display_order?: number;
+  sort_order?: number;
 }
 
 /**

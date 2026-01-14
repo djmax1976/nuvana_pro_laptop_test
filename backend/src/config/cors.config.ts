@@ -39,7 +39,12 @@ interface ValidationResult {
 // =============================================================================
 
 const ALLOWED_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"];
-const ALLOWED_HEADERS = ["Content-Type", "Authorization", "x-cashier-session"];
+const ALLOWED_HEADERS = [
+  "Content-Type",
+  "Authorization",
+  "x-cashier-session",
+  "x-elevation-token", // For step-up authentication (SEC-010)
+];
 const EXPOSED_HEADERS = ["Content-Type", "Authorization"];
 
 // Preflight cache duration (24 hours in seconds)

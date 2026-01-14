@@ -80,6 +80,14 @@ export const ADMIN_OVERRIDE = "ADMIN_OVERRIDE";
 export const ADMIN_AUDIT_VIEW = "ADMIN_AUDIT_VIEW";
 export const ADMIN_SYSTEM_CONFIG = "ADMIN_SYSTEM_CONFIG";
 
+// API Key Permissions (Desktop POS Authentication)
+// Superadmin-only permissions for managing API keys
+export const API_KEY_CREATE = "API_KEY_CREATE";
+export const API_KEY_READ = "API_KEY_READ";
+export const API_KEY_UPDATE = "API_KEY_UPDATE";
+export const API_KEY_REVOKE = "API_KEY_REVOKE";
+export const API_KEY_ROTATE = "API_KEY_ROTATE";
+
 // Client Dashboard Permissions
 export const CLIENT_DASHBOARD_ACCESS = "CLIENT_DASHBOARD_ACCESS";
 
@@ -199,6 +207,13 @@ export const PERMISSIONS = {
   ADMIN_OVERRIDE,
   ADMIN_AUDIT_VIEW,
   ADMIN_SYSTEM_CONFIG,
+
+  // API Key Management (Desktop POS)
+  API_KEY_CREATE,
+  API_KEY_READ,
+  API_KEY_UPDATE,
+  API_KEY_REVOKE,
+  API_KEY_ROTATE,
 
   // Client Dashboard
   CLIENT_DASHBOARD_ACCESS,
@@ -334,6 +349,13 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [ADMIN_OVERRIDE]: "Override system restrictions",
   [ADMIN_AUDIT_VIEW]: "View audit logs",
   [ADMIN_SYSTEM_CONFIG]: "Configure system settings",
+
+  // API Key Management (Desktop POS)
+  [API_KEY_CREATE]: "Create API keys for desktop POS applications",
+  [API_KEY_READ]: "View API key details and audit logs",
+  [API_KEY_UPDATE]: "Update API key settings (quotas, IP allowlist)",
+  [API_KEY_REVOKE]: "Revoke API keys immediately",
+  [API_KEY_ROTATE]: "Rotate API keys with grace period",
 
   // Client Dashboard
   [CLIENT_DASHBOARD_ACCESS]:
@@ -647,6 +669,13 @@ export const CLIENT_RESTRICTED_PERMISSIONS: PermissionCode[] = [
   ADMIN_OVERRIDE,
   ADMIN_AUDIT_VIEW,
   ADMIN_SYSTEM_CONFIG,
+
+  // API Key Management - Superadmin-only (security critical)
+  API_KEY_CREATE,
+  API_KEY_READ,
+  API_KEY_UPDATE,
+  API_KEY_REVOKE,
+  API_KEY_ROTATE,
 
   // Company Management - Scope violation (clients manage stores, not companies)
   COMPANY_CREATE,

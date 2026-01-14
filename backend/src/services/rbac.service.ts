@@ -12,13 +12,20 @@ import { clientRolePermissionService } from "./client-role-permission.service";
 
 /**
  * User role with scope information
+ *
+ * Scope Hierarchy:
+ * - SYSTEM: Access to everything (superadmin)
+ * - SUPPORT: Access to COMPANY + STORE levels (support staff) - NOT SYSTEM
+ * - COMPANY: Access to company and all stores within it
+ * - STORE: Access to specific store only
+ * - CLIENT: Legacy scope for client users
  */
 export interface UserRole {
   user_role_id: string;
   user_id: string;
   role_id: string;
   role_code: string;
-  scope: "SYSTEM" | "COMPANY" | "STORE" | "CLIENT";
+  scope: "SYSTEM" | "SUPPORT" | "COMPANY" | "STORE" | "CLIENT";
   company_id: string | null;
   store_id: string | null;
   permissions: string[];
@@ -200,10 +207,52 @@ export class RBACService {
       }
 
       // Check scope hierarchy
-      // SYSTEM scope: applies everywhere
+      // SYSTEM scope: applies everywhere (superadmin)
       if (role.scope === "SYSTEM") {
         await this.cachePermissionCheck(cacheKey, true);
         return true;
+      }
+
+      // SUPPORT scope: applies to COMPANY + STORE levels (but NOT SYSTEM)
+      // SUPPORT users can access any company and any store they're assigned to
+      // Similar to COMPANY scope but explicitly designed for support staff
+      if (role.scope === "SUPPORT") {
+        if (!role.company_id) {
+          continue; // SUPPORT scope role must have company_id
+        }
+
+        // If no scope provided, grant permission - service layer handles data filtering
+        if (!scope?.companyId && !scope?.storeId) {
+          await this.cachePermissionCheck(cacheKey, true);
+          return true;
+        }
+
+        // SUPPORT role applies if companyId matches (applies to company and all its stores)
+        if (scope?.companyId && role.company_id === scope.companyId) {
+          await this.cachePermissionCheck(cacheKey, true);
+          return true;
+        }
+
+        // If only storeId provided, verify store belongs to assigned company
+        if (scope?.storeId && !scope.companyId) {
+          const store = await prisma.store.findUnique({
+            where: { store_id: scope.storeId },
+            select: { company_id: true },
+          });
+          // If store exists AND belongs to user's assigned company, grant permission
+          if (store && store.company_id === role.company_id) {
+            await this.cachePermissionCheck(cacheKey, true);
+            return true;
+          }
+        }
+
+        // SUPPORT can also access stores directly if storeId matches company's stores
+        if (scope?.storeId && scope.companyId) {
+          if (role.company_id === scope.companyId) {
+            await this.cachePermissionCheck(cacheKey, true);
+            return true;
+          }
+        }
       }
 
       // COMPANY scope: applies to company and all stores within company

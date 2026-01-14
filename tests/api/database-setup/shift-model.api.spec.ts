@@ -5,6 +5,7 @@ import {
   createStore,
   createShift,
   createCashier,
+  createTransaction,
 } from "../../support/factories";
 import { Prisma } from "@prisma/client";
 
@@ -778,6 +779,8 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
     let companyId: string | null = null;
     let openerId: string | null = null;
     let cashierId: string | null = null;
+    let transactionIds: string[] = [];
+    let ownerId: string | null = null;
 
     try {
       // Setup: Create required dependencies
@@ -789,6 +792,7 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       const owner = await prismaClient.user.create({
         data: createUser({ name: "Company Owner" }),
       });
+      ownerId = owner.user_id;
       const company = await prismaClient.company.create({
         data: createCompany({ owner_user_id: owner.user_id }),
       });
@@ -834,8 +838,146 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       expect(shiftWithTransactions).not.toBeNull();
       expect(shiftWithTransactions?.transactions).toBeDefined();
       expect(Array.isArray(shiftWithTransactions?.transactions)).toBe(true);
+      expect(shiftWithTransactions?.transactions.length).toBe(0);
+
+      // ENTERPRISE-GRADE: Verify bidirectional relationship by creating transactions
+      // Create multiple transactions linked to the shift
+      const transaction1Data = createTransaction({
+        store_id: store.store_id,
+        shift_id: shift.shift_id,
+        cashier_id: opener.user_id, // Use opener as cashier for simplicity
+        subtotal: 50.0,
+        tax: 4.0,
+        discount: 0,
+        total: 54.0,
+        timestamp: new Date(),
+      });
+
+      const transaction1 = await prismaClient.transaction.create({
+        data: {
+          transaction_id: transaction1Data.transaction_id || undefined,
+          store_id: transaction1Data.store_id,
+          shift_id: transaction1Data.shift_id,
+          cashier_id: transaction1Data.cashier_id,
+          pos_terminal_id: transaction1Data.pos_terminal_id,
+          timestamp: transaction1Data.timestamp || new Date(),
+          subtotal: new Prisma.Decimal(transaction1Data.subtotal),
+          tax: new Prisma.Decimal(transaction1Data.tax),
+          discount: new Prisma.Decimal(transaction1Data.discount),
+          total: new Prisma.Decimal(transaction1Data.total),
+          public_id: transaction1Data.public_id,
+        },
+      });
+      transactionIds.push(transaction1.transaction_id);
+
+      const transaction2Data = createTransaction({
+        store_id: store.store_id,
+        shift_id: shift.shift_id,
+        cashier_id: opener.user_id,
+        subtotal: 100.0,
+        tax: 8.0,
+        discount: 0,
+        total: 108.0,
+        timestamp: new Date(),
+      });
+
+      const transaction2 = await prismaClient.transaction.create({
+        data: {
+          transaction_id: transaction2Data.transaction_id || undefined,
+          store_id: transaction2Data.store_id,
+          shift_id: transaction2Data.shift_id,
+          cashier_id: transaction2Data.cashier_id,
+          pos_terminal_id: transaction2Data.pos_terminal_id,
+          timestamp: transaction2Data.timestamp || new Date(),
+          subtotal: new Prisma.Decimal(transaction2Data.subtotal),
+          tax: new Prisma.Decimal(transaction2Data.tax),
+          discount: new Prisma.Decimal(transaction2Data.discount),
+          total: new Prisma.Decimal(transaction2Data.total),
+          public_id: transaction2Data.public_id,
+        },
+      });
+      transactionIds.push(transaction2.transaction_id);
+
+      // Verify transactions are linked to shift (bidirectional relationship)
+      const shiftWithTransactionsAfter = await prismaClient.shift.findUnique({
+        where: { shift_id: shift.shift_id },
+        include: { transactions: true },
+      });
+
+      expect(shiftWithTransactionsAfter?.transactions.length).toBe(2);
+      expect(
+        shiftWithTransactionsAfter?.transactions.some(
+          (t) => t.transaction_id === transaction1.transaction_id,
+        ),
+      ).toBe(true);
+      expect(
+        shiftWithTransactionsAfter?.transactions.some(
+          (t) => t.transaction_id === transaction2.transaction_id,
+        ),
+      ).toBe(true);
+
+      // Verify transaction -> shift relationship (bidirectional)
+      const transaction1WithShift = await prismaClient.transaction.findUnique({
+        where: { transaction_id: transaction1.transaction_id },
+        include: { shift: true },
+      });
+
+      expect(transaction1WithShift).not.toBeNull();
+      expect(transaction1WithShift?.shift).not.toBeNull();
+      expect(transaction1WithShift?.shift.shift_id).toBe(shift.shift_id);
+      expect(transaction1WithShift?.shift.store_id).toBe(store.store_id);
+
+      // ENTERPRISE-GRADE: Verify foreign key constraint enforcement
+      // Attempt to create transaction with invalid shift_id should fail
+      const invalidTransactionData = createTransaction({
+        store_id: store.store_id,
+        shift_id: "00000000-0000-0000-0000-000000000000", // Non-existent shift
+        cashier_id: opener.user_id,
+        subtotal: 25.0,
+        tax: 2.0,
+        discount: 0,
+        total: 27.0,
+        timestamp: new Date(),
+      });
+
+      await expect(
+        prismaClient.transaction.create({
+          data: {
+            transaction_id: invalidTransactionData.transaction_id || undefined,
+            store_id: invalidTransactionData.store_id,
+            shift_id: invalidTransactionData.shift_id,
+            cashier_id: invalidTransactionData.cashier_id,
+            pos_terminal_id: invalidTransactionData.pos_terminal_id,
+            timestamp: invalidTransactionData.timestamp || new Date(),
+            subtotal: new Prisma.Decimal(invalidTransactionData.subtotal),
+            tax: new Prisma.Decimal(invalidTransactionData.tax),
+            discount: new Prisma.Decimal(invalidTransactionData.discount),
+            total: new Prisma.Decimal(invalidTransactionData.total),
+            public_id: invalidTransactionData.public_id,
+          },
+        }),
+      ).rejects.toThrow();
+
+      // ENTERPRISE-GRADE: Verify relationship integrity - transactions should be queryable by shift
+      const transactionsByShift = await prismaClient.transaction.findMany({
+        where: { shift_id: shift.shift_id },
+      });
+
+      expect(transactionsByShift.length).toBe(2);
+      expect(
+        transactionsByShift.every((t) => t.shift_id === shift.shift_id),
+      ).toBe(true);
     } finally {
-      // Cleanup
+      // Cleanup: Delete transactions first (due to foreign key constraints)
+      // Note: Transaction has composite primary key (transaction_id, timestamp)
+      // Use deleteMany for simplicity and consistency with other cleanup patterns
+      if (transactionIds.length > 0) {
+        await prismaClient.transaction
+          .deleteMany({
+            where: { transaction_id: { in: transactionIds } },
+          })
+          .catch(() => {});
+      }
       if (shiftId) {
         await prismaClient.shift
           .delete({ where: { shift_id: shiftId } })
@@ -859,6 +1001,11 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       if (openerId) {
         await prismaClient.user
           .delete({ where: { user_id: openerId } })
+          .catch(() => {});
+      }
+      if (ownerId) {
+        await prismaClient.user
+          .delete({ where: { user_id: ownerId } })
           .catch(() => {});
       }
     }

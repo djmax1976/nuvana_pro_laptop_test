@@ -50,6 +50,7 @@ describe("ChangeEmailModal Component", () => {
     company_id: "company-123",
     company_name: "Test Company",
     roles: [],
+    has_pin: false,
   };
 
   const mockUpdateMutation = {

@@ -183,9 +183,8 @@ async function cleanupTestUser(
         .delete({ where: { user_id: userId } })
         .catch(() => {});
     });
-  } catch (error) {
-    // Log but don't fail - cleanup errors shouldn't mask test failures
-    console.warn(`Cleanup warning for user ${userId}:`, error);
+  } catch {
+    // Cleanup errors shouldn't mask test failures - silently continue
   }
 }
 
@@ -946,10 +945,10 @@ test.describe.serial("2.9-E2E: Session Persistence", () => {
       if (currentUrl.includes("login")) {
         // Session didn't persist - this can happen in CI environments
         // Mark test as skipped rather than failing
-        console.log(
-          "Note: Session did not persist after refresh - may be CI cookie/localStorage issue",
+        test.skip(
+          true,
+          "Session did not persist after refresh - may be CI cookie/localStorage issue",
         );
-        test.skip();
         return;
       }
 

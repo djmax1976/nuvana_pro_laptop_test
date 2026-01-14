@@ -40,6 +40,8 @@ export interface Employee {
   store_name: string | null;
   company_id: string | null;
   company_name: string | null;
+  /** Whether this employee has a PIN configured (for STORE_MANAGER/SHIFT_MANAGER) */
+  has_pin: boolean;
   roles: EmployeeRole[];
 }
 
@@ -97,6 +99,26 @@ export interface CreateEmployeeInput {
   store_id: string;
   role_id: string;
   password?: string;
+  /** 4-digit PIN required for STORE_MANAGER and SHIFT_MANAGER roles */
+  pin?: string;
+}
+
+/**
+ * Set employee PIN input
+ */
+export interface SetEmployeePINInput {
+  pin: string;
+  store_id: string;
+}
+
+/**
+ * PIN status response
+ */
+export interface PINStatusResponse {
+  success: boolean;
+  data: {
+    has_pin: boolean;
+  };
 }
 
 /**
@@ -239,6 +261,76 @@ export async function resetEmployeePassword(
   return response.data;
 }
 
+// ============ PIN Management Functions ============
+
+/**
+ * Set or update employee PIN
+ * Required for STORE_MANAGER and SHIFT_MANAGER roles
+ * @param userId - Employee user ID
+ * @param data - PIN and store ID
+ * @returns Success response
+ */
+export async function setEmployeePIN(
+  userId: string,
+  data: SetEmployeePINInput,
+): Promise<{ success: boolean; message: string }> {
+  if (!userId) {
+    throw new Error("User ID is required");
+  }
+  if (!data.pin) {
+    throw new Error("PIN is required");
+  }
+  if (!/^\d{4}$/.test(data.pin)) {
+    throw new Error("PIN must be exactly 4 numeric digits");
+  }
+  if (!data.store_id) {
+    throw new Error("Store ID is required");
+  }
+
+  const response = await apiClient.put<{ success: boolean; message: string }>(
+    `/api/client/employees/${userId}/pin`,
+    data,
+  );
+  return response.data;
+}
+
+/**
+ * Clear employee PIN
+ * @param userId - Employee user ID
+ * @returns Success response
+ */
+export async function clearEmployeePIN(
+  userId: string,
+): Promise<{ success: boolean; message: string }> {
+  if (!userId) {
+    throw new Error("User ID is required");
+  }
+
+  const response = await apiClient.delete<{
+    success: boolean;
+    message: string;
+  }>(`/api/client/employees/${userId}/pin`);
+  return response.data;
+}
+
+/**
+ * Get PIN status for an employee
+ * @param userId - Employee user ID
+ * @returns PIN status (has_pin boolean)
+ */
+export async function getEmployeePINStatus(
+  userId: string,
+): Promise<PINStatusResponse> {
+  if (!userId) {
+    throw new Error("User ID is required");
+  }
+
+  const response = await apiClient.get<PINStatusResponse>(
+    `/api/client/employees/${userId}/pin/status`,
+  );
+  return response.data;
+}
+
 // ============ TanStack Query Keys ============
 
 /**
@@ -252,6 +344,8 @@ export const clientEmployeeKeys = {
   details: () => [...clientEmployeeKeys.all, "detail"] as const,
   detail: (id: string) => [...clientEmployeeKeys.details(), id] as const,
   roles: () => [...clientEmployeeKeys.all, "roles"] as const,
+  pinStatus: (userId: string) =>
+    [...clientEmployeeKeys.all, "pin-status", userId] as const,
 };
 
 // ============ TanStack Query Hooks ============
@@ -371,6 +465,82 @@ export function useResetEmployeePassword() {
       // Invalidate specific employee detail
       queryClient.invalidateQueries({
         queryKey: clientEmployeeKeys.detail(variables.userId),
+      });
+    },
+  });
+}
+
+// ============ PIN Management Hooks ============
+
+/**
+ * Hook to get PIN status for an employee
+ * @param userId - Employee user ID
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with PIN status
+ */
+export function useEmployeePINStatus(
+  userId: string,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: clientEmployeeKeys.pinStatus(userId),
+    queryFn: () => getEmployeePINStatus(userId),
+    enabled: options?.enabled !== false && !!userId,
+    staleTime: 30000, // Consider data fresh for 30 seconds
+  });
+}
+
+/**
+ * Hook to set employee PIN
+ * Invalidates employee list and PIN status queries on success
+ * @returns TanStack Mutation for setting employee PIN
+ */
+export function useSetEmployeePIN() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      userId,
+      data,
+    }: {
+      userId: string;
+      data: SetEmployeePINInput;
+    }) => setEmployeePIN(userId, data),
+    onSuccess: (_, variables) => {
+      // Invalidate employee list (has_pin field)
+      queryClient.invalidateQueries({ queryKey: clientEmployeeKeys.lists() });
+      // Invalidate PIN status for this employee
+      queryClient.invalidateQueries({
+        queryKey: clientEmployeeKeys.pinStatus(variables.userId),
+      });
+      // Invalidate specific employee detail
+      queryClient.invalidateQueries({
+        queryKey: clientEmployeeKeys.detail(variables.userId),
+      });
+    },
+  });
+}
+
+/**
+ * Hook to clear employee PIN
+ * Invalidates employee list and PIN status queries on success
+ * @returns TanStack Mutation for clearing employee PIN
+ */
+export function useClearEmployeePIN() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (userId: string) => clearEmployeePIN(userId),
+    onSuccess: (_, userId) => {
+      // Invalidate employee list (has_pin field)
+      queryClient.invalidateQueries({ queryKey: clientEmployeeKeys.lists() });
+      // Invalidate PIN status for this employee
+      queryClient.invalidateQueries({
+        queryKey: clientEmployeeKeys.pinStatus(userId),
+      });
+      // Invalidate specific employee detail
+      queryClient.invalidateQueries({
+        queryKey: clientEmployeeKeys.detail(userId),
       });
     },
   });

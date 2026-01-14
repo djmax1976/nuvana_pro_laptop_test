@@ -442,50 +442,60 @@ export const transactionService = {
 
     // Transform to response format
     const transformedTransactions: TransactionResponse[] = transactions.map(
-      (tx: any) => ({
-        transaction_id: tx.transaction_id,
-        store_id: tx.store_id,
-        shift_id: tx.shift_id,
-        cashier_id: tx.cashier_id,
-        pos_terminal_id: tx.pos_terminal_id,
-        timestamp: tx.timestamp.toISOString(),
-        subtotal: Number(tx.subtotal),
-        tax: Number(tx.tax),
-        discount: Number(tx.discount),
-        total: Number(tx.total),
-        public_id: tx.public_id,
-        cashier_name: tx.cashier?.name,
-        store_name: tx.store?.name,
-        // Phase 1.5: Include FK fields in line item response
-        line_items: tx.line_items?.map(
-          (li: any): TransactionLineItemResponse => ({
-            line_item_id: li.line_item_id,
-            product_id: li.product_id,
-            sku: li.sku,
-            name: li.name,
-            quantity: li.quantity,
-            unit_price: Number(li.unit_price),
-            discount: Number(li.discount),
-            tax_amount: Number(li.tax_amount || 0),
-            line_total: Number(li.line_total),
-            department_id: li.department_id,
-            department_code: li.department_code,
-            department_name: li.department?.display_name,
-          }),
-        ),
-        // Phase 1.5: Include FK fields in payment response
-        payments: tx.payments?.map(
-          (p: any): TransactionPaymentResponse => ({
-            payment_id: p.payment_id,
-            method: p.method,
-            amount: Number(p.amount),
-            reference: p.reference,
-            tender_type_id: p.tender_type_id,
-            tender_code: p.tender_code,
-            tender_name: p.tender_type?.display_name,
-          }),
-        ),
-      }),
+      (tx: any) => {
+        const response: TransactionResponse = {
+          transaction_id: tx.transaction_id,
+          store_id: tx.store_id,
+          shift_id: tx.shift_id,
+          cashier_id: tx.cashier_id,
+          pos_terminal_id: tx.pos_terminal_id,
+          timestamp: tx.timestamp.toISOString(),
+          subtotal: Number(tx.subtotal),
+          tax: Number(tx.tax),
+          discount: Number(tx.discount),
+          total: Number(tx.total),
+          public_id: tx.public_id,
+          cashier_name: tx.cashier?.name,
+          store_name: tx.store?.name,
+        };
+
+        // Phase 1.5: Include line items only when requested
+        if (include.line_items) {
+          response.line_items = (tx.line_items || []).map(
+            (li: any): TransactionLineItemResponse => ({
+              line_item_id: li.line_item_id,
+              product_id: li.product_id,
+              sku: li.sku,
+              name: li.name,
+              quantity: Number(li.quantity),
+              unit_price: Number(li.unit_price),
+              discount: Number(li.discount),
+              tax_amount: Number(li.tax_amount || 0),
+              line_total: Number(li.line_total),
+              department_id: li.department_id,
+              department_code: li.department_code,
+              department_name: li.department?.display_name,
+            }),
+          );
+        }
+
+        // Phase 1.5: Include payments only when requested
+        if (include.payments) {
+          response.payments = (tx.payments || []).map(
+            (p: any): TransactionPaymentResponse => ({
+              payment_id: p.payment_id,
+              method: p.method,
+              amount: Number(p.amount),
+              reference: p.reference,
+              tender_type_id: p.tender_type_id,
+              tender_code: p.tender_code,
+              tender_name: p.tender_type?.display_name,
+            }),
+          );
+        }
+
+        return response;
+      },
     );
 
     return {

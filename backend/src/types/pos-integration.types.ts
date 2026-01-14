@@ -86,6 +86,27 @@ export interface POSNoAuthCredentials {
 // ============================================================================
 
 /**
+ * Preview of data available from POS (returned during connection test)
+ */
+export interface POSDataPreview {
+  /** Preview of departments available */
+  departments?: {
+    count: number;
+    items: Array<{ posCode: string; displayName: string }>;
+  };
+  /** Preview of tender types available */
+  tenderTypes?: {
+    count: number;
+    items: Array<{ posCode: string; displayName: string }>;
+  };
+  /** Preview of tax rates available */
+  taxRates?: {
+    count: number;
+    items: Array<{ posCode: string; name: string; rate: number }>;
+  };
+}
+
+/**
  * Result of testing a POS connection
  */
 export interface POSConnectionTestResult {
@@ -103,6 +124,8 @@ export interface POSConnectionTestResult {
   errorCode?: string;
   /** Detailed error information */
   errorDetails?: Record<string, unknown>;
+  /** Preview of available data (populated on successful connection) */
+  preview?: POSDataPreview;
 }
 
 // ============================================================================
@@ -189,6 +212,56 @@ export interface POSTaxRate {
   jurisdictionCode?: string;
   /** Optional description */
   description?: string;
+}
+
+/**
+ * Fuel sales data from FGM (Fuel Grade Movement) files
+ */
+export interface POSFuelSalesSummary {
+  /** Business date for the fuel sales */
+  businessDate: string;
+  /** Total fuel sales amount in dollars */
+  totalSalesAmount: number;
+  /** Total fuel volume in gallons */
+  totalVolume: number;
+  /** Breakdown by fuel grade */
+  byGrade: POSFuelGradeSales[];
+  /** Breakdown by tender type */
+  byTender: POSFuelTenderSales[];
+  /** Source file path for idempotency */
+  sourceFile?: string;
+}
+
+/**
+ * Fuel sales by grade
+ */
+export interface POSFuelGradeSales {
+  /** Fuel grade ID (e.g., "001" for Regular) */
+  gradeId: string;
+  /** Fuel grade name */
+  gradeName?: string;
+  /** Sales amount in dollars */
+  salesAmount: number;
+  /** Volume in gallons */
+  volume: number;
+  /** Unit price */
+  unitPrice?: number;
+  /** Discount amount */
+  discountAmount?: number;
+}
+
+/**
+ * Fuel sales by tender type
+ */
+export interface POSFuelTenderSales {
+  /** Tender code (e.g., "cash", "outsideCredit") */
+  tenderCode: string;
+  /** Tender sub-code if any */
+  tenderSubCode?: string;
+  /** Sales amount in dollars */
+  salesAmount: number;
+  /** Volume in gallons */
+  volume: number;
 }
 
 // ============================================================================
@@ -371,15 +444,161 @@ export interface POSTransactionLineItem {
   taxAmount: number;
   /** Line total */
   lineTotal: number;
+  /** Item type: 'fuel', 'merchandise', 'lottery', etc. */
+  itemType?: "fuel" | "merchandise" | "lottery" | "other";
+  /** Fuel-specific: Grade ID (e.g., "001" for Regular) */
+  fuelGradeId?: string;
+  /** Fuel-specific: Position/pump ID */
+  fuelPositionId?: string;
+  /** Fuel-specific: Service level (self, full) */
+  fuelServiceLevel?: string;
 }
 
 export interface POSTransactionPayment {
   /** Tender type code */
   tenderCode: string;
+  /** Tender sub code (e.g., "generic", card brand) */
+  tenderSubCode?: string;
   /** Amount paid with this tender */
   amount: number;
   /** Reference number if applicable */
   reference?: string;
+  /** Whether this is a change transaction */
+  isChange?: boolean;
+}
+
+// ============================================================================
+// Complete PJR Transaction (Phase 5.6)
+// ============================================================================
+
+/**
+ * Complete transaction data from PJR (POSJournal) files
+ * Captures ALL fields from Gilbarco PJR files for database storage
+ * @enterprise Full audit trail for compliance and reporting
+ */
+export interface POSPJRTransaction {
+  // === TRANSACTION IDENTIFICATION ===
+  /** POS transaction ID (e.g., TransactionID from PJR) */
+  posTransactionId: string;
+  /** Store location ID from POS (e.g., "299") */
+  posStoreId: string;
+  /** Business date from POS */
+  businessDate: string;
+  /** Transaction timestamp (from EventStartDate + EventStartTime) */
+  timestamp: Date;
+  /** Receipt date and time */
+  receiptTimestamp: Date;
+
+  // === REGISTER/CASHIER INFO ===
+  /** Cashier ID from POS */
+  cashierId: string;
+  /** Register/Terminal ID */
+  registerId: string;
+  /** Till/Drawer ID */
+  tillId: string;
+
+  // === TRANSACTION FLAGS ===
+  /** Training mode transaction */
+  isTrainingMode: boolean;
+  /** Outside sales (at pump, not inside store) */
+  isOutsideSale: boolean;
+  /** Offline transaction */
+  isOffline: boolean;
+  /** Suspended/held transaction */
+  isSuspended: boolean;
+
+  // === LINKED TRANSACTION (for prepay) ===
+  /** Linked transaction ID (for fuel prepay completion) */
+  linkedTransactionId?: string;
+  /** Link reason (e.g., "fuelPrepay", "return") */
+  linkReason?: string;
+
+  // === TRANSACTION TOTALS ===
+  /** Gross amount before tax */
+  grossAmount: number;
+  /** Net amount (after adjustments) */
+  netAmount: number;
+  /** Total tax */
+  taxAmount: number;
+  /** Tax exempt amount */
+  taxExemptAmount: number;
+  /** Grand total collected */
+  grandTotal: number;
+
+  // === LINE ITEMS ===
+  lineItems: POSPJRLineItem[];
+
+  // === PAYMENTS ===
+  payments: POSTransactionPayment[];
+
+  // === FILE TRACKING ===
+  /** Source file path for audit */
+  sourceFile: string;
+  /** File hash for deduplication */
+  sourceFileHash: string;
+}
+
+/**
+ * Line item from PJR transaction
+ * Supports fuel, merchandise, lottery, and other item types
+ */
+export interface POSPJRLineItem {
+  // === ITEM IDENTIFICATION ===
+  /** Line status: "normal", "cancel", "void" */
+  status: "normal" | "cancel" | "void";
+  /** Item type based on content */
+  itemType:
+    | "fuel"
+    | "merchandise"
+    | "lottery"
+    | "prepay"
+    | "tax"
+    | "tender"
+    | "other";
+
+  // === MERCHANDISE FIELDS ===
+  /** Merchandise code from POS */
+  merchandiseCode?: string;
+  /** Item description */
+  description?: string;
+  /** Sales quantity */
+  quantity?: number;
+  /** Actual sales price per unit */
+  unitPrice?: number;
+  /** Regular sell price (before discounts) */
+  regularPrice?: number;
+  /** Line total amount */
+  salesAmount?: number;
+  /** Tax level ID for this item */
+  taxLevelId?: string;
+
+  // === FUEL-SPECIFIC FIELDS ===
+  /** Fuel grade ID (e.g., "001" for Regular) */
+  fuelGradeId?: string;
+  /** Fuel position/pump ID */
+  fuelPositionId?: string;
+  /** Service level (self, full) */
+  fuelServiceLevel?: string;
+  /** Price tier code */
+  fuelPriceTier?: string;
+  /** Time tier code */
+  fuelTimeTier?: string;
+  /** Entry method (card, other) */
+  fuelEntryMethod?: string;
+
+  // === PREPAY FIELDS ===
+  /** Prepay position ID */
+  prepayPositionId?: string;
+  /** Prepay amount */
+  prepayAmount?: number;
+
+  // === TAX FIELDS ===
+  /** Tax level ID (for TransactionTax lines) */
+  taxTaxLevelId?: string;
+  /** Taxable sales amount */
+  taxableSalesAmount?: number;
+  /** Tax collected amount */
+  taxCollectedAmount?: number;
 }
 
 // ============================================================================
@@ -418,6 +637,8 @@ export interface UpdatePOSIntegrationInput {
   timeout?: number;
   authType?: POSAuthType;
   authCredentials?: Record<string, unknown>;
+  /** XML Gateway path for file-based POS (BOOutbox export path) */
+  xmlGatewayPath?: string;
   syncEnabled?: boolean;
   syncIntervalMins?: number;
   syncDepartments?: boolean;

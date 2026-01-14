@@ -157,11 +157,13 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
               storeRoles.includes(r),
             );
 
-            // Check if user is CLIENT_OWNER (for /client-dashboard)
+            // Check if user is CLIENT_OWNER or SUPPORT (for /client-dashboard)
+            // SUPPORT has COMPANY scope like CLIENT_OWNER - can access company and all stores
             const isClientOwner =
               validatedData.user.roles?.includes("CLIENT_OWNER");
+            const isSupportUser = validatedData.user.roles?.includes("SUPPORT");
 
-            // Check if user has any client access (including CLIENT_OWNER)
+            // Check if user has any client access (including CLIENT_OWNER and SUPPORT)
             const hasClientAccess =
               validatedData.user.permissions?.includes(
                 "CLIENT_DASHBOARD_ACCESS",
@@ -170,14 +172,15 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
                 (r: string) =>
                   r === "CLIENT_USER" ||
                   r === "CLIENT_OWNER" ||
+                  r === "SUPPORT" ||
                   r === "STORE_MANAGER" ||
                   r === "SHIFT_MANAGER" ||
                   r === "CASHIER",
               );
 
-            // Allow both store-level users and CLIENT_OWNER to be authenticated
+            // Allow store-level users, CLIENT_OWNER, and SUPPORT to be authenticated
             // The layouts will handle routing to the correct dashboard
-            if (!isStoreUser && !isClientOwner) {
+            if (!isStoreUser && !isClientOwner && !isSupportUser) {
               // User doesn't have client access at all - clear session
               try {
                 localStorage.removeItem(STORAGE_KEY);
@@ -192,10 +195,13 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
             }
 
             // Determine user_role for routing
+            // Priority: CLIENT_OWNER > SUPPORT > Store-level roles
             let userRole: string | undefined;
             const roles = validatedData.user.roles || [];
             if (roles.includes("CLIENT_OWNER")) {
               userRole = "CLIENT_OWNER";
+            } else if (roles.includes("SUPPORT")) {
+              userRole = "SUPPORT";
             } else if (roles.includes("CLIENT_USER")) {
               userRole = "CLIENT_USER";
             } else if (roles.includes("STORE_MANAGER")) {
@@ -486,10 +492,13 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Determine user_role for routing (same logic as initial validation)
+    // Priority: CLIENT_OWNER > SUPPORT > Store-level roles
     const roles = data.user?.roles || [];
     let userRole: string | undefined;
     if (roles.includes("CLIENT_OWNER")) {
       userRole = "CLIENT_OWNER";
+    } else if (roles.includes("SUPPORT")) {
+      userRole = "SUPPORT";
     } else if (roles.includes("CLIENT_USER")) {
       userRole = "CLIENT_USER";
     } else if (roles.includes("STORE_MANAGER")) {
@@ -501,6 +510,7 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Determine if this is a store-level user (for /mystore routing)
+    // SUPPORT is NOT a store-level user - has COMPANY scope like CLIENT_OWNER
     const isStoreUser =
       roles.includes("CLIENT_USER") ||
       roles.includes("STORE_MANAGER") ||
@@ -565,23 +575,41 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
 
-        // Check for client access via permission or store-level roles
-        const hasClientAccess =
-          data.user.permissions?.includes("CLIENT_DASHBOARD_ACCESS") ||
-          data.user.roles?.some(
-            (r: string) =>
-              r === "CLIENT_USER" ||
-              r === "CLIENT_OWNER" ||
-              r === "STORE_MANAGER" ||
-              r === "SHIFT_MANAGER" ||
-              r === "CASHIER",
-          );
+        // SEC-010: AUTHZ - Trust the backend's authentication response
+        // The backend has already validated the user's session and permissions
+        // We simply update the context with the validated data
+        // This is role-agnostic and will work with any current or future roles
+        const roles = data.user.roles || [];
+
+        // Determine user_role for routing (priority order)
+        // Priority: CLIENT_OWNER > SUPPORT > Store-level roles > SUPERADMIN
+        let userRole: string | undefined;
+        if (roles.includes("CLIENT_OWNER")) {
+          userRole = "CLIENT_OWNER";
+        } else if (roles.includes("SUPPORT")) {
+          userRole = "SUPPORT";
+        } else if (roles.includes("CLIENT_USER")) {
+          userRole = "CLIENT_USER";
+        } else if (roles.includes("STORE_MANAGER")) {
+          userRole = "STORE_MANAGER";
+        } else if (roles.includes("SHIFT_MANAGER")) {
+          userRole = "SHIFT_MANAGER";
+        } else if (roles.includes("CASHIER")) {
+          userRole = "CASHIER";
+        } else if (roles.includes("SUPERADMIN")) {
+          userRole = "SUPERADMIN";
+        } else if (roles.length > 0) {
+          // Future-proof: use first role if none of the known ones match
+          userRole = roles[0];
+        }
 
         const userData: ClientUser = {
           id: data.user.id,
           email: data.user.email,
           name: data.user.name || data.user.email,
-          is_client_user: hasClientAccess,
+          is_client_user: data.user.is_client_user ?? true, // Trust backend's determination
+          user_role: userRole,
+          roles: roles,
         };
 
         // Store permissions from validated data
@@ -595,7 +623,8 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
             JSON.stringify({
               user: userData,
               authenticated: true,
-              isClientUser: hasClientAccess,
+              isClientUser: userData.is_client_user,
+              userRole: userRole,
             }),
           );
         } catch (storageError) {
