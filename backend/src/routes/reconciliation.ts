@@ -405,7 +405,7 @@ async function findOrphanedRecords(storeId?: string): Promise<{
   const shiftWhereClause: any = {
     status: "CLOSED",
     closed_at: { not: null },
-    shift_summary: null,
+    shift_summary: { is: null },
   };
   if (storeId) {
     shiftWhereClause.store_id = storeId;

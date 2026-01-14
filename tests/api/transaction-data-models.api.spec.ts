@@ -357,6 +357,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
     await prismaClient.transactionLineItem.create({
       data: {
         transaction_id: transaction.transaction_id,
+        sku: "TEST-SKU-001",
         name: "Test Product",
         quantity: 1,
         unit_price: 100.0,
@@ -611,6 +612,7 @@ test.describe("Transaction Data Models - Query Operations", () => {
     await prismaClient.transactionLineItem.create({
       data: {
         transaction_id: transaction.transaction_id,
+        sku: "TEST-SKU-002",
         name: "Test Product",
         quantity: 2,
         unit_price: 50.0,
@@ -629,7 +631,8 @@ test.describe("Transaction Data Models - Query Operations", () => {
     });
 
     // WHEN: Loading transaction with relationships
-    const fullTransaction = await prismaClient.transaction.findUnique({
+    // Note: Transaction has composite PK (transaction_id, timestamp), so use findFirst
+    const fullTransaction = await prismaClient.transaction.findFirst({
       where: { transaction_id: transaction.transaction_id },
       include: {
         line_items: true,
@@ -727,6 +730,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
       data: [
         {
           transaction_id: transaction.transaction_id,
+          sku: "PROD-A-001",
           name: "Product A",
           quantity: 2,
           unit_price: 50.0,
@@ -735,6 +739,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
         },
         {
           transaction_id: transaction.transaction_id,
+          sku: "PROD-B-001",
           name: "Product B",
           quantity: 1,
           unit_price: 50.0,
@@ -1061,6 +1066,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     const lineItem = await prismaClient.transactionLineItem.create({
       data: {
         transaction_id: transaction.transaction_id,
+        sku: "CANCELLED-001",
         name: "Cancelled Item",
         quantity: 0,
         unit_price: 50.0,
@@ -1103,6 +1109,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     const lineItem = await prismaClient.transactionLineItem.create({
       data: {
         transaction_id: transaction.transaction_id,
+        sku: "RETURN-001",
         name: "Returned Item",
         quantity: -1,
         unit_price: 50.0,
@@ -1152,6 +1159,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     const lineItem = await prismaClient.transactionLineItem.create({
       data: {
         transaction_id: transaction.transaction_id,
+        sku: "BULK-001",
         name: "Bulk Item",
         quantity: 10000,
         unit_price: 10.0,
@@ -1391,6 +1399,7 @@ test.describe("Transaction Data Models - Security", () => {
     const lineItem = await prismaClient.transactionLineItem.create({
       data: {
         transaction_id: transaction.transaction_id,
+        sku: "SQL-INJ-001",
         name: maliciousName,
         quantity: 1,
         unit_price: 100.0,

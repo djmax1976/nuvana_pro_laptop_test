@@ -205,6 +205,9 @@ async function createTransactionRecords(
   // Generate public_id for the transaction
   const publicId = generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION);
 
+  // Determine the cashier_id to use (payload.cashier_id or authenticated user's userId)
+  const cashierId = payload.cashier_id || userId;
+
   // Create all records in a single Prisma transaction
   const resultTransactionId = await prisma.$transaction(async (tx) => {
     // Check if transaction already exists (idempotency check)
@@ -222,6 +225,22 @@ async function createTransactionRecords(
       return transactionId;
     }
 
+    // Validate that the cashier_id (user) exists INSIDE the transaction
+    // This prevents FK constraint violations and race conditions
+    const cashierUser = await tx.user.findUnique({
+      where: { user_id: cashierId },
+      select: { user_id: true },
+    });
+
+    if (!cashierUser) {
+      throw new Error(
+        `Cashier user not found: ${cashierId}. ` +
+          `Transaction.cashier_id must reference an existing User.user_id. ` +
+          `If cashier_id was provided in payload, ensure it's a valid user_id. ` +
+          `Otherwise, ensure the authenticated user (${userId}) exists.`,
+      );
+    }
+
     // Transaction doesn't exist - create it
     try {
       await tx.transaction.create({
@@ -229,7 +248,7 @@ async function createTransactionRecords(
           transaction_id: transactionId,
           store_id: payload.store_id,
           shift_id: payload.shift_id,
-          cashier_id: payload.cashier_id || userId, // Use payload cashier_id or user_id
+          cashier_id: cashierId, // Use validated cashier_id
           pos_terminal_id: payload.pos_terminal_id || null,
           timestamp: payload.timestamp
             ? new Date(payload.timestamp)
@@ -264,7 +283,26 @@ async function createTransactionRecords(
         // If still not found, rethrow the error
         throw error;
       }
-      // Rethrow non-unique-constraint errors
+      // Handle foreign key constraint violation
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2003"
+      ) {
+        // Foreign key constraint violation - likely cashier_id doesn't exist
+        logWorker("error", "Foreign key constraint violation", {
+          correlation_id: correlationId,
+          transaction_id: transactionId,
+          error_code: error.code,
+          cashier_id: cashierId,
+          user_id: userId,
+          error_message: error.message,
+        });
+        throw new Error(
+          `Foreign key constraint violation: cashier_id ${cashierId} does not exist in users table. ` +
+            `Ensure the cashier_id (or authenticated user_id ${userId}) is a valid user_id.`,
+        );
+      }
+      // Rethrow other errors
       throw error;
     }
 

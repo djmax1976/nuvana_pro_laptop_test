@@ -87,6 +87,13 @@ END $$;
 -- Add item_type column with default
 ALTER TABLE "transaction_line_items" ADD COLUMN IF NOT EXISTS "item_type" "TransactionItemType" NOT NULL DEFAULT 'MERCHANDISE';
 
+-- Merchandise code from POS (e.g., MerchandiseCode from PJR)
+ALTER TABLE "transaction_line_items" ADD COLUMN IF NOT EXISTS "pos_merchandise_code" VARCHAR(50);
+
+-- Index for merchandise code lookups
+CREATE INDEX IF NOT EXISTS "transaction_line_items_pos_merchandise_code_idx"
+    ON "transaction_line_items"("pos_merchandise_code");
+
 -- Fuel-specific fields for line items
 ALTER TABLE "transaction_line_items" ADD COLUMN IF NOT EXISTS "fuel_grade_id" UUID;
 ALTER TABLE "transaction_line_items" ADD COLUMN IF NOT EXISTS "pos_fuel_grade_id" VARCHAR(10);

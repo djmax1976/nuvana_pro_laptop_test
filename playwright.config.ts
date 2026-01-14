@@ -122,9 +122,9 @@ export default defineConfig({
             command: "cd backend && npm run serve:test",
             url:
               (process.env.BACKEND_URL || "http://localhost:3001") + "/health",
-            // Reuse existing server if one is running to avoid EADDRINUSE errors
-            // This prevents transient failures when running tests multiple times
-            reuseExistingServer: true,
+            // NEVER reuse existing server - a dev server on nuvana_dev will cause
+            // 401 "Account not found" errors because test users exist in nuvana_test
+            reuseExistingServer: false,
             timeout: 120000,
             stdout: "pipe" as const,
             stderr: "pipe" as const,
