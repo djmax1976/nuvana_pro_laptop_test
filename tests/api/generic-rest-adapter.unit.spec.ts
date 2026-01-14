@@ -218,7 +218,7 @@ test.describe("Phase5-Unit: GRST Configuration Validation", () => {
   test("GRST-001: [P0] validateConfig should throw when mappings are missing", async () => {
     // GIVEN: A config without mappings
     const { GenericRESTAdapter, GenericRESTAdapterError } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     const config = {
@@ -245,7 +245,7 @@ test.describe("Phase5-Unit: GRST Configuration Validation", () => {
   test("GRST-002: [P0] should fail when no entity mappings are configured", async () => {
     // GIVEN: A config with empty mappings
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     const config = createBaseConfig({
@@ -264,7 +264,7 @@ test.describe("Phase5-Unit: GRST Configuration Validation", () => {
   test("GRST-003: [P0] should use baseUrl from mappings when provided", async () => {
     // GIVEN: A config with baseUrl in mappings
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // The baseUrl should override host/port/ssl
@@ -292,7 +292,7 @@ test.describe("Phase5-Unit: GRST JSONPath Extraction", () => {
   test("GRST-020: [P0] should extract root level fields", async () => {
     // The extractValue method handles paths like $.id, $.name
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // Path extraction is tested through the adapter methods
@@ -302,7 +302,7 @@ test.describe("Phase5-Unit: GRST JSONPath Extraction", () => {
   test("GRST-021: [P0] should extract nested fields", async () => {
     // The extractValue method handles paths like $.data.items, $.result.categories
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter.displayName).toBe("Generic REST API");
@@ -311,7 +311,7 @@ test.describe("Phase5-Unit: GRST JSONPath Extraction", () => {
   test("GRST-022: [P0] should extract array index values", async () => {
     // The extractValue method handles paths like $.items[0], $.data[1].name
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -320,7 +320,7 @@ test.describe("Phase5-Unit: GRST JSONPath Extraction", () => {
   test("GRST-023: [P1] should handle wildcard array extraction", async () => {
     // The extractValue method handles paths like $.items[*].id
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -329,7 +329,7 @@ test.describe("Phase5-Unit: GRST JSONPath Extraction", () => {
   test("GRST-024: [P1] should normalize paths with or without $. prefix", async () => {
     // Paths like "data.items" should work the same as "$.data.items"
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter.posType).toBe("GENERIC_REST");
@@ -343,7 +343,7 @@ test.describe("Phase5-Unit: GRST JSONPath Extraction", () => {
 test.describe("Phase5-Unit: GRST Value Transformations", () => {
   test("GRST-030: [P1] should handle string transform", async () => {
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -351,7 +351,7 @@ test.describe("Phase5-Unit: GRST Value Transformations", () => {
 
   test("GRST-031: [P1] should handle number transform", async () => {
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -360,7 +360,7 @@ test.describe("Phase5-Unit: GRST Value Transformations", () => {
   test("GRST-032: [P1] should handle boolean transform", async () => {
     // Handles: true/false, yes/no, 1/0, on/off, active/inactive
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -369,7 +369,7 @@ test.describe("Phase5-Unit: GRST Value Transformations", () => {
   test("GRST-034: [P0] should handle cents_to_dollars transform", async () => {
     // Converts 825 cents to 8.25 dollars
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // This transform is unique to the REST adapter
@@ -379,7 +379,7 @@ test.describe("Phase5-Unit: GRST Value Transformations", () => {
   test("GRST-035: [P0] should handle percentage_to_decimal transform", async () => {
     // Converts 8.25% to 0.0825
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -394,7 +394,7 @@ test.describe("Phase5-Unit: GRST Pagination Strategies", () => {
   test("GRST-040: [P0] should support offset pagination", async () => {
     // Offset pagination uses offset and limit query params
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // Pagination types are configured in mapping
@@ -404,7 +404,7 @@ test.describe("Phase5-Unit: GRST Pagination Strategies", () => {
   test("GRST-041: [P0] should support cursor pagination", async () => {
     // Cursor pagination uses cursor param and nextCursorPath
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -413,7 +413,7 @@ test.describe("Phase5-Unit: GRST Pagination Strategies", () => {
   test("GRST-042: [P0] should support page pagination", async () => {
     // Page pagination uses page and per_page params
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -422,7 +422,7 @@ test.describe("Phase5-Unit: GRST Pagination Strategies", () => {
   test("GRST-043: [P0] should handle no pagination (single request)", async () => {
     // When no pagination config, makes single request
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -437,7 +437,7 @@ test.describe("Phase5-Unit: GRST Sync Methods - No Mapping", () => {
   test("GRST-054: [P1] syncDepartments should return empty array when no mapping", async () => {
     // GIVEN: Config without department mapping
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     const config = createBaseConfig({
@@ -461,7 +461,7 @@ test.describe("Phase5-Unit: GRST Sync Methods - No Mapping", () => {
   test("GRST-055: [P1] syncTenderTypes should return empty array when no mapping", async () => {
     // GIVEN: Config without tender mapping
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     const config = createBaseConfig({
@@ -485,7 +485,7 @@ test.describe("Phase5-Unit: GRST Sync Methods - No Mapping", () => {
   test("GRST-056: [P1] syncTaxRates should return empty array when no mapping", async () => {
     // GIVEN: Config without tax rate mapping
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     const config = createBaseConfig({
@@ -509,7 +509,7 @@ test.describe("Phase5-Unit: GRST Sync Methods - No Mapping", () => {
   test("GRST-057: [P1] syncCashiers should return empty array when no mapping", async () => {
     // GIVEN: Config without cashier mapping
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     const config = createBaseConfig({
@@ -538,7 +538,7 @@ test.describe("Phase5-Unit: GRST Sync Methods - No Mapping", () => {
 test.describe("Phase5-Unit: GRST Entity Mapping", () => {
   test("GRST-060: [P0] mapToDepartment should correctly map department fields", async () => {
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // Mapping handles: posCode, displayName, isTaxable, minimumAge, isLottery, isActive, sortOrder
@@ -547,7 +547,7 @@ test.describe("Phase5-Unit: GRST Entity Mapping", () => {
 
   test("GRST-061: [P0] mapToTenderType should correctly map tender fields", async () => {
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // Mapping handles: posCode, displayName, isCashEquivalent, isElectronic, affectsCashDrawer, requiresReference
@@ -556,7 +556,7 @@ test.describe("Phase5-Unit: GRST Entity Mapping", () => {
 
   test("GRST-062: [P0] mapToTaxRate should correctly map tax rate fields", async () => {
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // Mapping handles: posCode, displayName, rate, isActive, jurisdictionCode
@@ -565,7 +565,7 @@ test.describe("Phase5-Unit: GRST Entity Mapping", () => {
 
   test("GRST-063: [P0] mapToCashier should correctly map cashier fields", async () => {
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // Mapping handles: posCode, firstName, lastName, isActive, employeeId
@@ -576,7 +576,7 @@ test.describe("Phase5-Unit: GRST Entity Mapping", () => {
     // Detects: ALCOHOL, BEER, WINE, LIQUOR, SPIRITS -> 21
     // Detects: TOBACCO, CIGARETTE, CIGAR, VAPE -> 21
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter.displayName).toBe("Generic REST API");
@@ -585,7 +585,7 @@ test.describe("Phase5-Unit: GRST Entity Mapping", () => {
   test("GRST-065: [P1] isLotteryCategory should identify lottery categories", async () => {
     // Detects: LOTTERY, LOTTO, SCRATCH
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -600,7 +600,7 @@ test.describe("Phase5-Unit: GRST Adapter Capabilities", () => {
   test("GRST-080: [P2] getCapabilities should return correct adapter capabilities", async () => {
     // GIVEN: A Generic REST adapter
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // WHEN: Getting capabilities
@@ -619,7 +619,7 @@ test.describe("Phase5-Unit: GRST Adapter Capabilities", () => {
   test("GRST-081: [P2] adapter should have correct posType and displayName", async () => {
     // GIVEN: A Generic REST adapter
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // THEN: posType and displayName should be correct
@@ -636,7 +636,7 @@ test.describe("Phase5-Unit: GRST Error Handling", () => {
   test("GRST-090: [P1] GenericRESTAdapterError should contain structured error info", async () => {
     // GIVEN: The error class
     const { GenericRESTAdapterError } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
 
     // WHEN: Creating an error
     const error = new GenericRESTAdapterError(
@@ -657,7 +657,7 @@ test.describe("Phase5-Unit: GRST Error Handling", () => {
   test("GRST-091: [P1] error should default to non-retryable", async () => {
     // GIVEN: The error class
     const { GenericRESTAdapterError } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
 
     // WHEN: Creating an error without retryable flag
     const error = new GenericRESTAdapterError("Test error", "TEST_CODE");
@@ -675,7 +675,7 @@ test.describe("Phase5-Unit: GRST Adapter Registry", () => {
   test("GRST-100: [P0] adapter should be registered in adapter registry", async () => {
     // GIVEN: The adapter registry
     const { posAdapterRegistry, hasPOSAdapter } =
-      await import("../../backend/dist/services/pos/adapter-registry");
+      await import("../../backend/src/services/pos/adapter-registry");
 
     // THEN: GENERIC_REST should be registered
     expect(hasPOSAdapter("GENERIC_REST")).toBe(true);
@@ -690,7 +690,7 @@ test.describe("Phase5-Unit: GRST Adapter Registry", () => {
   test("GRST-101: [P1] adapter registry should list GENERIC_REST in adapter list", async () => {
     // GIVEN: The adapter registry
     const { posAdapterRegistry } =
-      await import("../../backend/dist/services/pos/adapter-registry");
+      await import("../../backend/src/services/pos/adapter-registry");
 
     // WHEN: Getting the adapter list
     const adapterList = posAdapterRegistry.getAdapterList();
@@ -710,7 +710,7 @@ test.describe("Phase5-Unit: GRST URL Building", () => {
   test("GRST-110: [P0] buildUrl should correctly construct URLs", async () => {
     // The buildUrl method should combine baseUrl with path
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // URL building is inherited from BaseRESTAdapter and overridden for dynamic baseUrl
@@ -720,7 +720,7 @@ test.describe("Phase5-Unit: GRST URL Building", () => {
   test("GRST-111: [P1] should handle query parameters correctly", async () => {
     // Query params should be properly URL encoded
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -735,7 +735,7 @@ test.describe("Phase5-Unit: GRST Rate Limiting", () => {
   test("GRST-120: [P1] should have default rate limit configuration", async () => {
     // GIVEN: A Generic REST adapter
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // Rate limiting is inherited from BaseRESTAdapter
@@ -752,7 +752,7 @@ test.describe("Phase5-Unit: GRST Security", () => {
   test("GRST-130: [P0] adapter should not expose sensitive credentials in logs", async () => {
     // GIVEN: The adapter
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // Logging with credential redaction is handled by BaseRESTAdapter
@@ -762,7 +762,7 @@ test.describe("Phase5-Unit: GRST Security", () => {
   test("GRST-131: [P1] error details should not leak sensitive information", async () => {
     // GIVEN: The error class
     const { GenericRESTAdapterError } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
 
     // WHEN: Creating an error
     const error = new GenericRESTAdapterError(
@@ -779,7 +779,7 @@ test.describe("Phase5-Unit: GRST Security", () => {
   test("GRST-132: [P0] should support OAuth 2.0 authentication", async () => {
     // OAuth 2.0 is inherited from BaseRESTAdapter
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -788,7 +788,7 @@ test.describe("Phase5-Unit: GRST Security", () => {
   test("GRST-133: [P0] should support API key authentication", async () => {
     // API key auth is inherited from BaseRESTAdapter
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -802,7 +802,7 @@ test.describe("Phase5-Unit: GRST Security", () => {
 test.describe("Phase5-Unit: GRST Edge Cases", () => {
   test("GRST-140: [P1] should handle empty array response", async () => {
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // Empty arrays should return empty results
@@ -811,7 +811,7 @@ test.describe("Phase5-Unit: GRST Edge Cases", () => {
 
   test("GRST-141: [P1] should handle null/undefined values", async () => {
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // Null/undefined should trigger default values
@@ -820,7 +820,7 @@ test.describe("Phase5-Unit: GRST Edge Cases", () => {
 
   test("GRST-142: [P1] should handle missing nested paths", async () => {
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // Missing nested paths should return undefined/default
@@ -830,7 +830,7 @@ test.describe("Phase5-Unit: GRST Edge Cases", () => {
   test("GRST-143: [P1] tax rate should convert percentage to decimal", async () => {
     // Tax rates > 1 are converted: 8.25 -> 0.0825
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -839,7 +839,7 @@ test.describe("Phase5-Unit: GRST Edge Cases", () => {
   test("GRST-144: [P1] should handle maxItems limit", async () => {
     // Pagination should respect maxItems configuration
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -854,7 +854,7 @@ test.describe("Phase5-Unit: GRST Business Logic", () => {
   test("GRST-150: [P0] tender type inference should work for CASH", async () => {
     // Tender with "CASH" in name: cash equivalent, affects drawer
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter.displayName).toBe("Generic REST API");
@@ -863,7 +863,7 @@ test.describe("Phase5-Unit: GRST Business Logic", () => {
   test("GRST-151: [P0] tender type inference should work for CREDIT/DEBIT", async () => {
     // Tender with "CREDIT" or "DEBIT" in name: electronic, not cash equivalent
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -872,7 +872,7 @@ test.describe("Phase5-Unit: GRST Business Logic", () => {
   test("GRST-152: [P0] tender type inference should work for CHECK", async () => {
     // Tender with "CHECK" in name: cash equivalent, requires reference
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -881,7 +881,7 @@ test.describe("Phase5-Unit: GRST Business Logic", () => {
   test("GRST-153: [P0] cashier name parsing should split full name", async () => {
     // Full name "John Smith" should split to firstName="John", lastName="Smith"
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -890,7 +890,7 @@ test.describe("Phase5-Unit: GRST Business Logic", () => {
   test("GRST-154: [P1] cashier should default to 'Unknown' if no name", async () => {
     // Missing name should default firstName to "Unknown"
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     expect(adapter).toBeDefined();
@@ -905,7 +905,7 @@ test.describe("Phase5-Unit: GRST Type Exports", () => {
   test("GRST-160: [P1] should export all required types", async () => {
     // GIVEN: The module exports
     const exports =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
 
     // THEN: Required types should be exported
     expect(exports.GenericRESTAdapter).toBeDefined();
@@ -921,7 +921,7 @@ test.describe("Phase5-Unit: GRST Inheritance", () => {
   test("GRST-170: [P0] should extend BaseRESTAdapter", async () => {
     // GIVEN: The GenericRESTAdapter
     const { GenericRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/generic-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/generic-rest.adapter");
     const adapter = new GenericRESTAdapter();
 
     // THEN: Should have methods from BaseRESTAdapter

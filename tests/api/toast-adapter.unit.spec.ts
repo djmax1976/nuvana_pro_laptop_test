@@ -194,7 +194,7 @@ test.describe("Phase4-Unit: TOST Adapter Initialization", () => {
   test("TOST-001: [P0] should initialize adapter correctly", async () => {
     // GIVEN: The ToastAdapter class
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
 
     // WHEN: Creating an instance
     const adapter = new ToastAdapter();
@@ -207,7 +207,7 @@ test.describe("Phase4-Unit: TOST Adapter Initialization", () => {
   test("TOST-002: [P0] should have correct posType", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const adapter = new ToastAdapter();
 
     // THEN: posType should be TOAST_REST
@@ -217,7 +217,7 @@ test.describe("Phase4-Unit: TOST Adapter Initialization", () => {
   test("TOST-003: [P0] should have correct displayName", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const adapter = new ToastAdapter();
 
     // THEN: displayName should be Toast
@@ -233,9 +233,9 @@ test.describe("Phase4-Unit: TOST Connection Testing", () => {
   test("TOST-011: [P0] should fail when restaurantGuid is missing", async () => {
     // GIVEN: A config without restaurantGuid
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
     const adapter = new ToastAdapter();
 
     const configWithoutRestaurant = {
@@ -257,9 +257,9 @@ test.describe("Phase4-Unit: TOST Connection Testing", () => {
   test("TOST-012: [P0] should include latencyMs in connection result", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
     const adapter = new ToastAdapter();
 
     const config = createToastConfig({ restaurantGuid: "" });
@@ -284,7 +284,7 @@ test.describe("Phase4-Unit: TOST Capabilities", () => {
   test("TOST-070: [P0] should declare correct capabilities", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const adapter = new ToastAdapter();
 
     // WHEN: Getting capabilities
@@ -300,7 +300,7 @@ test.describe("Phase4-Unit: TOST Capabilities", () => {
   test("TOST-071: [P1] should support product sync", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const adapter = new ToastAdapter();
 
     // WHEN: Getting capabilities
@@ -313,7 +313,7 @@ test.describe("Phase4-Unit: TOST Capabilities", () => {
   test("TOST-072: [P1] should support webhooks", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const adapter = new ToastAdapter();
 
     // WHEN: Getting capabilities
@@ -333,7 +333,7 @@ test.describe("Phase4-Unit: TOST Sync Methods", () => {
   test("TOST-020: [P0] syncDepartments should be a function", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const adapter = new ToastAdapter();
 
     // THEN: syncDepartments should be a function
@@ -343,7 +343,7 @@ test.describe("Phase4-Unit: TOST Sync Methods", () => {
   test("TOST-030: [P0] syncTenderTypes should be a function", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const adapter = new ToastAdapter();
 
     // THEN: syncTenderTypes should be a function
@@ -353,7 +353,7 @@ test.describe("Phase4-Unit: TOST Sync Methods", () => {
   test("TOST-040: [P0] syncCashiers should be a function", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const adapter = new ToastAdapter();
 
     // THEN: syncCashiers should be a function
@@ -363,7 +363,7 @@ test.describe("Phase4-Unit: TOST Sync Methods", () => {
   test("TOST-050: [P0] syncTaxRates should be a function", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const adapter = new ToastAdapter();
 
     // THEN: syncTaxRates should be a function
@@ -373,7 +373,7 @@ test.describe("Phase4-Unit: TOST Sync Methods", () => {
   test("TOST-060: [P0] fetchTransactions should be a function", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const adapter = new ToastAdapter();
 
     // THEN: fetchTransactions should be a function
@@ -558,9 +558,9 @@ test.describe("Phase4-Unit: TOST Config Validation", () => {
   test("TOST-110: [P0] should require restaurantGuid in config", async () => {
     // GIVEN: A ToastAdapter
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
     const adapter = new ToastAdapter();
 
     // WHEN: Testing with missing restaurantGuid
@@ -579,9 +579,9 @@ test.describe("Phase4-Unit: TOST Config Validation", () => {
   test("TOST-111: [P0] should require non-empty restaurantGuid", async () => {
     // GIVEN: A ToastAdapter
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
     const adapter = new ToastAdapter();
 
     // WHEN: Testing with empty restaurantGuid
@@ -603,7 +603,7 @@ test.describe("Phase4-Unit: TOST Adapter Registry", () => {
   test("TOST-120: [P0] should be registered in adapter registry", async () => {
     // GIVEN: The adapter registry
     const { posAdapterRegistry, hasPOSAdapter } =
-      await import("../../backend/dist/services/pos/adapter-registry");
+      await import("../../backend/src/services/pos/adapter-registry");
 
     // THEN: TOAST_REST should be registered
     expect(hasPOSAdapter("TOAST_REST")).toBe(true);
@@ -617,7 +617,7 @@ test.describe("Phase4-Unit: TOST Adapter Registry", () => {
   test("TOST-121: [P1] should be listed in adapter list", async () => {
     // GIVEN: The adapter registry
     const { posAdapterRegistry } =
-      await import("../../backend/dist/services/pos/adapter-registry");
+      await import("../../backend/src/services/pos/adapter-registry");
 
     // WHEN: Getting the adapter list
     const adapterList = posAdapterRegistry.getAdapterList();
@@ -832,9 +832,9 @@ test.describe("Phase4-Unit: TOST Inheritance", () => {
   test("TOST-130: [P0] should extend BaseRESTAdapter", async () => {
     // GIVEN: ToastAdapter and BaseRESTAdapter
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const { BaseRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // WHEN: Creating an instance
     const adapter = new ToastAdapter();
@@ -846,7 +846,7 @@ test.describe("Phase4-Unit: TOST Inheritance", () => {
   test("TOST-131: [P0] should have all inherited methods", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const adapter = new ToastAdapter();
 
     // THEN: Should have all inherited methods
@@ -1002,9 +1002,9 @@ test.describe("Phase4-Unit: TOST Security", () => {
   test("TOST-160: [P0] should not expose credentials in error messages", async () => {
     // GIVEN: A ToastAdapter
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
     const adapter = new ToastAdapter();
 
     // WHEN: Testing with invalid config
@@ -1028,7 +1028,7 @@ test.describe("Phase4-Unit: TOST Rate Limiting", () => {
   test("TOST-100: [P0] should have rate limit configured", async () => {
     // GIVEN: A ToastAdapter instance
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const adapter = new ToastAdapter();
 
     // THEN: Adapter should exist (rate limit is protected)

@@ -180,7 +180,7 @@ test.describe("Phase4-Unit: SQRE Adapter Initialization", () => {
   test("SQRE-001: [P0] should initialize adapter correctly", async () => {
     // GIVEN: The SquareAdapter class
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
 
     // WHEN: Creating an instance
     const adapter = new SquareAdapter();
@@ -193,7 +193,7 @@ test.describe("Phase4-Unit: SQRE Adapter Initialization", () => {
   test("SQRE-002: [P0] should have correct posType", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // THEN: posType should be SQUARE_REST
@@ -203,7 +203,7 @@ test.describe("Phase4-Unit: SQRE Adapter Initialization", () => {
   test("SQRE-003: [P0] should have correct displayName", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // THEN: displayName should be Square
@@ -219,9 +219,9 @@ test.describe("Phase4-Unit: SQRE Connection Testing", () => {
   test("SQRE-011: [P0] should fail when locationId is missing", async () => {
     // GIVEN: A config without locationId
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
     const adapter = new SquareAdapter();
 
     const configWithoutLocation = {
@@ -243,9 +243,9 @@ test.describe("Phase4-Unit: SQRE Connection Testing", () => {
   test("SQRE-012: [P0] should include latencyMs in connection result", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
     const adapter = new SquareAdapter();
 
     const config = createSquareConfig({ locationId: "" });
@@ -270,7 +270,7 @@ test.describe("Phase4-Unit: SQRE Capabilities", () => {
   test("SQRE-070: [P0] should declare correct capabilities", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // WHEN: Getting capabilities
@@ -286,7 +286,7 @@ test.describe("Phase4-Unit: SQRE Capabilities", () => {
   test("SQRE-071: [P1] should support product sync", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // WHEN: Getting capabilities
@@ -299,7 +299,7 @@ test.describe("Phase4-Unit: SQRE Capabilities", () => {
   test("SQRE-072: [P1] should support webhooks", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // WHEN: Getting capabilities
@@ -319,7 +319,7 @@ test.describe("Phase4-Unit: SQRE Sync Methods", () => {
   test("SQRE-020: [P0] syncDepartments should be a function", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // THEN: syncDepartments should be a function
@@ -329,7 +329,7 @@ test.describe("Phase4-Unit: SQRE Sync Methods", () => {
   test("SQRE-030: [P0] syncTenderTypes should be a function", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // THEN: syncTenderTypes should be a function
@@ -339,7 +339,7 @@ test.describe("Phase4-Unit: SQRE Sync Methods", () => {
   test("SQRE-040: [P0] syncCashiers should be a function", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // THEN: syncCashiers should be a function
@@ -349,7 +349,7 @@ test.describe("Phase4-Unit: SQRE Sync Methods", () => {
   test("SQRE-050: [P0] syncTaxRates should be a function", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // THEN: syncTaxRates should be a function
@@ -359,7 +359,7 @@ test.describe("Phase4-Unit: SQRE Sync Methods", () => {
   test("SQRE-060: [P0] fetchTransactions should be a function", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // THEN: fetchTransactions should be a function
@@ -552,9 +552,9 @@ test.describe("Phase4-Unit: SQRE Config Validation", () => {
   test("SQRE-110: [P0] should require locationId in config", async () => {
     // GIVEN: A SquareAdapter
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
     const adapter = new SquareAdapter();
 
     // WHEN: Testing with missing locationId
@@ -573,9 +573,9 @@ test.describe("Phase4-Unit: SQRE Config Validation", () => {
   test("SQRE-111: [P0] should require non-empty locationId", async () => {
     // GIVEN: A SquareAdapter
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
     const adapter = new SquareAdapter();
 
     // WHEN: Testing with empty locationId
@@ -597,7 +597,7 @@ test.describe("Phase4-Unit: SQRE Adapter Registry", () => {
   test("SQRE-120: [P0] should be registered in adapter registry", async () => {
     // GIVEN: The adapter registry
     const { posAdapterRegistry, hasPOSAdapter } =
-      await import("../../backend/dist/services/pos/adapter-registry");
+      await import("../../backend/src/services/pos/adapter-registry");
 
     // THEN: SQUARE_REST should be registered
     expect(hasPOSAdapter("SQUARE_REST")).toBe(true);
@@ -611,7 +611,7 @@ test.describe("Phase4-Unit: SQRE Adapter Registry", () => {
   test("SQRE-121: [P1] should be listed in adapter list", async () => {
     // GIVEN: The adapter registry
     const { posAdapterRegistry } =
-      await import("../../backend/dist/services/pos/adapter-registry");
+      await import("../../backend/src/services/pos/adapter-registry");
 
     // WHEN: Getting the adapter list
     const adapterList = posAdapterRegistry.getAdapterList();
@@ -780,9 +780,9 @@ test.describe("Phase4-Unit: SQRE Inheritance", () => {
   test("SQRE-130: [P0] should extend BaseRESTAdapter", async () => {
     // GIVEN: SquareAdapter and BaseRESTAdapter
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { BaseRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // WHEN: Creating an instance
     const adapter = new SquareAdapter();
@@ -794,7 +794,7 @@ test.describe("Phase4-Unit: SQRE Inheritance", () => {
   test("SQRE-131: [P0] should have all inherited methods", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // THEN: Should have all inherited methods
@@ -917,9 +917,9 @@ test.describe("Phase4-Unit: SQRE Security", () => {
   test("SQRE-160: [P0] should not expose credentials in error messages", async () => {
     // GIVEN: A SquareAdapter
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
     const adapter = new SquareAdapter();
 
     // WHEN: Testing with invalid config
@@ -943,7 +943,7 @@ test.describe("Phase4-Unit: SQRE Rate Limiting", () => {
   test("SQRE-100: [P0] should have rate limit configured", async () => {
     // GIVEN: A SquareAdapter instance
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // THEN: Adapter should exist (rate limit is protected)

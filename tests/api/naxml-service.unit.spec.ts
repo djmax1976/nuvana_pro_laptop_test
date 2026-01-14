@@ -236,7 +236,7 @@ test.describe("Phase1-Unit: NAXML Service - Parser Tests", () => {
   test("NAXML-SVC-001: [P0] Should parse NAXML 3.4 transaction document", async () => {
     // GIVEN: A valid NAXML 3.4 transaction document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     // WHEN: Parsing the document
@@ -277,7 +277,7 @@ test.describe("Phase1-Unit: NAXML Service - Parser Tests", () => {
   test("NAXML-SVC-002: [P0] Should parse NAXML 3.4 department maintenance document", async () => {
     // GIVEN: A valid NAXML 3.4 department maintenance document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     // WHEN: Parsing the document
@@ -307,7 +307,7 @@ test.describe("Phase1-Unit: NAXML Service - Parser Tests", () => {
   test("NAXML-SVC-003: [P0] Should parse NAXML 3.4 tender maintenance document", async () => {
     // GIVEN: A valid NAXML 3.4 tender maintenance document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     // WHEN: Parsing the document
@@ -338,7 +338,7 @@ test.describe("Phase1-Unit: NAXML Service - Parser Tests", () => {
   test("NAXML-SVC-004: [P0] Should parse NAXML 3.4 tax rate maintenance document", async () => {
     // GIVEN: A valid NAXML 3.4 tax rate maintenance document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     // WHEN: Parsing the document
@@ -366,7 +366,7 @@ test.describe("Phase1-Unit: NAXML Service - Parser Tests", () => {
   test("NAXML-SVC-005: [P0] Should parse NAXML 3.4 price book document", async () => {
     // GIVEN: A valid NAXML 3.4 price book document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     // WHEN: Parsing the document
@@ -397,7 +397,7 @@ test.describe("Phase1-Unit: NAXML Service - Builder Tests", () => {
   test("NAXML-SVC-010: [P0] Should build valid NAXML 3.4 department document", async () => {
     // GIVEN: Department data to export
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     const departments = [
@@ -446,7 +446,7 @@ test.describe("Phase1-Unit: NAXML Service - Builder Tests", () => {
   test("NAXML-SVC-011: [P0] Should build valid NAXML 3.4 tender document", async () => {
     // GIVEN: Tender data to export
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     const tenders = [
@@ -479,7 +479,7 @@ test.describe("Phase1-Unit: NAXML Service - Builder Tests", () => {
   test("NAXML-SVC-012: [P0] Should build valid NAXML 3.4 tax rate document", async () => {
     // GIVEN: Tax rate data to export
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     const taxRates = [
@@ -507,7 +507,7 @@ test.describe("Phase1-Unit: NAXML Service - Builder Tests", () => {
   test("NAXML-SVC-013: [P0] Should build valid NAXML 3.4 price book document", async () => {
     // GIVEN: Price book data to export
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     const items = [
@@ -538,7 +538,7 @@ test.describe("Phase1-Unit: NAXML Service - Builder Tests", () => {
   test("NAXML-SVC-014: [P1] Round-trip test: parse -> convert -> build -> parse", async () => {
     // GIVEN: An original department document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     // WHEN: Parse, convert to internal format, convert back to NAXML, build, and parse again
@@ -578,7 +578,7 @@ test.describe("Phase1-Unit: NAXML Service - Validator Tests", () => {
   test("NAXML-SVC-020: [P0] Should validate transaction document structure", async () => {
     // GIVEN: A valid transaction document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     const document = service.parseTransaction(SAMPLE_TRANSACTION_XML);
@@ -594,7 +594,7 @@ test.describe("Phase1-Unit: NAXML Service - Validator Tests", () => {
   test("NAXML-SVC-021: [P0] Should validate department document and detect duplicates", async () => {
     // GIVEN: A department document with duplicate codes
     const { createNAXMLService, createNAXMLValidator } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     // Disable validation during parsing so we can test validation separately
     const service = createNAXMLService({ validateOnParse: false });
     const validator = createNAXMLValidator({ checkDuplicates: true });
@@ -635,7 +635,7 @@ test.describe("Phase1-Unit: NAXML Service - Validator Tests", () => {
   test("NAXML-SVC-022: [P1] Should validate transaction totals and calculations", async () => {
     // GIVEN: A transaction document with incorrect totals
     const { createNAXMLService, createNAXMLValidator } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
     const validator = createNAXMLValidator({ validateTotals: true });
 
@@ -687,7 +687,7 @@ test.describe("Phase1-Unit: NAXML Service - Validator Tests", () => {
   test("NAXML-SVC-023: [P1] Should validate required fields in documents", async () => {
     // GIVEN: A department document with missing required fields
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     // Disable validation during parsing so we can test validation separately
     const service = createNAXMLService({ validateOnParse: false });
 
@@ -728,7 +728,7 @@ test.describe("Phase1-Unit: NAXML Service - Converter Tests", () => {
   test("NAXML-SVC-030: [P0] Should convert NAXML departments to POS departments", async () => {
     // GIVEN: Parsed NAXML department document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
     const document = service.parseDepartments(SAMPLE_DEPARTMENT_XML);
 
@@ -755,7 +755,7 @@ test.describe("Phase1-Unit: NAXML Service - Converter Tests", () => {
   test("NAXML-SVC-031: [P0] Should convert NAXML tender types to POS tender types", async () => {
     // GIVEN: Parsed NAXML tender document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
     const document = service.parseTenders(SAMPLE_TENDER_XML);
 
@@ -782,7 +782,7 @@ test.describe("Phase1-Unit: NAXML Service - Converter Tests", () => {
   test("NAXML-SVC-032: [P0] Should convert NAXML tax rates to POS tax rates", async () => {
     // GIVEN: Parsed NAXML tax rate document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
     const document = service.parseTaxRates(SAMPLE_TAX_RATE_XML);
 
@@ -803,7 +803,7 @@ test.describe("Phase1-Unit: NAXML Service - Converter Tests", () => {
   test("NAXML-SVC-033: [P0] Should convert NAXML transaction to POS transaction", async () => {
     // GIVEN: Parsed NAXML transaction document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
     const document = service.parseTransaction(SAMPLE_TRANSACTION_XML);
 
@@ -833,7 +833,7 @@ test.describe("Phase1-Unit: NAXML Service - Converter Tests", () => {
   test("NAXML-SVC-034: [P1] Should convert POS departments back to NAXML format", async () => {
     // GIVEN: POS department data
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     const posDepartments = [
@@ -868,7 +868,7 @@ test.describe("Phase1-Unit: NAXML Service - Import Tests", () => {
   test("NAXML-SVC-040: [P0] Should import transaction from XML and return result", async () => {
     // GIVEN: Valid transaction XML
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     // WHEN: Importing the transaction
@@ -889,7 +889,7 @@ test.describe("Phase1-Unit: NAXML Service - Import Tests", () => {
   test("NAXML-SVC-041: [P0] Should import departments from XML and return result", async () => {
     // GIVEN: Valid department XML
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     // WHEN: Importing the departments
@@ -907,7 +907,7 @@ test.describe("Phase1-Unit: NAXML Service - Import Tests", () => {
   test("NAXML-SVC-042: [P0] Should import tender types from XML and return result", async () => {
     // GIVEN: Valid tender XML
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     // WHEN: Importing the tender types
@@ -923,7 +923,7 @@ test.describe("Phase1-Unit: NAXML Service - Import Tests", () => {
   test("NAXML-SVC-043: [P0] Should import tax rates from XML and return result", async () => {
     // GIVEN: Valid tax rate XML
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     // WHEN: Importing the tax rates
@@ -940,7 +940,7 @@ test.describe("Phase1-Unit: NAXML Service - Import Tests", () => {
   test("NAXML-SVC-044: [P1] Should handle import errors gracefully", async () => {
     // GIVEN: Invalid XML content
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     const invalidXml = "This is not valid XML <broken>";
@@ -965,7 +965,7 @@ test.describe("Phase1-Unit: NAXML Service - Utility Tests", () => {
   test("NAXML-SVC-050: [P1] Should calculate consistent file hash", async () => {
     // GIVEN: Content to hash
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     const content = "Test content for hashing";
@@ -983,7 +983,7 @@ test.describe("Phase1-Unit: NAXML Service - Utility Tests", () => {
   test("NAXML-SVC-051: [P1] Should detect different content with different hashes", async () => {
     // GIVEN: Different content
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     const content1 = "Content version 1";
@@ -1000,7 +1000,7 @@ test.describe("Phase1-Unit: NAXML Service - Utility Tests", () => {
   test("NAXML-SVC-052: [P1] Should validate XML without full parsing", async () => {
     // GIVEN: Valid and invalid XML strings
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
 
     // WHEN: Validating XML
@@ -1019,7 +1019,7 @@ test.describe("Phase1-Unit: NAXML Service - Utility Tests", () => {
   test("NAXML-SVC-053: [P1] Should quick validate documents", async () => {
     // GIVEN: A valid document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService();
     const document = service.parseTransaction(SAMPLE_TRANSACTION_XML);
 
@@ -1039,7 +1039,7 @@ test.describe("Phase1-Unit: NAXML Service - Version Handling", () => {
   test("NAXML-SVC-060: [P1] Should handle NAXML 3.2 documents", async () => {
     // GIVEN: A NAXML 3.2 document
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService({ version: "3.2" });
 
     const naxml32 = `<?xml version="1.0" encoding="UTF-8"?>
@@ -1069,7 +1069,7 @@ test.describe("Phase1-Unit: NAXML Service - Version Handling", () => {
   test("NAXML-SVC-061: [P2] Should build documents with specified version", async () => {
     // GIVEN: A service configured for version 3.2
     const { createNAXMLService } =
-      await import("../../backend/dist/services/naxml/naxml.service");
+      await import("../../backend/src/services/naxml/naxml.service");
     const service = createNAXMLService({ version: "3.4" });
 
     // WHEN: Building a document

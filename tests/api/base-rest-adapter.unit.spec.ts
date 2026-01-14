@@ -86,7 +86,7 @@ test.describe("Phase4-Unit: BRST Type Exports", () => {
   test("BRST-090: [P0] should export all required types and classes", async () => {
     // GIVEN: The base-rest.adapter module
     const exports =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // THEN: Required classes should be exported
     expect(exports.BaseRESTAdapter).toBeDefined();
@@ -100,7 +100,7 @@ test.describe("Phase4-Unit: BRST Type Exports", () => {
   test("BRST-091: [P1] RestRequestOptions interface should be defined correctly", async () => {
     // The interface is used by the request method
     const { BaseRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // BaseRESTAdapter is abstract, so we verify it exists
     expect(BaseRESTAdapter).toBeDefined();
@@ -115,7 +115,7 @@ test.describe("Phase4-Unit: BRST RestApiError", () => {
   test("BRST-040: [P0] RestApiError should have correct structure", async () => {
     // GIVEN: The RestApiError class
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // WHEN: Creating an error with all parameters
     const error = new RestApiError(
@@ -138,7 +138,7 @@ test.describe("Phase4-Unit: BRST RestApiError", () => {
   test("BRST-040b: [P0] RestApiError should default retryable to false", async () => {
     // GIVEN: The RestApiError class
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // WHEN: Creating an error without retryable parameter
     const error = new RestApiError("Test error", 500, "SERVER_ERROR");
@@ -150,7 +150,7 @@ test.describe("Phase4-Unit: BRST RestApiError", () => {
   test("BRST-040c: [P0] RestApiError should be instanceof Error", async () => {
     // GIVEN: The RestApiError class
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // WHEN: Creating an error
     const error = new RestApiError("Test", 400, "BAD_REQUEST");
@@ -162,7 +162,7 @@ test.describe("Phase4-Unit: BRST RestApiError", () => {
   test("BRST-041: [P0] RestApiError should support retryable flag", async () => {
     // GIVEN: The RestApiError class
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // WHEN: Creating retryable errors
     const retryableError = new RestApiError(
@@ -189,7 +189,7 @@ test.describe("Phase4-Unit: BRST RestApiError", () => {
   test("BRST-042: [P0] RestApiError should handle timeout errors", async () => {
     // GIVEN: The RestApiError class
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // WHEN: Creating a timeout error
     const error = new RestApiError(
@@ -209,7 +209,7 @@ test.describe("Phase4-Unit: BRST RestApiError", () => {
   test("BRST-043: [P1] RestApiError should handle connection errors", async () => {
     // GIVEN: The RestApiError class
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // WHEN: Creating connection error variants
     const connectionRefused = new RestApiError(
@@ -251,7 +251,7 @@ test.describe("Phase4-Unit: BRST BaseRESTAdapter Abstract Class", () => {
   test("BRST-001: [P0] BaseRESTAdapter should be abstract class", async () => {
     // GIVEN: The BaseRESTAdapter class
     const { BaseRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // THEN: Should be defined as a class
     expect(typeof BaseRESTAdapter).toBe("function");
@@ -267,7 +267,7 @@ test.describe("Phase4-Unit: BRST HTTP Methods (via CloverAdapter)", () => {
   test("BRST-001: [P0] GET request should be supported", async () => {
     // GIVEN: A concrete adapter that extends BaseRESTAdapter
     const { CloverAdapter } =
-      await import("../../backend/dist/services/pos/adapters/clover.adapter");
+      await import("../../backend/src/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // THEN: Adapter should have inherited methods
@@ -278,7 +278,7 @@ test.describe("Phase4-Unit: BRST HTTP Methods (via CloverAdapter)", () => {
   test("BRST-002: [P0] POST request capability should exist", async () => {
     // GIVEN: A concrete adapter
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const adapter = new SquareAdapter();
 
     // THEN: Adapter should exist with sync methods that use POST internally
@@ -295,11 +295,11 @@ test.describe("Phase4-Unit: BRST Rate Limiting", () => {
   test("BRST-020: [P0] rate limit config should be defined", async () => {
     // GIVEN: Concrete adapters with rate limit configs
     const { CloverAdapter } =
-      await import("../../backend/dist/services/pos/adapters/clover.adapter");
+      await import("../../backend/src/services/pos/adapters/clover.adapter");
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
 
     const clover = new CloverAdapter();
     const square = new SquareAdapter();
@@ -315,9 +315,9 @@ test.describe("Phase4-Unit: BRST Rate Limiting", () => {
     // Different vendors have different API rate limits
     // Clover: 16/sec, Square: ~1000/min, Toast: ~100/sec
     const { CloverAdapter } =
-      await import("../../backend/dist/services/pos/adapters/clover.adapter");
+      await import("../../backend/src/services/pos/adapters/clover.adapter");
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
 
     const clover = new CloverAdapter();
     const toast = new ToastAdapter();
@@ -336,11 +336,11 @@ test.describe("Phase4-Unit: BRST URL Building", () => {
   test("BRST-050: [P0] adapters should have correct base URLs", async () => {
     // GIVEN: Concrete adapters
     const { CloverAdapter } =
-      await import("../../backend/dist/services/pos/adapters/clover.adapter");
+      await import("../../backend/src/services/pos/adapters/clover.adapter");
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
 
     const clover = new CloverAdapter();
     const square = new SquareAdapter();
@@ -361,7 +361,7 @@ test.describe("Phase4-Unit: BRST Security", () => {
   test("BRST-071: [P0] RestApiError should not expose sensitive data", async () => {
     // GIVEN: The RestApiError class
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // WHEN: Creating an error (simulating what would happen with credentials)
     const error = new RestApiError(
@@ -381,7 +381,7 @@ test.describe("Phase4-Unit: BRST Security", () => {
   test("BRST-080: [P1] adapters should support token cache clearing", async () => {
     // Token cache clearing is a protected method in BaseRESTAdapter
     const { CloverAdapter } =
-      await import("../../backend/dist/services/pos/adapters/clover.adapter");
+      await import("../../backend/src/services/pos/adapters/clover.adapter");
     const adapter = new CloverAdapter();
 
     // Adapter should be functional (clearTokenCache is protected)
@@ -512,7 +512,7 @@ test.describe("Phase4-Unit: BRST Retry Logic", () => {
 
   test("BRST-032: [P0] client errors should not be retryable", async () => {
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // 4xx errors (except 408, 429) should not be retryable
     const badRequest = new RestApiError(
@@ -552,7 +552,7 @@ test.describe("Phase4-Unit: BRST Retry Logic", () => {
 
   test("BRST-033: [P1] rate limit errors should be retryable", async () => {
     const { RestApiError } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // 429 Too Many Requests should be retryable
     const rateLimitError = new RestApiError(
@@ -662,13 +662,13 @@ test.describe("Phase4-Unit: BRST Integration Patterns", () => {
   test("BRST-110: [P0] adapters should extend BaseRESTAdapter", async () => {
     // GIVEN: All REST adapters
     const { CloverAdapter } =
-      await import("../../backend/dist/services/pos/adapters/clover.adapter");
+      await import("../../backend/src/services/pos/adapters/clover.adapter");
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
     const { BaseRESTAdapter } =
-      await import("../../backend/dist/services/pos/adapters/base-rest.adapter");
+      await import("../../backend/src/services/pos/adapters/base-rest.adapter");
 
     // WHEN: Creating instances
     const clover = new CloverAdapter();
@@ -684,11 +684,11 @@ test.describe("Phase4-Unit: BRST Integration Patterns", () => {
   test("BRST-111: [P0] all adapters should implement required methods", async () => {
     // GIVEN: All REST adapters
     const { CloverAdapter } =
-      await import("../../backend/dist/services/pos/adapters/clover.adapter");
+      await import("../../backend/src/services/pos/adapters/clover.adapter");
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
 
     const adapters = [
       new CloverAdapter(),
@@ -710,11 +710,11 @@ test.describe("Phase4-Unit: BRST Integration Patterns", () => {
   test("BRST-112: [P0] all adapters should have unique posType", async () => {
     // GIVEN: All REST adapters
     const { CloverAdapter } =
-      await import("../../backend/dist/services/pos/adapters/clover.adapter");
+      await import("../../backend/src/services/pos/adapters/clover.adapter");
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
 
     const clover = new CloverAdapter();
     const square = new SquareAdapter();
@@ -739,11 +739,11 @@ test.describe("Phase4-Unit: BRST Business Logic", () => {
   test("BRST-120: [P0] capabilities should reflect adapter features", async () => {
     // GIVEN: All REST adapters
     const { CloverAdapter } =
-      await import("../../backend/dist/services/pos/adapters/clover.adapter");
+      await import("../../backend/src/services/pos/adapters/clover.adapter");
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
 
     const clover = new CloverAdapter();
     const square = new SquareAdapter();
@@ -762,7 +762,7 @@ test.describe("Phase4-Unit: BRST Business Logic", () => {
   test("BRST-121: [P1] REST adapters should not support file exchange", async () => {
     // GIVEN: REST adapters
     const { CloverAdapter } =
-      await import("../../backend/dist/services/pos/adapters/clover.adapter");
+      await import("../../backend/src/services/pos/adapters/clover.adapter");
 
     const adapter = new CloverAdapter();
     const caps = adapter.getCapabilities();
@@ -774,11 +774,11 @@ test.describe("Phase4-Unit: BRST Business Logic", () => {
   test("BRST-122: [P0] webhookSupport should be correctly reported", async () => {
     // GIVEN: REST adapters that support webhooks
     const { CloverAdapter } =
-      await import("../../backend/dist/services/pos/adapters/clover.adapter");
+      await import("../../backend/src/services/pos/adapters/clover.adapter");
     const { SquareAdapter } =
-      await import("../../backend/dist/services/pos/adapters/square.adapter");
+      await import("../../backend/src/services/pos/adapters/square.adapter");
     const { ToastAdapter } =
-      await import("../../backend/dist/services/pos/adapters/toast.adapter");
+      await import("../../backend/src/services/pos/adapters/toast.adapter");
 
     // THEN: All major REST APIs support webhooks
     expect(new CloverAdapter().getCapabilities().webhookSupport).toBe(true);
