@@ -31,6 +31,12 @@ import { Loader2 } from "lucide-react";
 import { AssignRoleRequest, ScopeType } from "@/types/admin-user";
 import { useEffect } from "react";
 
+/**
+ * Roles that require PIN for terminal/desktop authentication
+ * Synced with backend: SEC-001 PIN authentication
+ */
+const PIN_REQUIRED_ROLES = ["STORE_MANAGER", "SHIFT_MANAGER"] as const;
+
 // Zod validation schema for user creation
 const userFormSchema = z
   .object({
@@ -58,6 +64,14 @@ const userFormSchema = z
         "Password must contain at least one special character",
       ),
     role_id: z.string().min(1, "Role is required"),
+    // PIN for terminal/desktop authentication
+    // Required for STORE_MANAGER, SHIFT_MANAGER
+    // Optional for all other roles
+    pin: z
+      .string()
+      .regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits")
+      .optional()
+      .or(z.literal("")),
     companyName: z.string().optional(),
     companyAddress: z.string().optional(),
     company_id: z.string().optional(),
@@ -95,6 +109,7 @@ export function UserForm() {
       name: "",
       password: "",
       role_id: "",
+      pin: "",
       companyName: "",
       companyAddress: "",
       company_id: "",
@@ -111,6 +126,16 @@ export function UserForm() {
   // Check if the selected role is STORE-scoped (requires store assignment)
   // This includes CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER, etc.
   const isStoreScopedRole = selectedRole?.scope === "STORE";
+
+  // Check if the selected role requires PIN (STORE_MANAGER, SHIFT_MANAGER)
+  const isPINRequiredRole =
+    selectedRole?.code &&
+    PIN_REQUIRED_ROLES.includes(
+      selectedRole.code as (typeof PIN_REQUIRED_ROLES)[number],
+    );
+
+  // PIN is shown for all STORE-scoped roles, but only required for PIN_REQUIRED_ROLES
+  const showPINField = isStoreScopedRole;
 
   // Watch company_id to fetch stores
   const selectedCompanyId = form.watch("company_id");
@@ -186,6 +211,37 @@ export function UserForm() {
         }
       }
 
+      // Validate PIN requirement for STORE_MANAGER and SHIFT_MANAGER
+      const isPINRequiredSubmit = PIN_REQUIRED_ROLES.includes(
+        roleForSubmit.code as (typeof PIN_REQUIRED_ROLES)[number],
+      );
+      if (isPINRequiredSubmit) {
+        if (!data.pin || data.pin.trim().length === 0) {
+          form.setError("pin", {
+            type: "manual",
+            message: `PIN is required for ${roleForSubmit.code} role`,
+          });
+          return;
+        }
+        // Validate PIN format (4 digits)
+        if (!/^\d{4}$/.test(data.pin)) {
+          form.setError("pin", {
+            type: "manual",
+            message: "PIN must be exactly 4 numeric digits",
+          });
+          return;
+        }
+      }
+
+      // Validate PIN format if provided for non-required roles
+      if (data.pin && data.pin.trim().length > 0 && !/^\d{4}$/.test(data.pin)) {
+        form.setError("pin", {
+          type: "manual",
+          message: "PIN must be exactly 4 numeric digits",
+        });
+        return;
+      }
+
       // Create role assignment based on selected role
       const roleAssignment: AssignRoleRequest = {
         role_id: data.role_id,
@@ -205,6 +261,7 @@ export function UserForm() {
         name: string;
         password: string;
         roles: AssignRoleRequest[];
+        pin?: string;
         companyName?: string;
         companyAddress?: string;
       } = {
@@ -213,6 +270,11 @@ export function UserForm() {
         password: data.password,
         roles: [roleAssignment],
       };
+
+      // Add PIN if provided (required for STORE_MANAGER/SHIFT_MANAGER, optional for others)
+      if (data.pin && data.pin.trim().length === 4) {
+        payload.pin = data.pin;
+      }
 
       // Add company fields if CLIENT_OWNER role
       if (isClientOwnerRole && data.companyName && data.companyAddress) {
@@ -482,6 +544,59 @@ export function UserForm() {
               </div>
             </div>
           </>
+        )}
+
+        {/* PIN field - shown for all STORE-scoped roles */}
+        {/* Required for STORE_MANAGER and SHIFT_MANAGER, optional for others */}
+        {showPINField && (
+          <div className="rounded-lg border border-border bg-muted/50 p-4">
+            <h3 className="mb-4 text-sm font-medium text-foreground">
+              PIN Authentication
+            </h3>
+            <p className="mb-4 text-sm text-muted-foreground">
+              {isPINRequiredRole
+                ? "A 4-digit PIN is required for terminal/desktop authentication."
+                : "A 4-digit PIN can be set for terminal/desktop authentication (optional)."}
+            </p>
+
+            <FormField
+              control={form.control}
+              name="pin"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    PIN {isPINRequiredRole ? "*" : "(Optional)"}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type="password"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={4}
+                      placeholder="****"
+                      autoComplete="off"
+                      data-testid="user-pin-input"
+                      {...field}
+                      onChange={(e) => {
+                        // Only allow numeric input
+                        const value = e.target.value.replace(/\D/g, "");
+                        field.onChange(value);
+                      }}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    4-digit numeric PIN for terminal authentication
+                    {isPINRequiredRole && (
+                      <span className="block mt-1 text-orange-600 dark:text-orange-400">
+                        Required for {selectedRole?.code}
+                      </span>
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
         )}
 
         <div className="flex gap-4">

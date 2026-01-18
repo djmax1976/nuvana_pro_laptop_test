@@ -28,6 +28,7 @@ import {
   apiKeyAuditService,
   cashierSyncService,
   storeManagerSyncService,
+  employeeSyncService,
 } from "../services/api-key";
 import { prisma } from "../utils/db";
 import jwt from "jsonwebtoken";
@@ -39,6 +40,7 @@ import {
   syncPullQuerySchema,
   syncCompleteSchema,
   cashierSyncQuerySchema,
+  employeeSyncQuerySchema,
 } from "../schemas/api-key.schema";
 import type {
   ActivateApiKeyResponse,
@@ -880,6 +882,126 @@ export async function deviceApiRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(500).send({
           success: false,
           error: { code: "INTERNAL_ERROR", message: "Failed to sync cashiers" },
+        });
+      }
+    },
+  );
+
+  // ==========================================================================
+  // SYNC EMPLOYEES (Unified Endpoint)
+  // ==========================================================================
+
+  /**
+   * GET /api/v1/sync/employees
+   * Sync all employee types for offline authentication
+   *
+   * Enterprise-grade unified employee sync endpoint that returns:
+   * - Store Managers (from users table with STORE_MANAGER role)
+   * - Shift Managers (from users table with SHIFT_MANAGER role)
+   * - Cashiers (from cashiers table)
+   *
+   * This follows enterprise POS patterns used by NCR Aloha, Microsoft
+   * Dynamics 365, and Oracle MICROS for offline authentication when
+   * internet connectivity is unavailable.
+   *
+   * Security Controls:
+   * - Store isolation: Only returns employees for the API key's bound store
+   * - Session validation: Requires active sync session
+   * - Audit logging: All sync operations are logged
+   * - Rate limiting: Enforced at API layer
+   * - SEC-001: PIN hashes only, never password hashes or plaintext
+   *
+   * Query Parameters:
+   * - session_id: Required. Sync session ID from /sync/start
+   * - since_timestamp: Optional. ISO 8601 datetime for delta sync
+   * - since_sequence: Optional. Sequence number for cursor-based pagination
+   * - include_inactive: Optional. Include inactive employees (default: false)
+   * - limit: Optional. Max records to return (default: 100, max: 500)
+   */
+  fastify.get(
+    "/api/v1/sync/employees",
+    {
+      preHandler: [apiKeyMiddleware],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const identity = requireApiKeyIdentity(request);
+        const clientIp = getClientIp(request);
+
+        // API-001: Validate query parameters with Zod schema
+        const parseResult = employeeSyncQuerySchema.safeParse(request.query);
+        if (!parseResult.success) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid query parameters",
+              details: formatZodError(parseResult.error),
+            },
+          });
+        }
+
+        const query = parseResult.data;
+
+        // Build sync options from query params
+        const syncOptions = {
+          sinceTimestamp: query.since_timestamp
+            ? new Date(query.since_timestamp)
+            : undefined,
+          sinceSequence: query.since_sequence,
+          includeInactive: query.include_inactive,
+          limit: query.limit,
+        };
+
+        // Perform sync with full validation and audit logging
+        const response = await employeeSyncService.syncEmployees(
+          identity,
+          query.session_id,
+          syncOptions,
+          {
+            apiKeyId: identity.apiKeyId,
+            sessionId: query.session_id,
+            ipAddress: clientIp,
+          },
+        );
+
+        return reply.code(200).send({
+          success: true,
+          data: response,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+
+        // Handle known error codes
+        if (message.startsWith("INVALID_SESSION:")) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "INVALID_SESSION",
+              message: message.replace("INVALID_SESSION: ", ""),
+            },
+          });
+        }
+
+        if (message.startsWith("STORE_MISMATCH:")) {
+          return reply.code(403).send({
+            success: false,
+            error: {
+              code: "STORE_MISMATCH",
+              message: "Access denied to this store's data",
+            },
+          });
+        }
+
+        // API-003: Generic error response, no stack traces
+        console.error("[DeviceApi] Employee sync error:", message);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to sync employees",
+          },
         });
       }
     },

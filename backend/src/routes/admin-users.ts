@@ -14,6 +14,7 @@ import {
   updateUserStatusSchema,
   updateUserProfileSchema,
   listUsersQuerySchema,
+  setUserPINSchema,
 } from "../schemas/user.schema";
 import { userAccessCacheService } from "../services/user-access-cache.service";
 
@@ -88,6 +89,7 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           name,
           password,
           roles,
+          pin, // SEC-001: PIN for terminal/desktop authentication
           companyName,
           companyAddress,
           company_id,
@@ -107,6 +109,7 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
               company_id?: string;
               store_id?: string;
             }>,
+            pin, // SEC-001: PIN for STORE_MANAGER/SHIFT_MANAGER
             companyName,
             companyAddress,
             company_id,
@@ -868,6 +871,267 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to delete user",
+          },
+        });
+      }
+    },
+  );
+
+  // =========================================================================
+  // PIN Management Endpoints
+  // SEC-001 PASSWORD_HASHING, DB-006 TENANT_ISOLATION
+  // =========================================================================
+
+  /**
+   * PUT /api/admin/users/:userId/pin
+   * Set or update user PIN
+   *
+   * Security:
+   * - SEC-001: PIN is bcrypt hashed before storage
+   * - DB-006: PIN uniqueness enforced per-store
+   *
+   * @security Requires ADMIN_SYSTEM_CONFIG permission
+   * @param userId - User UUID
+   * @body { pin: string, store_id: string }
+   * @returns Success message
+   */
+  fastify.put(
+    "/api/admin/users/:userId/pin",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { userId } = request.params as { userId: string };
+        const user = (request as unknown as { user: UserIdentity }).user;
+
+        // Validate userId format
+        if (!isValidUUID(userId)) {
+          reply.code(400);
+          reply.send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          });
+          return;
+        }
+
+        // Validate request body
+        const parseResult = setUserPINSchema.safeParse(request.body);
+        if (!parseResult.success) {
+          reply.code(400);
+          reply.send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
+          });
+          return;
+        }
+
+        const { pin, store_id } = parseResult.data;
+        const auditContext = getAuditContext(request, user);
+
+        const result = await userAdminService.setUserPIN(
+          userId,
+          pin,
+          store_id,
+          auditContext,
+        );
+
+        reply.code(200);
+        reply.send({
+          success: true,
+          message: result.message,
+        });
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        fastify.log.error({ error }, "Error setting user PIN");
+
+        if (message.includes("not found")) {
+          reply.code(404);
+          reply.send({
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "User not found",
+            },
+          });
+          return;
+        }
+
+        if (
+          message.includes("PIN must be") ||
+          message.includes("already in use")
+        ) {
+          reply.code(400);
+          reply.send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
+          });
+          return;
+        }
+
+        reply.code(500);
+        reply.send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to set user PIN",
+          },
+        });
+      }
+    },
+  );
+
+  /**
+   * DELETE /api/admin/users/:userId/pin
+   * Clear user PIN
+   *
+   * @security Requires ADMIN_SYSTEM_CONFIG permission
+   * @param userId - User UUID
+   * @returns Success message
+   */
+  fastify.delete(
+    "/api/admin/users/:userId/pin",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { userId } = request.params as { userId: string };
+        const user = (request as unknown as { user: UserIdentity }).user;
+
+        // Validate userId format
+        if (!isValidUUID(userId)) {
+          reply.code(400);
+          reply.send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          });
+          return;
+        }
+
+        const auditContext = getAuditContext(request, user);
+
+        const result = await userAdminService.clearUserPIN(
+          userId,
+          auditContext,
+        );
+
+        reply.code(200);
+        reply.send({
+          success: true,
+          message: result.message,
+        });
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        fastify.log.error({ error }, "Error clearing user PIN");
+
+        if (message.includes("not found")) {
+          reply.code(404);
+          reply.send({
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "User not found",
+            },
+          });
+          return;
+        }
+
+        reply.code(500);
+        reply.send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to clear user PIN",
+          },
+        });
+      }
+    },
+  );
+
+  /**
+   * GET /api/admin/users/:userId/pin/status
+   * Get user PIN status (has PIN or not)
+   *
+   * @security Requires ADMIN_SYSTEM_CONFIG permission
+   * @param userId - User UUID
+   * @returns { has_pin: boolean }
+   */
+  fastify.get(
+    "/api/admin/users/:userId/pin/status",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { userId } = request.params as { userId: string };
+
+        // Validate userId format
+        if (!isValidUUID(userId)) {
+          reply.code(400);
+          reply.send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          });
+          return;
+        }
+
+        const result = await userAdminService.getUserPINStatus(userId);
+
+        reply.code(200);
+        reply.send({
+          success: true,
+          data: result,
+        });
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        fastify.log.error({ error }, "Error getting user PIN status");
+
+        if (message.includes("not found")) {
+          reply.code(404);
+          reply.send({
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "User not found",
+            },
+          });
+          return;
+        }
+
+        reply.code(500);
+        reply.send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to get user PIN status",
           },
         });
       }

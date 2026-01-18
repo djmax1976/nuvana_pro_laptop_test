@@ -16,6 +16,14 @@ import { z } from "zod";
  *    - Redirects to /mystore dashboard on login
  *    - Has access only to their assigned store's terminals
  *
+ * PIN Authentication:
+ * ------------------
+ * - PIN is a 4-digit numeric code for terminal/desktop authentication
+ * - PIN uniqueness is scoped per-store (same PIN can exist at different stores)
+ * - PIN is REQUIRED for: STORE_MANAGER, SHIFT_MANAGER (when creating new users)
+ * - PIN is OPTIONAL for: All other roles
+ * - When editing existing users with PIN, leaving PIN blank keeps current PIN
+ *
  * Validation Strategy:
  * - Basic schema validates format only (UUID format, string lengths, etc.)
  * - Strict schema enforces scope-based requirements for existing user role assignments
@@ -51,6 +59,22 @@ export const SCOPE_TYPES = {
 } as const;
 
 export type ScopeType = (typeof SCOPE_TYPES)[keyof typeof SCOPE_TYPES];
+
+/**
+ * Roles that REQUIRE PIN for terminal/desktop authentication
+ * SEC-001: PIN authentication for elevated store operations
+ */
+export const PIN_REQUIRED_ROLES = ["STORE_MANAGER", "SHIFT_MANAGER"] as const;
+export type PINRequiredRole = (typeof PIN_REQUIRED_ROLES)[number];
+
+/**
+ * PIN validation schema
+ * Enforces exactly 4 numeric digits for terminal authentication
+ * SEC-001 PASSWORD_HASHING compliant (will be bcrypt hashed in service layer)
+ */
+export const pinSchema = z
+  .string()
+  .regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits");
 
 // =============================================================================
 // Base Schemas (Format Validation Only)
@@ -141,11 +165,17 @@ const passwordSchema = z
  * - Role assignments with context-aware validation
  * - Company creation fields for CLIENT_OWNER
  * - Store assignment fields for CLIENT_USER
+ * - PIN field for terminal/desktop authentication (required for STORE_MANAGER/SHIFT_MANAGER)
  *
  * Cross-field validation is performed via superRefine to ensure:
  * - CLIENT_OWNER users provide companyName and companyAddress
  * - CLIENT_USER role assignments include company_id and store_id
  * - Non-CLIENT_OWNER roles with COMPANY/STORE scope have required IDs
+ * - PIN is provided for STORE_MANAGER/SHIFT_MANAGER roles (validated in service layer)
+ *
+ * Security: SEC-001 PASSWORD_HASHING
+ * - PIN is hashed with bcrypt (salt rounds 10) in the service layer
+ * - PIN uniqueness is per-store (DB-006 TENANT_ISOLATION)
  */
 export const createUserSchema = z
   .object({
@@ -170,6 +200,15 @@ export const createUserSchema = z
     roles: z
       .array(roleAssignmentSchema)
       .min(1, "At least one role is required"),
+
+    // PIN for terminal/desktop authentication
+    // Required for STORE_MANAGER and SHIFT_MANAGER roles (validated in service layer)
+    // Optional for all other roles
+    // SEC-001: Will be bcrypt hashed in service layer
+    pin: z
+      .string()
+      .regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits")
+      .optional(),
 
     // CLIENT_OWNER fields: Used when creating a new company
     // The company is created atomically with the user
@@ -289,8 +328,15 @@ export type UpdateUserStatusInput = z.infer<typeof updateUserStatusSchema>;
 
 /**
  * User profile update schema (System Admin only)
- * Allows updating name, email, and/or password
+ * Allows updating name, email, password, and/or PIN
  * At least one field must be provided
+ *
+ * PIN Update Rules:
+ * - If user already has a PIN, leaving pin field empty keeps the current PIN
+ * - Providing a new PIN value will update the PIN (validated for uniqueness per-store)
+ * - PIN uniqueness validation happens in service layer (requires store_id context)
+ *
+ * Security: SEC-001 PASSWORD_HASHING, DB-006 TENANT_ISOLATION
  */
 export const updateUserProfileSchema = z
   .object({
@@ -312,6 +358,18 @@ export const updateUserProfileSchema = z
       .optional(),
 
     password: passwordSchema.optional(),
+
+    // PIN for terminal/desktop authentication
+    // Optional: Leave empty to keep current PIN for existing users
+    // SEC-001: Will be bcrypt hashed in service layer
+    pin: z
+      .string()
+      .regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits")
+      .optional(),
+
+    // Store ID required for PIN uniqueness validation (per-store scope)
+    // DB-006 TENANT_ISOLATION: PIN must be unique within the store
+    store_id: z.string().uuid("Invalid store ID format").optional(),
   })
   .refine(
     (data) => {
@@ -319,15 +377,43 @@ export const updateUserProfileSchema = z
       return (
         data.name !== undefined ||
         data.email !== undefined ||
-        data.password !== undefined
+        data.password !== undefined ||
+        data.pin !== undefined
       );
     },
     {
-      message: "At least one field (name, email, or password) must be provided",
+      message:
+        "At least one field (name, email, password, or pin) must be provided",
+    },
+  )
+  .refine(
+    (data) => {
+      // If PIN is provided, store_id must also be provided for uniqueness validation
+      if (data.pin && !data.store_id) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "Store ID is required when updating PIN (for uniqueness validation)",
+      path: ["store_id"],
     },
   );
 
 export type UpdateUserProfileInput = z.infer<typeof updateUserProfileSchema>;
+
+/**
+ * Admin user PIN management schema
+ * Used for dedicated PIN set/clear endpoints
+ *
+ * Security: SEC-001 PASSWORD_HASHING, DB-006 TENANT_ISOLATION
+ */
+export const setUserPINSchema = z.object({
+  pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits"),
+  store_id: z.string().uuid("Invalid store ID format"),
+});
+
+export type SetUserPINInput = z.infer<typeof setUserPINSchema>;
 
 // =============================================================================
 // Query Schemas

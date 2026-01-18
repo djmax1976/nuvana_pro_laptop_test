@@ -201,6 +201,91 @@ export async function getRoles(): Promise<RolesResponse> {
   return response.data;
 }
 
+// ============ PIN Management API Functions ============
+
+/**
+ * PIN status response type
+ */
+export interface PINStatusResponse {
+  success: boolean;
+  data: {
+    has_pin: boolean;
+  };
+}
+
+/**
+ * Set user PIN input
+ */
+export interface SetUserPINInput {
+  pin: string;
+  store_id: string;
+}
+
+/**
+ * Get user PIN status (has PIN or not) (System Admin only)
+ * @param userId - User UUID
+ * @returns PIN status (has_pin: boolean)
+ */
+export async function getUserPINStatus(
+  userId: string,
+): Promise<PINStatusResponse> {
+  if (!userId) {
+    throw new Error("User ID is required");
+  }
+
+  const response = await apiClient.get<PINStatusResponse>(
+    `/api/admin/users/${userId}/pin/status`,
+  );
+  return response.data;
+}
+
+/**
+ * Set or update user PIN (System Admin only)
+ * @param userId - User UUID
+ * @param data - PIN data with store_id for uniqueness validation
+ * @returns Success message
+ */
+export async function setUserPIN(
+  userId: string,
+  data: SetUserPINInput,
+): Promise<{ success: boolean; message: string }> {
+  if (!userId) {
+    throw new Error("User ID is required");
+  }
+
+  if (!data.pin || !/^\d{4}$/.test(data.pin)) {
+    throw new Error("PIN must be exactly 4 numeric digits");
+  }
+
+  if (!data.store_id) {
+    throw new Error("Store ID is required for PIN uniqueness validation");
+  }
+
+  const response = await apiClient.put<{ success: boolean; message: string }>(
+    `/api/admin/users/${userId}/pin`,
+    data,
+  );
+  return response.data;
+}
+
+/**
+ * Clear user PIN (System Admin only)
+ * @param userId - User UUID
+ * @returns Success message
+ */
+export async function clearUserPIN(
+  userId: string,
+): Promise<{ success: boolean; message: string }> {
+  if (!userId) {
+    throw new Error("User ID is required");
+  }
+
+  const response = await apiClient.delete<{ success: boolean; message: string }>(
+    `/api/admin/users/${userId}/pin`,
+  );
+  return response.data;
+}
+
 // ============ TanStack Query Hooks ============
 
 /**
@@ -390,6 +475,67 @@ export function useDeleteUser() {
       queryClient.invalidateQueries({
         queryKey: adminUserKeys.all,
         refetchType: "all",
+      });
+    },
+  });
+}
+
+// ============ PIN Management Hooks ============
+
+/**
+ * Hook to get user PIN status
+ * @param userId - User UUID
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with PIN status
+ */
+export function useGetUserPINStatus(
+  userId: string,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: [...adminUserKeys.detail(userId), "pin-status"],
+    queryFn: () => getUserPINStatus(userId),
+    enabled: options?.enabled !== false && !!userId,
+  });
+}
+
+/**
+ * Hook to set or update user PIN
+ * @returns TanStack Query mutation for setting user PIN
+ */
+export function useSetUserPIN() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      userId,
+      data,
+    }: {
+      userId: string;
+      data: SetUserPINInput;
+    }) => setUserPIN(userId, data),
+    onSuccess: (_, variables) => {
+      // Invalidate user detail and PIN status queries
+      queryClient.invalidateQueries({
+        queryKey: adminUserKeys.detail(variables.userId),
+      });
+    },
+  });
+}
+
+/**
+ * Hook to clear user PIN
+ * @returns TanStack Query mutation for clearing user PIN
+ */
+export function useClearUserPIN() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (userId: string) => clearUserPIN(userId),
+    onSuccess: (_, userId) => {
+      // Invalidate user detail and PIN status queries
+      queryClient.invalidateQueries({
+        queryKey: adminUserKeys.detail(userId),
       });
     },
   });

@@ -34,6 +34,8 @@ import {
   useRoles,
   useAssignRole,
   useRevokeRole,
+  useSetUserPIN,
+  useGetUserPINStatus,
 } from "@/lib/api/admin-users";
 import { useStoresByCompany } from "@/lib/api/stores";
 import { CompanySearchCombobox } from "@/components/companies/CompanySearchCombobox";
@@ -62,8 +64,14 @@ const passwordSchema = z
   );
 
 /**
+ * Roles that require PIN for terminal/desktop authentication
+ * Synced with backend: SEC-001 PIN authentication
+ */
+const PIN_REQUIRED_ROLES = ["STORE_MANAGER", "SHIFT_MANAGER"] as const;
+
+/**
  * User edit form validation schema
- * Super Admin can edit name, email, password, and status
+ * Super Admin can edit name, email, password, PIN, and status
  */
 const editUserSchema = z
   .object({
@@ -83,6 +91,13 @@ const editUserSchema = z
     status: z.nativeEnum(UserStatus, {
       message: "Please select a status",
     }),
+    // PIN for terminal/desktop authentication
+    // Optional: Leave empty to keep current PIN
+    pin: z
+      .string()
+      .regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits")
+      .optional()
+      .or(z.literal("")),
   })
   .refine(
     (data) => {
@@ -135,7 +150,31 @@ export function EditUserModal({
   const updateProfileMutation = useUpdateUserProfile();
   const assignRoleMutation = useAssignRole();
   const revokeRoleMutation = useRevokeRole();
+  const setUserPINMutation = useSetUserPIN();
   const { data: rolesData } = useRoles();
+
+  // PIN state
+  const [pinValue, setPinValue] = useState("");
+  const [showPIN, setShowPIN] = useState(false);
+
+  // Check if user has a store role (for PIN)
+  const userStoreRole = user?.roles?.find((r) => r.role?.scope === "STORE");
+  const userStoreId = userStoreRole?.store_id;
+
+  // Check if user has a PIN-required role
+  const hasPINRequiredRole = user?.roles?.some(
+    (r) =>
+      r.role?.code &&
+      PIN_REQUIRED_ROLES.includes(
+        r.role.code as (typeof PIN_REQUIRED_ROLES)[number],
+      ),
+  );
+
+  // Fetch PIN status for the user
+  const { data: pinStatusData } = useGetUserPINStatus(
+    user?.user_id || "",
+    { enabled: !!user?.user_id && open },
+  );
 
   // State for role assignment with scope-based fields
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
@@ -164,6 +203,7 @@ export function EditUserModal({
       password: "",
       confirmPassword: "",
       status: UserStatus.ACTIVE,
+      pin: "",
     },
   });
 
@@ -176,6 +216,7 @@ export function EditUserModal({
         password: "",
         confirmPassword: "",
         status: user.status || UserStatus.ACTIVE,
+        pin: "",
       });
       setSelectedRoleToAdd("");
       // Reset scope-related fields when modal opens
@@ -184,6 +225,9 @@ export function EditUserModal({
       // Reset password visibility
       setShowPassword(false);
       setShowConfirmPassword(false);
+      // Reset PIN state
+      setPinValue("");
+      setShowPIN(false);
     }
   }, [user, open, form]);
 
@@ -226,6 +270,7 @@ export function EditUserModal({
         values.email.toLowerCase().trim() !== user.email.toLowerCase();
       const passwordProvided = values.password && values.password.length > 0;
       const statusChanged = values.status !== user.status;
+      const pinProvided = values.pin && values.pin.length === 4;
 
       const profileChanged = nameChanged || emailChanged || passwordProvided;
 
@@ -263,12 +308,34 @@ export function EditUserModal({
         });
       }
 
+      // Update PIN if provided
+      // Note: PIN update requires a store_id for uniqueness validation
+      if (pinProvided && userStoreId) {
+        await setUserPINMutation.mutateAsync({
+          userId: user.user_id,
+          data: {
+            pin: values.pin!,
+            store_id: userStoreId,
+          },
+        });
+      } else if (pinProvided && !userStoreId) {
+        // If PIN is provided but user has no store role, show warning
+        toast({
+          title: "Warning",
+          description:
+            "PIN cannot be set because user has no store assignment. Assign a store role first.",
+          variant: "destructive",
+        });
+        // Continue without PIN update
+      }
+
       // Show appropriate success message
       const changes: string[] = [];
       if (nameChanged) changes.push("name");
       if (emailChanged) changes.push("email");
       if (passwordProvided) changes.push("password");
       if (statusChanged) changes.push("status");
+      if (pinProvided && userStoreId) changes.push("PIN");
 
       toast({
         title: "Success",
@@ -616,6 +683,81 @@ export function EditUserModal({
                   </FormItem>
                 )}
               />
+
+              {/* PIN Section - Only shown if user has a STORE-scoped role */}
+              {userStoreId && (
+                <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
+                  <div>
+                    <h4 className="text-sm font-medium text-foreground">
+                      PIN Authentication
+                      {hasPINRequiredRole && (
+                        <span className="ml-2 text-xs text-orange-600 dark:text-orange-400">
+                          (Required for {user?.roles?.find(r => PIN_REQUIRED_ROLES.includes(r.role?.code as any))?.role?.code})
+                        </span>
+                      )}
+                    </h4>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {pinStatusData?.data?.has_pin
+                        ? "Leave blank to keep the current PIN"
+                        : "Enter a 4-digit PIN for terminal authentication"}
+                    </p>
+                    {pinStatusData?.data?.has_pin && (
+                      <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                        User currently has a PIN set
+                      </p>
+                    )}
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="pin"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {pinStatusData?.data?.has_pin ? "New PIN (Optional)" : "PIN"}
+                          {!pinStatusData?.data?.has_pin && hasPINRequiredRole && " *"}
+                        </FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Input
+                              type={showPIN ? "text" : "password"}
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              maxLength={4}
+                              placeholder="****"
+                              autoComplete="off"
+                              {...field}
+                              onChange={(e) => {
+                                // Only allow numeric input
+                                const value = e.target.value.replace(/\D/g, "");
+                                field.onChange(value);
+                              }}
+                              disabled={isSubmitting}
+                              data-testid="edit-user-pin-input"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowPIN(!showPIN)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                              tabIndex={-1}
+                            >
+                              {showPIN ? (
+                                <EyeOff className="h-4 w-4" />
+                              ) : (
+                                <Eye className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
+                        </FormControl>
+                        <FormDescription>
+                          4-digit numeric PIN for terminal authentication
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              )}
 
               {/* Current Roles Section */}
               {user && (

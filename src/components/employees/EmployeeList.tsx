@@ -3,6 +3,7 @@
 /**
  * Employee List Component
  * Displays a list of employees for client's stores with search, filtering, and pagination
+ * Includes PIN management for STORE_MANAGER and SHIFT_MANAGER roles
  *
  * Story: 2.91 - Client Employee Management
  */
@@ -53,7 +54,17 @@ import {
   ChevronRight,
   Users,
   AlertCircle,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
+import { SetEmployeePINModal } from "@/components/settings/SetEmployeePINModal";
+
+/**
+ * Roles that support PIN authentication for terminal/desktop access
+ * Only STORE_MANAGER and SHIFT_MANAGER can have PINs
+ */
+const PIN_ENABLED_ROLES = ["STORE_MANAGER", "SHIFT_MANAGER"] as const;
 
 /**
  * Sentinel value for "all stores" filter.
@@ -69,6 +80,17 @@ interface EmployeeListProps {
   onCreateEmployee: () => void;
 }
 
+/**
+ * Check if an employee has a role that supports PIN authentication
+ * @param employee - The employee to check
+ * @returns true if employee has STORE_MANAGER or SHIFT_MANAGER role
+ */
+function hasPINEnabledRole(employee: Employee): boolean {
+  return employee.roles.some((role) =>
+    PIN_ENABLED_ROLES.includes(role.role_code as (typeof PIN_ENABLED_ROLES)[number]),
+  );
+}
+
 export function EmployeeList({ onCreateEmployee }: EmployeeListProps) {
   const { toast } = useToast();
 
@@ -80,6 +102,9 @@ export function EmployeeList({ onCreateEmployee }: EmployeeListProps) {
     null,
   );
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // PIN Modal state
+  const [pinEmployee, setPinEmployee] = useState<Employee | null>(null);
 
   // Debounced search value
   const debouncedSearch = useDebounce(search, 300);
@@ -241,59 +266,96 @@ export function EmployeeList({ onCreateEmployee }: EmployeeListProps) {
               <TableHead>Email</TableHead>
               <TableHead>Store</TableHead>
               <TableHead>Role</TableHead>
+              <TableHead>PIN</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="w-[80px]">Actions</TableHead>
+              <TableHead className="w-[120px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {employees.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={7}
                   className="h-24 text-center text-muted-foreground"
                 >
                   No employees found matching your search.
                 </TableCell>
               </TableRow>
             ) : (
-              employees.map((employee) => (
-                <TableRow
-                  key={employee.user_id}
-                  data-testid={`employee-row-${employee.user_id}`}
-                >
-                  <TableCell className="font-medium">{employee.name}</TableCell>
-                  <TableCell>{employee.email}</TableCell>
-                  <TableCell>{employee.store_name || "—"}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {employee.roles.map((role) => (
-                        <Badge key={role.user_role_id} variant="secondary">
-                          {role.role_code}
-                        </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        employee.status === "ACTIVE" ? "default" : "outline"
-                      }
-                    >
-                      {employee.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setEmployeeToDelete(employee)}
-                      data-testid={`delete-employee-${employee.user_id}`}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
+              employees.map((employee) => {
+                const showPIN = hasPINEnabledRole(employee);
+                return (
+                  <TableRow
+                    key={employee.user_id}
+                    data-testid={`employee-row-${employee.user_id}`}
+                  >
+                    <TableCell className="font-medium">{employee.name}</TableCell>
+                    <TableCell>{employee.email}</TableCell>
+                    <TableCell>{employee.store_name || "—"}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {employee.roles.map((role) => (
+                          <Badge key={role.user_role_id} variant="secondary">
+                            {role.role_code}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {showPIN ? (
+                        employee.has_pin ? (
+                          <span className="flex items-center gap-1 text-green-600" title="PIN is set">
+                            <Check className="h-4 w-4" />
+                            <span className="text-xs">Set</span>
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-red-500" title="PIN not set">
+                            <X className="h-4 w-4" />
+                            <span className="text-xs">Not Set</span>
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-muted-foreground text-xs">N/A</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          employee.status === "ACTIVE" ? "default" : "outline"
+                        }
+                      >
+                        {employee.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {/* PIN Button - only for STORE_MANAGER and SHIFT_MANAGER */}
+                        {showPIN && employee.store_id && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setPinEmployee(employee)}
+                            data-testid={`set-pin-${employee.user_id}`}
+                            title={employee.has_pin ? "Reset PIN" : "Set PIN"}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {/* Delete Button */}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setEmployeeToDelete(employee)}
+                          data-testid={`delete-employee-${employee.user_id}`}
+                          title="Delete employee"
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -358,6 +420,22 @@ export function EmployeeList({ onCreateEmployee }: EmployeeListProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Set/Reset PIN Modal */}
+      {pinEmployee && pinEmployee.store_id && (
+        <SetEmployeePINModal
+          employee={pinEmployee}
+          storeId={pinEmployee.store_id}
+          open={!!pinEmployee}
+          onOpenChange={(open) => {
+            if (!open) {
+              setPinEmployee(null);
+              // Refetch employee list to update PIN status
+              refetch();
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -381,8 +459,9 @@ function EmployeeListSkeleton() {
               <TableHead>Email</TableHead>
               <TableHead>Store</TableHead>
               <TableHead>Role</TableHead>
+              <TableHead>PIN</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="w-[80px]">Actions</TableHead>
+              <TableHead className="w-[120px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -401,10 +480,13 @@ function EmployeeListSkeleton() {
                   <Skeleton className="h-6 w-[80px]" />
                 </TableCell>
                 <TableCell>
+                  <Skeleton className="h-4 w-[50px]" />
+                </TableCell>
+                <TableCell>
                   <Skeleton className="h-6 w-[60px]" />
                 </TableCell>
                 <TableCell>
-                  <Skeleton className="h-8 w-8" />
+                  <Skeleton className="h-8 w-16" />
                 </TableCell>
               </TableRow>
             ))}

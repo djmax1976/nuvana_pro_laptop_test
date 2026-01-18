@@ -1,11 +1,18 @@
 import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 import { prisma } from "../utils/db";
 import {
   invalidateUserStatusCache,
   invalidateMultipleUserStatusCache,
 } from "../middleware/active-status.middleware";
+
+/**
+ * Roles that REQUIRE PIN for terminal/desktop authentication
+ * SEC-001: PIN authentication for elevated store operations
+ */
+const PIN_REQUIRED_ROLES = ["STORE_MANAGER", "SHIFT_MANAGER"] as const;
 
 /**
  * Audit context for logging operations
@@ -55,6 +62,9 @@ export interface CreateUserInput {
   // Company and store IDs for CLIENT_USER role (assigns to existing company/store)
   company_id?: string;
   store_id?: string;
+  // PIN for terminal/desktop authentication (required for STORE_MANAGER/SHIFT_MANAGER)
+  // SEC-001: Will be bcrypt hashed before storage
+  pin?: string;
 }
 
 /**
@@ -74,6 +84,12 @@ export interface UpdateUserProfileInput {
   name?: string;
   email?: string;
   password?: string;
+  // PIN for terminal/desktop authentication
+  // SEC-001: Will be bcrypt hashed before storage
+  // DB-006: Uniqueness validated per-store
+  pin?: string;
+  // Store ID required for PIN uniqueness validation
+  store_id?: string;
 }
 
 /**
@@ -124,8 +140,137 @@ export interface PaginatedUserResult {
  * User admin service for managing user CRUD and role assignment operations
  * Handles user creation, retrieval, status updates, and role management
  * with comprehensive audit logging for compliance
+ *
+ * Security Compliance:
+ * - SEC-001 PASSWORD_HASHING: bcrypt with salt rounds 10 for passwords and PINs
+ * - DB-006 TENANT_ISOLATION: PIN uniqueness enforced per-store
+ * - API-001 VALIDATION: Input validation via Zod schemas
+ * - SEC-010 AUTHZ: Permission-based access control
  */
 export class UserAdminService {
+  // =========================================================================
+  // PIN Helper Methods (SEC-001 PASSWORD_HASHING, DB-006 TENANT_ISOLATION)
+  // =========================================================================
+
+  /**
+   * Validate PIN format (exactly 4 numeric digits)
+   * SEC-014 INPUT_VALIDATION: Strict format validation
+   * @param pin - PIN to validate
+   * @throws Error if PIN format is invalid
+   */
+  private validatePINFormat(pin: string): void {
+    const pinRegex = /^\d{4}$/;
+    if (!pinRegex.test(pin)) {
+      throw new Error("PIN must be exactly 4 numeric digits");
+    }
+  }
+
+  /**
+   * Compute SHA-256 fingerprint of PIN for fast uniqueness lookups
+   * Uses indexed column for O(1) lookup performance
+   * @param pin - Plain PIN
+   * @returns SHA-256 hex digest (64 characters)
+   */
+  private computePINFingerprint(pin: string): string {
+    return crypto.createHash("sha256").update(pin).digest("hex");
+  }
+
+  /**
+   * Hash PIN using bcrypt
+   * SEC-001 PASSWORD_HASHING: bcrypt with salt rounds 10
+   * @param pin - Plain PIN
+   * @returns bcrypt hash
+   */
+  private async hashPIN(pin: string): Promise<string> {
+    return bcrypt.hash(pin, 10);
+  }
+
+  /**
+   * Validate PIN uniqueness within a store
+   * DB-006 TENANT_ISOLATION: PIN must be unique per-store, not globally
+   *
+   * Algorithm:
+   * 1. Compute SHA-256 fingerprint for fast indexed lookup
+   * 2. Find users with matching fingerprint who have active role at store
+   * 3. Verify match with bcrypt.compare (constant-time, prevents timing attacks)
+   *
+   * @param pin - Plain PIN to validate
+   * @param storeId - Store to check uniqueness within
+   * @param excludeUserId - Optional user to exclude (for updates)
+   * @param tx - Optional transaction client
+   * @throws Error if PIN already in use at store
+   */
+  private async validatePINUniquenessInStore(
+    pin: string,
+    storeId: string,
+    excludeUserId?: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const db = tx || prisma;
+    const fingerprint = this.computePINFingerprint(pin);
+
+    // Query users with matching fingerprint who have an active role at this store
+    // DB-001 ORM_USAGE: Using Prisma query builder
+    // Performance: Uses indexed sha256_pin_fingerprint column
+    const usersWithMatchingFingerprint = await db.user.findMany({
+      where: {
+        sha256_pin_fingerprint: fingerprint,
+        ...(excludeUserId && { user_id: { not: excludeUserId } }),
+        user_roles: {
+          some: {
+            store_id: storeId,
+          },
+        },
+      },
+      select: {
+        user_id: true,
+        pin_hash: true,
+      },
+    });
+
+    // Verify each match with bcrypt.compare (constant-time comparison)
+    for (const user of usersWithMatchingFingerprint) {
+      if (user.pin_hash) {
+        const isMatch = await bcrypt.compare(pin, user.pin_hash);
+        if (isMatch) {
+          throw new Error("PIN already in use at this store");
+        }
+      }
+    }
+
+    // Fallback: Check users with NULL fingerprint (legacy data)
+    // This handles users who had PINs set before fingerprinting was implemented
+    const usersWithNullFingerprint = await db.user.findMany({
+      where: {
+        sha256_pin_fingerprint: null,
+        pin_hash: { not: null },
+        ...(excludeUserId && { user_id: { not: excludeUserId } }),
+        user_roles: {
+          some: {
+            store_id: storeId,
+          },
+        },
+      },
+      select: {
+        user_id: true,
+        pin_hash: true,
+      },
+    });
+
+    for (const user of usersWithNullFingerprint) {
+      if (user.pin_hash) {
+        const isMatch = await bcrypt.compare(pin, user.pin_hash);
+        if (isMatch) {
+          throw new Error("PIN already in use at this store");
+        }
+      }
+    }
+  }
+
+  // =========================================================================
+  // User CRUD Operations
+  // =========================================================================
+
   /**
    * Create a new user with optional initial role assignments
    * If CLIENT_OWNER role is assigned, also creates a company owned by this user
@@ -159,7 +304,14 @@ export class UserAdminService {
       throw new Error("Password must be at least 8 characters");
     }
 
+    // Validate PIN format if provided
+    // SEC-014 INPUT_VALIDATION: Strict format check
+    if (data.pin) {
+      this.validatePINFormat(data.pin);
+    }
+
     // Check for duplicate email
+    // DB-001 ORM_USAGE: Using Prisma findUnique with indexed column
     const existingUser = await prisma.user.findUnique({
       where: { email: data.email.toLowerCase().trim() },
     });
@@ -173,10 +325,13 @@ export class UserAdminService {
       throw new Error("User must be assigned at least one role");
     }
 
-    // Check for CLIENT_OWNER and CLIENT_USER roles
+    // Check for CLIENT_OWNER, CLIENT_USER, and PIN-required roles
     // We'll verify this after fetching the roles
     let hasClientOwnerRole = false;
     let hasClientUserRole = false;
+    let hasPINRequiredRole = false;
+    let storeIdForPIN: string | null = null;
+
     for (const roleAssignment of data.roles) {
       const role = await prisma.role.findUnique({
         where: { role_id: roleAssignment.role_id },
@@ -187,6 +342,28 @@ export class UserAdminService {
       if (role?.code === "CLIENT_USER") {
         hasClientUserRole = true;
       }
+      // Check if this role requires PIN
+      if (role?.code && PIN_REQUIRED_ROLES.includes(role.code as any)) {
+        hasPINRequiredRole = true;
+        // Get store_id for PIN uniqueness validation
+        if (roleAssignment.store_id) {
+          storeIdForPIN = roleAssignment.store_id;
+        }
+      }
+    }
+
+    // Validate PIN requirement for STORE_MANAGER/SHIFT_MANAGER
+    if (hasPINRequiredRole && !data.pin) {
+      throw new Error(
+        "PIN is required for STORE_MANAGER and SHIFT_MANAGER roles",
+      );
+    }
+
+    // Validate store_id is available for PIN uniqueness check
+    if (data.pin && !storeIdForPIN) {
+      throw new Error(
+        "Store ID is required for PIN uniqueness validation. User must be assigned to a store.",
+      );
     }
 
     // Determine if this user should be marked as a client user
@@ -259,23 +436,49 @@ export class UserAdminService {
 
     try {
       // Hash password if provided
+      // SEC-001 PASSWORD_HASHING: bcrypt with salt rounds 10
       const passwordHash = data.password
         ? await bcrypt.hash(data.password, 10)
         : null;
+
+      // Hash PIN if provided
+      // SEC-001 PASSWORD_HASHING: bcrypt with salt rounds 10
+      let pinHash: string | null = null;
+      let pinFingerprint: string | null = null;
+      if (data.pin && storeIdForPIN) {
+        // Validate PIN uniqueness within the store BEFORE creating user
+        // DB-006 TENANT_ISOLATION: PIN must be unique per-store
+        await this.validatePINUniquenessInStore(data.pin, storeIdForPIN);
+        pinHash = await this.hashPIN(data.pin);
+        pinFingerprint = this.computePINFingerprint(data.pin);
+      }
 
       // Use transaction to create user and company atomically
       // Critical validations (active status, ownership) happen inside transaction
       // to prevent TOCTOU vulnerabilities
       const result = await prisma.$transaction(
         async (tx: Prisma.TransactionClient) => {
+          // Re-validate PIN uniqueness inside transaction to prevent race conditions
+          if (data.pin && storeIdForPIN) {
+            await this.validatePINUniquenessInStore(
+              data.pin,
+              storeIdForPIN,
+              undefined,
+              tx,
+            );
+          }
+
           // Create user
           // Set is_client_user flag for users with CLIENT_OWNER or CLIENT_USER roles
+          // Include PIN hash and fingerprint if provided
           const user = await tx.user.create({
             data: {
               public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
               email: data.email.toLowerCase().trim(),
               name: data.name.trim(),
               password_hash: passwordHash,
+              pin_hash: pinHash,
+              sha256_pin_fingerprint: pinFingerprint,
               status: "ACTIVE",
               is_client_user: isClientUser,
             },
@@ -448,6 +651,7 @@ export class UserAdminService {
       );
 
       // Create audit log for user creation (non-blocking)
+      // SEC-001: PIN values are REDACTED in audit logs
       try {
         await prisma.auditLog.create({
           data: {
@@ -460,13 +664,14 @@ export class UserAdminService {
               email: result.user.email,
               name: result.user.name,
               status: result.user.status,
+              pin_set: !!data.pin, // Log whether PIN was set, not the actual value
               company_created: result.company
                 ? result.company.company_id
                 : null,
             } as unknown as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
-            reason: `User created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})${result.company ? ` with company ${result.company.name}` : ""}`,
+            reason: `User created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})${result.company ? ` with company ${result.company.name}` : ""}${data.pin ? " with PIN" : ""}`,
           },
         });
       } catch (auditError) {
@@ -483,8 +688,11 @@ export class UserAdminService {
       if (
         error instanceof Error &&
         (error.message.includes("already exists") ||
+          error.message.includes("already in use") ||
           error.message.includes("required") ||
-          error.message.includes("not found"))
+          error.message.includes("not found") ||
+          error.message.includes("PIN must be") ||
+          error.message.includes("PIN is required"))
       ) {
         throw error;
       }
@@ -831,13 +1039,23 @@ export class UserAdminService {
   }
 
   /**
-   * Update user profile (name, email, and/or password)
+   * Update user profile (name, email, password, and/or PIN)
    * System Admin only - allows updating any user's profile
+   *
+   * PIN Update Rules:
+   * - If user already has a PIN, leaving pin field empty keeps the current PIN
+   * - Providing a new PIN value will update the PIN (validated for uniqueness per-store)
+   * - PIN uniqueness is validated against the provided store_id
+   *
+   * Security:
+   * - SEC-001 PASSWORD_HASHING: bcrypt with salt rounds 10
+   * - DB-006 TENANT_ISOLATION: PIN uniqueness per-store
+   *
    * @param userId - User UUID to update
-   * @param data - Profile update data (name, email, password)
+   * @param data - Profile update data (name, email, password, pin, store_id)
    * @param auditContext - Audit context for logging
    * @returns Updated user with roles
-   * @throws Error if user not found, email already exists, or validation fails
+   * @throws Error if user not found, email already exists, PIN conflict, or validation fails
    */
   async updateUserProfile(
     userId: string,
@@ -845,14 +1063,26 @@ export class UserAdminService {
     auditContext: AuditContext,
   ): Promise<UserWithRoles> {
     // Validate at least one field is provided
-    if (!data.name && !data.email && !data.password) {
+    if (!data.name && !data.email && !data.password && !data.pin) {
       throw new Error(
-        "At least one field (name, email, or password) must be provided",
+        "At least one field (name, email, password, or pin) must be provided",
       );
     }
 
+    // Validate PIN format if provided
+    // SEC-014 INPUT_VALIDATION: Strict format check
+    if (data.pin) {
+      this.validatePINFormat(data.pin);
+      // Validate store_id is provided for PIN uniqueness check
+      if (!data.store_id) {
+        throw new Error(
+          "Store ID is required when updating PIN (for uniqueness validation)",
+        );
+      }
+    }
+
     try {
-      // Check if user exists
+      // Check if user exists and get current PIN status
       const existingUser = await prisma.user.findUnique({
         where: { user_id: userId },
         select: {
@@ -860,6 +1090,7 @@ export class UserAdminService {
           email: true,
           name: true,
           status: true,
+          pin_hash: true,
         },
       });
 
@@ -881,11 +1112,19 @@ export class UserAdminService {
         }
       }
 
+      // Validate PIN uniqueness if PIN is being updated
+      // DB-006 TENANT_ISOLATION: PIN must be unique per-store
+      if (data.pin && data.store_id) {
+        await this.validatePINUniquenessInStore(data.pin, data.store_id, userId);
+      }
+
       // Prepare update data
       const updateData: {
         name?: string;
         email?: string;
         password_hash?: string;
+        pin_hash?: string;
+        sha256_pin_fingerprint?: string;
       } = {};
 
       if (data.name) {
@@ -897,7 +1136,14 @@ export class UserAdminService {
       }
 
       if (data.password) {
+        // SEC-001 PASSWORD_HASHING: bcrypt with salt rounds 10
         updateData.password_hash = await bcrypt.hash(data.password, 10);
+      }
+
+      if (data.pin) {
+        // SEC-001 PASSWORD_HASHING: bcrypt with salt rounds 10
+        updateData.pin_hash = await this.hashPIN(data.pin);
+        updateData.sha256_pin_fingerprint = this.computePINFingerprint(data.pin);
       }
 
       // Update user
@@ -932,6 +1178,13 @@ export class UserAdminService {
         changes.push("password");
       }
 
+      if (data.pin) {
+        // SEC-001: Don't log actual PIN values, just indicate it was changed
+        oldValues.pin = existingUser.pin_hash ? "[HAD_PIN]" : "[NO_PIN]";
+        newValues.pin = "[CHANGED]";
+        changes.push("pin");
+      }
+
       // Create audit log (non-blocking)
       try {
         await prisma.auditLog.create({
@@ -961,13 +1214,212 @@ export class UserAdminService {
         error instanceof Error &&
         (error.message.includes("not found") ||
           error.message.includes("already exists") ||
-          error.message.includes("At least one field"))
+          error.message.includes("already in use") ||
+          error.message.includes("At least one field") ||
+          error.message.includes("PIN must be") ||
+          error.message.includes("Store ID is required"))
       ) {
         throw error;
       }
       console.error("Error updating user profile:", error);
       throw error;
     }
+  }
+
+  /**
+   * Set user PIN
+   * Dedicated method for setting/updating user PIN
+   *
+   * Security:
+   * - SEC-001 PASSWORD_HASHING: bcrypt with salt rounds 10
+   * - DB-006 TENANT_ISOLATION: PIN uniqueness per-store
+   *
+   * @param userId - User UUID
+   * @param pin - 4-digit PIN
+   * @param storeId - Store ID for uniqueness validation
+   * @param auditContext - Audit context for logging
+   * @returns Success message
+   * @throws Error if user not found, PIN invalid, or PIN conflict
+   */
+  async setUserPIN(
+    userId: string,
+    pin: string,
+    storeId: string,
+    auditContext: AuditContext,
+  ): Promise<{ message: string }> {
+    // Validate PIN format
+    this.validatePINFormat(pin);
+
+    try {
+      // Check if user exists and get current PIN status
+      const existingUser = await prisma.user.findUnique({
+        where: { user_id: userId },
+        select: {
+          user_id: true,
+          email: true,
+          pin_hash: true,
+        },
+      });
+
+      if (!existingUser) {
+        throw new Error(`User with ID ${userId} not found`);
+      }
+
+      // Validate PIN uniqueness within the store
+      // DB-006 TENANT_ISOLATION: PIN must be unique per-store
+      await this.validatePINUniquenessInStore(pin, storeId, userId);
+
+      // Hash PIN and compute fingerprint
+      const pinHash = await this.hashPIN(pin);
+      const pinFingerprint = this.computePINFingerprint(pin);
+
+      // Update user with new PIN
+      await prisma.user.update({
+        where: { user_id: userId },
+        data: {
+          pin_hash: pinHash,
+          sha256_pin_fingerprint: pinFingerprint,
+        },
+      });
+
+      // Determine action type for audit log
+      const isUpdate = !!existingUser.pin_hash;
+      const actionType = isUpdate ? "PIN_UPDATE" : "PIN_SET";
+
+      // Create audit log (non-blocking)
+      // SEC-001: PIN values are REDACTED in audit logs
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "UPDATE",
+            table_name: "users",
+            record_id: userId,
+            old_values: {
+              pin: isUpdate ? "[REDACTED]" : null,
+            } as unknown as Record<string, any>,
+            new_values: {
+              pin: "[REDACTED]",
+              action_type: actionType,
+              store_id: storeId,
+            } as unknown as Record<string, any>,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `${actionType} for user ${existingUser.email} by ${auditContext.userEmail} at store ${storeId}`,
+          },
+        });
+      } catch (auditError) {
+        console.error("Failed to create audit log for PIN update:", auditError);
+      }
+
+      return { message: isUpdate ? "PIN updated successfully" : "PIN set successfully" };
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        (error.message.includes("not found") ||
+          error.message.includes("already in use") ||
+          error.message.includes("PIN must be"))
+      ) {
+        throw error;
+      }
+      console.error("Error setting user PIN:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clear user PIN
+   * Removes PIN from user account
+   *
+   * @param userId - User UUID
+   * @param auditContext - Audit context for logging
+   * @returns Success message
+   * @throws Error if user not found
+   */
+  async clearUserPIN(
+    userId: string,
+    auditContext: AuditContext,
+  ): Promise<{ message: string }> {
+    try {
+      // Check if user exists
+      const existingUser = await prisma.user.findUnique({
+        where: { user_id: userId },
+        select: {
+          user_id: true,
+          email: true,
+          pin_hash: true,
+        },
+      });
+
+      if (!existingUser) {
+        throw new Error(`User with ID ${userId} not found`);
+      }
+
+      // Clear PIN
+      await prisma.user.update({
+        where: { user_id: userId },
+        data: {
+          pin_hash: null,
+          sha256_pin_fingerprint: null,
+        },
+      });
+
+      // Create audit log (non-blocking)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "UPDATE",
+            table_name: "users",
+            record_id: userId,
+            old_values: {
+              pin: existingUser.pin_hash ? "[REDACTED]" : null,
+            } as unknown as Record<string, any>,
+            new_values: {
+              pin: null,
+              action_type: "PIN_CLEAR",
+            } as unknown as Record<string, any>,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `PIN cleared for user ${existingUser.email} by ${auditContext.userEmail}`,
+          },
+        });
+      } catch (auditError) {
+        console.error("Failed to create audit log for PIN clear:", auditError);
+      }
+
+      return { message: "PIN cleared successfully" };
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes("not found")) {
+        throw error;
+      }
+      console.error("Error clearing user PIN:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get user PIN status
+   * Returns whether user has a PIN set (never returns actual PIN)
+   *
+   * @param userId - User UUID
+   * @returns PIN status object
+   * @throws Error if user not found
+   */
+  async getUserPINStatus(userId: string): Promise<{ has_pin: boolean }> {
+    const user = await prisma.user.findUnique({
+      where: { user_id: userId },
+      select: {
+        user_id: true,
+        pin_hash: true,
+      },
+    });
+
+    if (!user) {
+      throw new Error(`User with ID ${userId} not found`);
+    }
+
+    return { has_pin: !!user.pin_hash };
   }
 
   /**
