@@ -46,6 +46,7 @@ import documentScanningRoutes from "./routes/document-scanning";
 import { geographicRoutes } from "./routes/geographic";
 import { apiKeyRoutes } from "./routes/api-keys";
 import { deviceApiRoutes } from "./routes/device-api";
+import { lotterySyncRoutes } from "./routes/lottery-sync";
 import { rlsPlugin } from "./middleware/rls.middleware";
 
 const PORT = parseInt(
@@ -456,6 +457,10 @@ app.register(apiKeyRoutes);
 // Device routes: /api/v1/keys/* - Key activation, heartbeat
 // Sync routes: /api/v1/sync/* - Offline data synchronization
 app.register(deviceApiRoutes);
+
+// Register lottery sync routes (Desktop POS Lottery Synchronization)
+// Sync routes: /api/v1/sync/lottery/* - 25 endpoints for lottery data sync
+app.register(lotterySyncRoutes);
 
 // Root endpoint - Security best practice for financial/POS applications
 // Production: Return 404 to avoid information disclosure (API-003: ERROR_HANDLING)

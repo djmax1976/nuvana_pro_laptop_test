@@ -339,6 +339,42 @@ export const syncCompleteSchema = z.object({
 });
 
 // =============================================================================
+// Employee Sync Schemas (Unified Enterprise POS Pattern)
+// =============================================================================
+
+/**
+ * Employee Sync Query Schema
+ * Validates query parameters for unified employee data synchronization
+ * Includes: Store Managers, Shift Managers, Cashiers
+ */
+export const employeeSyncQuerySchema = z.object({
+  session_id: z.string().uuid("session_id must be a valid UUID"),
+
+  since_timestamp: z
+    .string()
+    .datetime("since_timestamp must be a valid ISO 8601 datetime")
+    .optional(),
+
+  since_sequence: z.coerce
+    .number()
+    .int("since_sequence must be an integer")
+    .min(0, "since_sequence cannot be negative")
+    .optional(),
+
+  include_inactive: z
+    .string()
+    .transform((v) => v === "true")
+    .optional(),
+
+  limit: z.coerce
+    .number()
+    .int("limit must be an integer")
+    .min(1, "limit must be at least 1")
+    .max(500, "limit cannot exceed 500")
+    .default(100),
+});
+
+// =============================================================================
 // Cashier Sync Schemas (Enterprise POS Pattern)
 // =============================================================================
 
@@ -409,3 +445,4 @@ export type SyncPullQuery = z.infer<typeof syncPullQuerySchema>;
 export type SyncCompleteInput = z.infer<typeof syncCompleteSchema>;
 export type CashierSyncQuery = z.infer<typeof cashierSyncQuerySchema>;
 export type CashierOfflineAuthInput = z.infer<typeof cashierOfflineAuthSchema>;
+export type EmployeeSyncQuery = z.infer<typeof employeeSyncQuerySchema>;
