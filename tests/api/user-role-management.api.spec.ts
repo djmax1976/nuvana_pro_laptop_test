@@ -1137,9 +1137,12 @@ test.describe("2.8-API: User Management API - STORE-Scoped Role Store Assignment
     }
 
     // WHEN: Creating user with STORE_MANAGER role but NO store_id
+    // Note: PIN is required for STORE_MANAGER, so we provide it to ensure
+    // we're testing store_id validation, not PIN validation
     const response = await superadminApiRequest.post("/api/admin/users", {
       email: userData.email,
       name: userData.name,
+      pin: "1234", // Required for STORE_MANAGER role
       roles: [
         {
           role_id: storeManagerRole.role_id,
@@ -1150,13 +1153,12 @@ test.describe("2.8-API: User Management API - STORE-Scoped Role Store Assignment
       ],
     });
 
-    // THEN: Validation error is returned - STORE-scoped roles require store assignment
+    // THEN: Validation error is returned - store_id required for PIN uniqueness validation
+    // (STORE_MANAGER requires both PIN and store assignment)
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.error.message).toMatch(
-      /store.*required|company.*store.*required/i,
-    );
+    expect(body.error.message).toMatch(/store.*required|Store ID is required/i);
   });
 
   test("2.8-API-043: [P0] POST /api/admin/users - should require store_id when creating user with SHIFT_MANAGER role", async ({
@@ -1186,9 +1188,12 @@ test.describe("2.8-API: User Management API - STORE-Scoped Role Store Assignment
     }
 
     // WHEN: Creating user with SHIFT_MANAGER role but NO store_id
+    // Note: PIN is required for SHIFT_MANAGER, so we provide it to ensure
+    // we're testing store_id validation, not PIN validation
     const response = await superadminApiRequest.post("/api/admin/users", {
       email: userData.email,
       name: userData.name,
+      pin: "5678", // Required for SHIFT_MANAGER role
       roles: [
         {
           role_id: shiftManagerRole.role_id,
@@ -1199,13 +1204,12 @@ test.describe("2.8-API: User Management API - STORE-Scoped Role Store Assignment
       ],
     });
 
-    // THEN: Validation error is returned - STORE-scoped roles require store assignment
+    // THEN: Validation error is returned - store_id required for PIN uniqueness validation
+    // (SHIFT_MANAGER requires both PIN and store assignment)
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.error.message).toMatch(
-      /store.*required|company.*store.*required/i,
-    );
+    expect(body.error.message).toMatch(/store.*required|Store ID is required/i);
   });
 
   test("2.8-API-044: [P0] POST /api/admin/users - should require store_id when creating user with CASHIER role", async ({
@@ -1292,10 +1296,12 @@ test.describe("2.8-API: User Management API - STORE-Scoped Role Store Assignment
       throw new Error("STORE_MANAGER role not found in database");
     }
 
-    // WHEN: Creating user with STORE_MANAGER role WITH store_id
+    // WHEN: Creating user with STORE_MANAGER role WITH store_id and required PIN
+    // SEC-001: STORE_MANAGER requires PIN for terminal authentication
     const response = await superadminApiRequest.post("/api/admin/users", {
       email: userData.email,
       name: userData.name,
+      pin: "1234", // Required for STORE_MANAGER role
       roles: [
         {
           role_id: storeManagerRole.role_id,
@@ -1322,6 +1328,14 @@ test.describe("2.8-API: User Management API - STORE-Scoped Role Store Assignment
     expect(userRole).not.toBeNull();
     expect(userRole?.company_id).toBe(company.company_id);
     expect(userRole?.store_id).toBe(store.store_id);
+
+    // AND: User has PIN hash set (SEC-001 compliance)
+    const createdUser = await prismaClient.user.findUnique({
+      where: { user_id: body.data.user_id },
+      select: { pin_hash: true, sha256_pin_fingerprint: true },
+    });
+    expect(createdUser?.pin_hash).not.toBeNull();
+    expect(createdUser?.sha256_pin_fingerprint).not.toBeNull();
   });
 
   test("2.8-API-046: [P0] POST /api/admin/users/:userId/roles - should require store_id when assigning STORE_MANAGER role", async ({
@@ -1407,9 +1421,11 @@ test.describe("2.8-API: User Management API - STORE-Scoped Role Store Assignment
     }
 
     // WHEN: Creating user with STORE_MANAGER role for an INACTIVE store
+    // Note: PIN is provided to ensure inactive store validation is tested, not PIN validation
     const response = await superadminApiRequest.post("/api/admin/users", {
       email: userData.email,
       name: userData.name,
+      pin: "1234", // Required for STORE_MANAGER role
       roles: [
         {
           role_id: storeManagerRole.role_id,
@@ -1463,9 +1479,11 @@ test.describe("2.8-API: User Management API - STORE-Scoped Role Store Assignment
     }
 
     // WHEN: Creating user with STORE_MANAGER role for a store under INACTIVE company
+    // Note: PIN is provided to ensure inactive company validation is tested, not PIN validation
     const response = await superadminApiRequest.post("/api/admin/users", {
       email: userData.email,
       name: userData.name,
+      pin: "1234", // Required for STORE_MANAGER role
       roles: [
         {
           role_id: storeManagerRole.role_id,

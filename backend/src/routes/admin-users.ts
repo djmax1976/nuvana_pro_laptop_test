@@ -89,6 +89,7 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           name,
           password,
           roles,
+          pin, // SEC-001: PIN for terminal/desktop authentication
           companyName,
           companyAddress,
           company_id,
@@ -108,6 +109,7 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
               company_id?: string;
               store_id?: string;
             }>,
+            pin, // SEC-001: PIN for STORE_MANAGER/SHIFT_MANAGER
             companyName,
             companyAddress,
             company_id,
