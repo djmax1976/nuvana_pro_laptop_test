@@ -14,7 +14,6 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -31,14 +30,13 @@ import {
   useDeleteTerminal,
   type Store,
   type StoreStatus,
-  type Terminal,
   type TerminalWithStatus,
 } from "@/lib/api/stores";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Trash2, Edit2, X, Save } from "lucide-react";
+import { Plus, Trash2, Edit2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -48,6 +46,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ConnectionConfigForm } from "@/components/stores/ConnectionConfigForm";
+import { AddressFields, type AddressFieldsValue } from "@/components/address";
 
 /**
  * Validate IANA timezone format (safer implementation to avoid ReDoS)
@@ -75,6 +74,7 @@ function validateIANATimezoneFormat(timezone: string): boolean {
 
 /**
  * Store form validation schema
+ * Note: Structured address validation is handled separately via AddressFields component
  */
 const storeFormSchema = z.object({
   name: z
@@ -88,7 +88,6 @@ const storeFormSchema = z.object({
       (val) => validateIANATimezoneFormat(val),
       "Timezone must be in IANA format (e.g., America/New_York, Europe/London)",
     ),
-  address: z.string().optional(),
   status: z.enum(["ACTIVE", "INACTIVE", "CLOSED"], {
     message: "Please select a status",
   }),
@@ -106,7 +105,11 @@ interface StoreFormProps {
  * StoreForm component
  * Form for creating or editing a store
  * Uses Shadcn/ui Form components with Zod validation
- * Validates timezone (IANA format) and location_json structure
+ * Validates timezone (IANA format) and structured address fields
+ *
+ * @enterprise-standards
+ * - FE-002: FORM_VALIDATION - Client-side validation mirrors backend
+ * - SEC-014: INPUT_VALIDATION - Strict validation for all address fields
  */
 export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
   const router = useRouter();
@@ -116,31 +119,154 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
   const createMutation = useCreateStore();
   const updateMutation = useUpdateStore();
 
-  // Extract location data from store
-  const locationData = store?.location_json;
+  // Structured address state management
+  // Initialize from store's structured fields if editing, otherwise empty
+  const [storeAddress, setStoreAddress] = useState<Partial<AddressFieldsValue>>(
+    () => {
+      if (store) {
+        // Type assertion needed because Store interface may need update
+        const storeData = store as Store & {
+          address_line1?: string;
+          address_line2?: string;
+          city?: string;
+          state_id?: string;
+          county_id?: string;
+          zip_code?: string;
+        };
+        return {
+          address_line1: storeData.address_line1 || "",
+          address_line2: storeData.address_line2 || "",
+          city: storeData.city || "",
+          state_id: storeData.state_id || "",
+          county_id: storeData.county_id || "",
+          zip_code: storeData.zip_code || "",
+        };
+      }
+      return {};
+    },
+  );
+
+  // Address validation errors state
+  const [addressErrors, setAddressErrors] = useState<
+    Partial<Record<keyof AddressFieldsValue, string>>
+  >({});
 
   const form = useForm<StoreFormValues>({
     resolver: zodResolver(storeFormSchema),
     defaultValues: {
       name: store?.name || "",
       timezone: store?.timezone || "America/New_York",
-      address: locationData?.address ?? undefined,
       status: store?.status || "ACTIVE",
     },
   });
 
+  /**
+   * Handle address field changes from AddressFields component
+   */
+  const handleAddressChange = useCallback(
+    (newAddress: Partial<AddressFieldsValue>) => {
+      setStoreAddress(newAddress);
+      // Clear errors for fields that now have values
+      setAddressErrors((prev) => {
+        const updated = { ...prev };
+        if (newAddress.address_line1) delete updated.address_line1;
+        if (newAddress.state_id) delete updated.state_id;
+        if (newAddress.city) delete updated.city;
+        if (newAddress.zip_code) delete updated.zip_code;
+        return updated;
+      });
+    },
+    [],
+  );
+
+  /**
+   * Validate structured address fields
+   * @enterprise-standards SEC-014: INPUT_VALIDATION
+   */
+  const validateAddress = useCallback((): boolean => {
+    const errors: Partial<Record<keyof AddressFieldsValue, string>> = {};
+    let isValid = true;
+
+    // Address line 1 is required
+    if (
+      !storeAddress.address_line1 ||
+      storeAddress.address_line1.trim().length === 0
+    ) {
+      errors.address_line1 = "Street address is required";
+      isValid = false;
+    } else if (storeAddress.address_line1.length > 255) {
+      errors.address_line1 = "Street address cannot exceed 255 characters";
+      isValid = false;
+    }
+
+    // State is required (determines lottery game visibility)
+    if (!storeAddress.state_id) {
+      errors.state_id = "State is required";
+      isValid = false;
+    }
+
+    // City is required
+    if (!storeAddress.city || storeAddress.city.trim().length === 0) {
+      errors.city = "City is required";
+      isValid = false;
+    } else if (storeAddress.city.length > 100) {
+      errors.city = "City cannot exceed 100 characters";
+      isValid = false;
+    }
+
+    // ZIP code is required with format validation
+    if (!storeAddress.zip_code || storeAddress.zip_code.trim().length === 0) {
+      errors.zip_code = "ZIP code is required";
+      isValid = false;
+    } else {
+      // eslint-disable-next-line security/detect-unsafe-regex
+      const zipRegex = /^[0-9]{5}(-[0-9]{4})?$/;
+      if (!zipRegex.test(storeAddress.zip_code)) {
+        errors.zip_code = "ZIP code must be in format 12345 or 12345-6789";
+        isValid = false;
+      }
+    }
+
+    setAddressErrors(errors);
+    return isValid;
+  }, [storeAddress]);
+
   const onSubmit = async (values: StoreFormValues) => {
+    // Validate address fields before submission
+    if (!validateAddress()) {
+      toast({
+        title: "Validation Error",
+        description: "Please complete all required address fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      // Build form data with location_json
+      // Build form data with structured address fields
       const formData = {
         name: values.name,
         timezone: values.timezone,
         status: values.status,
-        // Always include location_json if address is defined (even empty string clears it)
-        ...(values.address != null
-          ? { location_json: { address: values.address } }
-          : {}),
+        // Structured address fields for enterprise-grade storage
+        address_line1: storeAddress.address_line1?.trim(),
+        address_line2: storeAddress.address_line2?.trim() || null,
+        city: storeAddress.city?.trim(),
+        state_id: storeAddress.state_id,
+        county_id: storeAddress.county_id || null,
+        zip_code: storeAddress.zip_code?.trim(),
+        // Keep legacy location_json for backward compatibility
+        location_json: {
+          address: [
+            storeAddress.address_line1,
+            storeAddress.address_line2,
+            storeAddress.city,
+            storeAddress.zip_code,
+          ]
+            .filter(Boolean)
+            .join(", "),
+        },
       };
 
       if (store) {
@@ -168,6 +294,8 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
       // Reset form if creating
       if (!store) {
         form.reset();
+        setStoreAddress({});
+        setAddressErrors({});
       }
 
       // Call onSuccess callback if provided
@@ -237,27 +365,15 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
           )}
         />
 
-        <FormField
-          control={form.control}
-          name="address"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Address</FormLabel>
-              <FormControl>
-                <Textarea
-                  placeholder="Enter store address"
-                  {...field}
-                  value={field.value ?? ""}
-                  disabled={isSubmitting}
-                  rows={3}
-                />
-              </FormControl>
-              <FormDescription>
-                Physical address of the store (optional)
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
+        {/* Structured Address Fields */}
+        <AddressFields
+          value={storeAddress}
+          onChange={handleAddressChange}
+          required={true}
+          disabled={isSubmitting}
+          testIdPrefix="store"
+          sectionLabel="Store Address"
+          errors={addressErrors}
         />
 
         <FormField

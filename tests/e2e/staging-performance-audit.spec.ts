@@ -290,8 +290,8 @@ test.describe("Performance Audit - Super Admin Dashboard", () => {
         waitUntil: "domcontentloaded",
       });
 
-      // Wait for users page content (table or heading)
-      const usersHeading = page.locator("h1, h2").filter({ hasText: /Users/i });
+      // Wait for users page content (h1 heading specifically to avoid matching subheadings)
+      const usersHeading = page.locator("h1").filter({ hasText: /Users/i });
       await expect(usersHeading).toBeVisible({
         timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
       });

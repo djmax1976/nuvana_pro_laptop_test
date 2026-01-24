@@ -342,9 +342,12 @@ export async function loginAsSuperAdmin(
       return null;
     });
 
-  // Click and wait for URL change
+  // Click and wait for URL change to the admin dashboard (not client-dashboard)
+  // The regex specifically matches /dashboard or /dashboard/... but NOT /client-dashboard
   await Promise.all([
-    page.waitForURL(/.*dashboard.*/, { timeout: TEST_TIMEOUTS.URL_CHANGE }),
+    page.waitForURL(/\/dashboard(?:$|\/)/, {
+      timeout: TEST_TIMEOUTS.URL_CHANGE,
+    }),
     submitButton.click(),
   ]);
 
@@ -354,7 +357,27 @@ export async function loginAsSuperAdmin(
     console.log(`[AUTH] Login API response: ${loginResponse.status()}`);
   }
 
-  // Wait for admin dashboard to be visible
+  // Verify we're actually on the admin dashboard (not redirected elsewhere)
+  const currentUrl = page.url();
+  if (currentUrl.includes("client-dashboard")) {
+    throw new Error(
+      `SUPERADMIN login redirected to client-dashboard instead of admin dashboard. ` +
+        `This indicates the user may be missing the SUPERADMIN role. ` +
+        `Check that RBAC roles are seeded in the test database.`,
+    );
+  }
+  if (currentUrl.includes("/login")) {
+    throw new Error(
+      `Login failed - still on login page. Check credentials and user status.`,
+    );
+  }
+
+  // Wait for admin dashboard layout to be ready first
+  await page
+    .locator('[data-testid="dashboard-layout"]')
+    .waitFor({ state: "visible", timeout: TEST_TIMEOUTS.AUTH_CONTEXT_READY });
+
+  // Then wait for the dashboard content
   // The admin dashboard uses data-testid="dashboard-content" within "dashboard-layout"
   await page
     .locator('[data-testid="dashboard-content"]')

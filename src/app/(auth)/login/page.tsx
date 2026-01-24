@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 function LoginContent() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-gray-50">
+    <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-background">
       <LoginForm />
     </main>
   );
@@ -18,7 +18,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center">
+        <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
           Loading...
         </div>
       }

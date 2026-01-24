@@ -949,6 +949,64 @@ export interface CashierOfflineAuthResponse {
 // Re-export Prisma enums
 // ============================================================================
 
+// ============================================================================
+// Store Reset Types
+// ============================================================================
+
+/**
+ * Store reset type options
+ */
+export type StoreResetType = "FULL_RESET" | "LOTTERY_ONLY" | "SYNC_STATE";
+
+/**
+ * Request to reset store data on Desktop App
+ */
+export interface StoreResetRequest {
+  /** Type of reset operation */
+  resetType: StoreResetType;
+
+  /** Device fingerprint for audit trail */
+  deviceFingerprint: string;
+
+  /** Reason for the reset */
+  reason: string;
+
+  /** App version performing the reset */
+  appVersion: string;
+
+  /** Confirmation flag */
+  confirmed: true;
+}
+
+/**
+ * Response from store reset endpoint
+ */
+export interface StoreResetResponse {
+  /** Whether reset authorization was successful */
+  authorized: boolean;
+
+  /** Reset type that was authorized */
+  resetType: StoreResetType;
+
+  /** Server timestamp for audit correlation */
+  serverTime: string;
+
+  /** Audit reference ID for tracking */
+  auditReferenceId: string;
+
+  /** Instructions for client-side reset execution */
+  instructions: {
+    /** Tables/data that should be cleared */
+    clearTargets: string[];
+    /** Whether to re-sync after reset */
+    resyncRequired: boolean;
+  };
+}
+
+// ============================================================================
+// Re-export Prisma enums
+// ============================================================================
+
 export type {
   ApiKeyStatus,
   ApiKeyRevocationReason,

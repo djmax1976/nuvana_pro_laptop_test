@@ -47,17 +47,33 @@ export interface StoreConfiguration {
 
 /**
  * Store entity type
+ * Includes both legacy location_json and structured address fields
  */
 export interface Store {
   store_id: string;
   company_id: string;
   name: string;
+  /** @deprecated Use structured address fields below */
   location_json: LocationJson | null;
   timezone: string;
   status: StoreStatus;
   configuration?: StoreConfiguration | null;
   created_at: string;
   updated_at: string;
+  // === STRUCTURED ADDRESS FIELDS ===
+  // Enterprise-grade address storage for store physical location
+  /** Street address line 1 (e.g., "456 Commerce Drive") */
+  address_line1?: string | null;
+  /** Street address line 2 (e.g., "Unit 5", "Next to Walmart") */
+  address_line2?: string | null;
+  /** City name */
+  city?: string | null;
+  /** FK to us_states - determines lottery game visibility */
+  state_id?: string | null;
+  /** FK to us_counties - for tax jurisdiction calculation */
+  county_id?: string | null;
+  /** ZIP code (5-digit or ZIP+4 format) */
+  zip_code?: string | null;
 }
 
 /**
@@ -96,12 +112,27 @@ export interface TerminalInput {
 
 /**
  * Create store input
+ * Includes both legacy location_json and structured address fields
  */
 export interface CreateStoreInput {
   name: string;
+  /** @deprecated Use structured address fields below */
   location_json?: LocationJson;
   timezone?: string; // IANA timezone format
   status?: StoreStatus;
+  // === STRUCTURED ADDRESS FIELDS ===
+  /** Street address line 1 (required for new stores) */
+  address_line1?: string;
+  /** Street address line 2 (optional) */
+  address_line2?: string | null;
+  /** City name (required for new stores) */
+  city?: string;
+  /** FK to us_states (required - determines lottery visibility) */
+  state_id?: string;
+  /** FK to us_counties (optional - for tax jurisdiction) */
+  county_id?: string | null;
+  /** ZIP code (required, 5-digit or ZIP+4 format) */
+  zip_code?: string;
 }
 
 /**
@@ -141,12 +172,27 @@ export type CreateStoreWithManagerResponse = CreateStoreWithLoginResponse;
 
 /**
  * Update store input
+ * Includes both legacy location_json and structured address fields
  */
 export interface UpdateStoreInput {
   name?: string;
+  /** @deprecated Use structured address fields below */
   location_json?: LocationJson;
   timezone?: string; // IANA timezone format
   status?: StoreStatus;
+  // === STRUCTURED ADDRESS FIELDS ===
+  /** Street address line 1 */
+  address_line1?: string;
+  /** Street address line 2 (set to null to clear) */
+  address_line2?: string | null;
+  /** City name */
+  city?: string;
+  /** FK to us_states - determines lottery visibility */
+  state_id?: string;
+  /** FK to us_counties - for tax jurisdiction */
+  county_id?: string | null;
+  /** ZIP code (5-digit or ZIP+4 format) */
+  zip_code?: string;
 }
 
 /**

@@ -16,15 +16,35 @@ export type StoreStatus = "ACTIVE" | "INACTIVE" | "CLOSED";
 
 /**
  * Store creation input
+ * Includes both legacy location_json and structured address fields
+ *
+ * @enterprise-standards
+ * - API-001: VALIDATION - All inputs validated via Zod schemas
+ * - SEC-006: SQL_INJECTION - Prisma ORM prevents injection
+ * - DB-006: TENANT_ISOLATION - Company scoping enforced
  */
 export interface CreateStoreInput {
   company_id: string;
   name: string;
+  /** @deprecated Use structured address fields instead */
   location_json?: {
     address?: string;
   };
   timezone?: string;
   status?: StoreStatus;
+  // === Structured Address Fields ===
+  /** Street address line 1 (e.g., "123 Main Street") */
+  address_line1?: string;
+  /** Street address line 2 (e.g., "Suite 100") */
+  address_line2?: string | null;
+  /** City name (denormalized for display) */
+  city?: string;
+  /** FK to us_states - CRITICAL: determines lottery game visibility */
+  state_id?: string;
+  /** FK to us_counties - for tax jurisdiction */
+  county_id?: string | null;
+  /** ZIP code (5-digit or ZIP+4 format) */
+  zip_code?: string;
 }
 
 /**
@@ -52,8 +72,8 @@ export interface UpdateStoreInput {
   city?: string;
   /** FK to us_states - CRITICAL: determines lottery game visibility */
   state_id?: string;
-  /** FK to us_counties - for tax jurisdiction */
-  county_id?: string;
+  /** FK to us_counties - for tax jurisdiction (null to clear) */
+  county_id?: string | null;
   /** ZIP code (5-digit or ZIP+4 format) */
   zip_code?: string;
 }
@@ -184,6 +204,82 @@ export class StoreService {
       throw new Error("Invalid status. Must be ACTIVE, INACTIVE, or CLOSED");
     }
 
+    // === Validate Structured Address Fields ===
+    // SEC-014: INPUT_VALIDATION - Validate all address inputs
+
+    // Validate address_line1
+    if (data.address_line1 !== undefined) {
+      if (typeof data.address_line1 !== "string") {
+        throw new Error("address_line1 must be a string");
+      }
+      if (data.address_line1.trim().length > 255) {
+        throw new Error("address_line1 cannot exceed 255 characters");
+      }
+      // XSS protection: Reject addresses containing dangerous HTML
+      const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+      if (xssPattern.test(data.address_line1)) {
+        throw new Error(
+          "Invalid address_line1: HTML tags and scripts are not allowed",
+        );
+      }
+    }
+
+    // Validate address_line2
+    if (data.address_line2 !== undefined && data.address_line2 !== null) {
+      if (typeof data.address_line2 !== "string") {
+        throw new Error("address_line2 must be a string");
+      }
+      if (data.address_line2.trim().length > 255) {
+        throw new Error("address_line2 cannot exceed 255 characters");
+      }
+      const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+      if (xssPattern.test(data.address_line2)) {
+        throw new Error(
+          "Invalid address_line2: HTML tags and scripts are not allowed",
+        );
+      }
+    }
+
+    // Validate city
+    if (data.city !== undefined) {
+      if (typeof data.city !== "string") {
+        throw new Error("city must be a string");
+      }
+      if (data.city.trim().length > 100) {
+        throw new Error("city cannot exceed 100 characters");
+      }
+    }
+
+    // Validate state_id (UUID format)
+    if (data.state_id !== undefined) {
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(data.state_id)) {
+        throw new Error("state_id must be a valid UUID");
+      }
+    }
+
+    // Validate county_id (UUID format)
+    if (data.county_id !== undefined && data.county_id !== null) {
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(data.county_id)) {
+        throw new Error("county_id must be a valid UUID");
+      }
+    }
+
+    // Validate zip_code (5-digit or ZIP+4 format)
+    if (data.zip_code !== undefined) {
+      if (typeof data.zip_code !== "string") {
+        throw new Error("zip_code must be a string");
+      }
+      // eslint-disable-next-line security/detect-unsafe-regex -- Safe: bounded quantifiers with fixed length
+      const zipRegex = /^[0-9]{5}(-[0-9]{4})?$/;
+      if (!zipRegex.test(data.zip_code)) {
+        throw new Error("zip_code must be in format 12345 or 12345-6789");
+      }
+    }
+
     try {
       const store = await client.store.create({
         data: {
@@ -193,6 +289,31 @@ export class StoreService {
           location_json: data.location_json || undefined,
           timezone: data.timezone || "America/New_York",
           status: data.status || "ACTIVE",
+          // === Structured Address Fields ===
+          address_line1: data.address_line1?.trim() || null,
+          address_line2:
+            data.address_line2 === null
+              ? null
+              : data.address_line2?.trim() || null,
+          city: data.city?.trim() || null,
+          state_id: data.state_id || null,
+          county_id: data.county_id || null,
+          zip_code: data.zip_code || null,
+        },
+        include: {
+          state: {
+            select: {
+              state_id: true,
+              code: true,
+              name: true,
+            },
+          },
+          county: {
+            select: {
+              county_id: true,
+              name: true,
+            },
+          },
         },
       });
 
@@ -360,8 +481,8 @@ export class StoreService {
       }
     }
 
-    // Validate county_id (UUID format)
-    if (data.county_id !== undefined) {
+    // Validate county_id (UUID format) - null is allowed to clear the county
+    if (data.county_id !== undefined && data.county_id !== null) {
       const uuidRegex =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(data.county_id)) {

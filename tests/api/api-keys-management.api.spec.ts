@@ -48,13 +48,27 @@ const VALID_LABEL = "Test API Key";
 // ============================================================================
 
 /**
- * Creates a test store with company for API key testing
+ * Creates a test store with company for API key testing.
  * Requires an owner user to be created first (FK constraint)
+ *
+ * API key creation requires stores to have:
+ * - name, public_id, company, timezone (handled by factory)
+ * - state_id with valid state relation (required for identity payload)
  */
 async function createTestStoreWithCompany(
   prismaClient: any,
   ownerUserId?: string,
 ) {
+  // Get a valid state from the seeded data (Georgia is always available)
+  const state = await prismaClient.uSState.findFirst({
+    where: { code: "GA", is_active: true },
+  });
+  if (!state) {
+    throw new Error(
+      "Georgia state not found in database. Run geographic data seed first.",
+    );
+  }
+
   // If no owner provided, create a test user first
   let ownerId = ownerUserId;
   let createdOwner = false;
@@ -70,7 +84,12 @@ async function createTestStoreWithCompany(
   const company = await prismaClient.company.create({ data: companyData });
 
   const storeData = createStore({ company_id: company.company_id });
-  const store = await prismaClient.store.create({ data: storeData });
+  const store = await prismaClient.store.create({
+    data: {
+      ...storeData,
+      state_id: state.state_id, // Required for API key creation
+    },
+  });
 
   return { company, store, ownerId, createdOwner };
 }

@@ -18,7 +18,7 @@
  * - SEC-014: INPUT_VALIDATION - Client-side validation
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -29,6 +29,8 @@ import {
   AlertCircle,
   Check,
   Upload,
+  Search,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -158,6 +160,23 @@ export default function LotteryPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
 
+  // Search and filter state
+  // FE-021: EVENT_HANDLING - Debounced search for better UX
+  // SEC-014: INPUT_VALIDATION - Allowlist filter values
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  const [priceFilter, setPriceFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  // Debounce search input to prevent excessive filtering
+  // FE-021: EVENT_HANDLING - 300ms debounce for search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   // Create form
   const createForm = useForm<CreateGameFormData>({
     resolver: zodResolver(createGameSchema),
@@ -238,11 +257,78 @@ export default function LotteryPage() {
     }
   }, [successMessage]);
 
-  // Filter games by state
-  const filteredGames =
-    selectedStateFilter === "all"
-      ? games
-      : games.filter((game) => game.state_id === selectedStateFilter);
+  // Filter games by state, search term, price, and status
+  // SEC-014: INPUT_VALIDATION - Safe client-side filtering with escaped regex
+  // SEC-006: SQL_INJECTION - N/A (client-side filtering, no SQL)
+  const filteredGames = useMemo(() => {
+    return games.filter((game) => {
+      // State filter
+      if (selectedStateFilter !== "all" && game.state_id !== selectedStateFilter) {
+        return false;
+      }
+
+      // Search filter (game name or game code)
+      // SEC-014: INPUT_VALIDATION - Case-insensitive search, no regex special chars concern
+      if (debouncedSearchTerm.trim()) {
+        const searchLower = debouncedSearchTerm.toLowerCase().trim();
+        const nameMatch = game.name.toLowerCase().includes(searchLower);
+        const codeMatch = game.game_code.toLowerCase().includes(searchLower);
+        if (!nameMatch && !codeMatch) {
+          return false;
+        }
+      }
+
+      // Price filter
+      // SEC-014: INPUT_VALIDATION - Allowlist-based price filtering
+      if (priceFilter !== "all") {
+        const gamePrice = game.price ?? 0;
+        switch (priceFilter) {
+          case "1":
+            if (gamePrice !== 1) return false;
+            break;
+          case "2":
+            if (gamePrice !== 2) return false;
+            break;
+          case "3":
+            if (gamePrice !== 3) return false;
+            break;
+          case "5":
+            if (gamePrice !== 5) return false;
+            break;
+          case "10":
+            if (gamePrice !== 10) return false;
+            break;
+          case "20":
+            if (gamePrice !== 20) return false;
+            break;
+          case "25":
+            if (gamePrice !== 25) return false;
+            break;
+          case "30":
+            if (gamePrice !== 30) return false;
+            break;
+          case "50":
+            if (gamePrice !== 50) return false;
+            break;
+          case "other":
+            // "Other" means any price not in the standard list
+            const standardPrices = [1, 2, 3, 5, 10, 20, 25, 30, 50];
+            if (standardPrices.includes(gamePrice)) return false;
+            break;
+        }
+      }
+
+      // Status filter
+      // SEC-014: INPUT_VALIDATION - Enum-based status filtering
+      if (statusFilter !== "all") {
+        if (game.status !== statusFilter) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [games, selectedStateFilter, debouncedSearchTerm, priceFilter, statusFilter]);
 
   // Group games by state for display
   const gamesByState = filteredGames.reduce(
@@ -362,12 +448,12 @@ export default function LotteryPage() {
     switch (status) {
       case "ACTIVE":
         return (
-          <Badge variant="default" className="bg-green-600">
+          <Badge variant="success">
             Active
           </Badge>
         );
       case "INACTIVE":
-        return <Badge variant="secondary">Inactive</Badge>;
+        return <Badge variant="destructive">Inactive</Badge>;
       case "DISCONTINUED":
         return <Badge variant="destructive">Discontinued</Badge>;
       default:
@@ -591,37 +677,142 @@ export default function LotteryPage() {
         </Alert>
       )}
 
-      {/* Filter by State */}
+      {/* Search and Filters */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Filter Games</CardTitle>
+          <CardTitle className="text-lg">Search & Filter Games</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-4">
-            <Label htmlFor="state-filter" className="whitespace-nowrap">
-              Filter by State:
-            </Label>
-            <Select
-              value={selectedStateFilter}
-              onValueChange={setSelectedStateFilter}
-              disabled={isLoadingStates}
-            >
-              <SelectTrigger
-                id="state-filter"
-                className="w-[250px]"
-                data-testid="state-filter"
+          <div className="flex flex-wrap items-end gap-4">
+            {/* Search Bar */}
+            <div className="flex-1 min-w-[250px]">
+              <Label htmlFor="search-games" className="text-sm font-medium mb-1.5 block">
+                Search
+              </Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="search-games"
+                  placeholder="Search by game name or code..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 pr-9"
+                  data-testid="search-games-input"
+                />
+                {searchTerm && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                    onClick={() => setSearchTerm("")}
+                    aria-label="Clear search"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* State Filter */}
+            <div className="w-[200px]">
+              <Label htmlFor="state-filter" className="text-sm font-medium mb-1.5 block">
+                State
+              </Label>
+              <Select
+                value={selectedStateFilter}
+                onValueChange={setSelectedStateFilter}
+                disabled={isLoadingStates}
               >
-                <SelectValue placeholder="All States" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All States</SelectItem>
-                {states.map((state) => (
-                  <SelectItem key={state.state_id} value={state.state_id}>
-                    {state.name} ({state.code})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                <SelectTrigger
+                  id="state-filter"
+                  data-testid="state-filter"
+                >
+                  <SelectValue placeholder="All States" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All States</SelectItem>
+                  {states.map((state) => (
+                    <SelectItem key={state.state_id} value={state.state_id}>
+                      {state.name} ({state.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Price Filter */}
+            <div className="w-[150px]">
+              <Label htmlFor="price-filter" className="text-sm font-medium mb-1.5 block">
+                Price
+              </Label>
+              <Select
+                value={priceFilter}
+                onValueChange={setPriceFilter}
+              >
+                <SelectTrigger
+                  id="price-filter"
+                  data-testid="price-filter"
+                >
+                  <SelectValue placeholder="All Prices" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Prices</SelectItem>
+                  <SelectItem value="1">$1</SelectItem>
+                  <SelectItem value="2">$2</SelectItem>
+                  <SelectItem value="3">$3</SelectItem>
+                  <SelectItem value="5">$5</SelectItem>
+                  <SelectItem value="10">$10</SelectItem>
+                  <SelectItem value="20">$20</SelectItem>
+                  <SelectItem value="25">$25</SelectItem>
+                  <SelectItem value="30">$30</SelectItem>
+                  <SelectItem value="50">$50</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Status Filter */}
+            <div className="w-[160px]">
+              <Label htmlFor="status-filter" className="text-sm font-medium mb-1.5 block">
+                Status
+              </Label>
+              <Select
+                value={statusFilter}
+                onValueChange={setStatusFilter}
+              >
+                <SelectTrigger
+                  id="status-filter"
+                  data-testid="status-filter"
+                >
+                  <SelectValue placeholder="All Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="ACTIVE">Active</SelectItem>
+                  <SelectItem value="INACTIVE">Inactive</SelectItem>
+                  <SelectItem value="DISCONTINUED">Discontinued</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Clear All Filters Button */}
+            {(searchTerm || selectedStateFilter !== "all" || priceFilter !== "all" || statusFilter !== "all") && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSearchTerm("");
+                  setSelectedStateFilter("all");
+                  setPriceFilter("all");
+                  setStatusFilter("all");
+                }}
+                className="h-10"
+                data-testid="clear-filters-button"
+              >
+                <X className="h-4 w-4 mr-1" />
+                Clear Filters
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>

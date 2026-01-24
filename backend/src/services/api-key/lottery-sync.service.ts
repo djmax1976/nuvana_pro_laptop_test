@@ -187,7 +187,10 @@ class LotterySyncService {
 
   /**
    * GET /api/v1/sync/lottery/games
-   * Fetch active lottery games for the store's state
+   * Fetch ALL lottery games for the store's state (including inactive)
+   *
+   * Returns all games regardless of status so local database can track
+   * status changes. Local app filters display as needed.
    *
    * DB-006: TENANT_ISOLATION - Games filtered by state_id from API key
    */
@@ -196,14 +199,13 @@ class LotterySyncService {
     stateId: string | null,
     options: LotterySyncOptions = {},
   ): Promise<LotteryGamesSyncResponse> {
-    const { sinceTimestamp, sinceSequence, includeInactive = false } = options;
+    const { sinceTimestamp, sinceSequence } = options;
     const limit = sanitizeLimit(options.limit);
 
     // Build where clause with state isolation
     // Games are state-scoped or store-scoped (fallback)
     const where: {
       updated_at?: { gt: Date };
-      status?: "ACTIVE";
       OR: Array<{ state_id: string | null } | { store_id: string }>;
     } = {
       OR: [
@@ -217,10 +219,8 @@ class LotterySyncService {
     if (sinceTimestamp) {
       where.updated_at = { gt: sinceTimestamp };
     }
-
-    if (!includeInactive) {
-      where.status = "ACTIVE";
-    }
+    // Always return ALL games including inactive - local database needs complete picture
+    // to properly track game status changes. Local app filters display as needed.
 
     const totalCount = await prisma.lotteryGame.count({ where });
 
@@ -237,27 +237,27 @@ class LotterySyncService {
     const records: LotteryGameSyncRecord[] = recordsToReturn.map((game) => {
       sequence += 1;
       return {
-        gameId: game.game_id,
-        gameCode: game.game_code,
+        game_id: game.game_id,
+        game_code: game.game_code,
         name: game.name,
         description: game.description,
         price: game.price.toString(),
-        packValue: game.pack_value.toString(),
-        ticketsPerPack: game.tickets_per_pack,
+        pack_value: game.pack_value.toString(),
+        tickets_per_pack: game.tickets_per_pack,
         status: game.status,
-        stateId: game.state_id,
-        updatedAt: game.updated_at.toISOString(),
-        syncSequence: sequence,
+        state_id: game.state_id,
+        updated_at: game.updated_at.toISOString(),
+        sync_sequence: sequence,
       };
     });
 
     return {
       records,
-      totalCount,
-      currentSequence: sequence,
-      hasMore,
-      serverTime: getServerTime(),
-      nextCursor: hasMore ? sequence : undefined,
+      total_count: totalCount,
+      current_sequence: sequence,
+      has_more: hasMore,
+      server_time: getServerTime(),
+      next_cursor: hasMore ? sequence : undefined,
     };
   }
 
@@ -301,23 +301,23 @@ class LotterySyncService {
     const records: LotteryConfigSyncRecord[] = recordsToReturn.map((config) => {
       sequence += 1;
       return {
-        configValueId: config.config_value_id,
-        configType: config.config_type,
+        config_value_id: config.config_value_id,
+        config_type: config.config_type,
         amount: config.amount.toString(),
-        displayOrder: config.display_order,
-        isActive: config.is_active,
-        updatedAt: config.updated_at.toISOString(),
-        syncSequence: sequence,
+        display_order: config.display_order,
+        is_active: config.is_active,
+        updated_at: config.updated_at.toISOString(),
+        sync_sequence: sequence,
       };
     });
 
     return {
       records,
-      totalCount,
-      currentSequence: sequence,
-      hasMore,
-      serverTime: getServerTime(),
-      nextCursor: hasMore ? sequence : undefined,
+      total_count: totalCount,
+      current_sequence: sequence,
+      has_more: hasMore,
+      server_time: getServerTime(),
+      next_cursor: hasMore ? sequence : undefined,
     };
   }
 
@@ -369,23 +369,23 @@ class LotterySyncService {
     const records: LotteryBinSyncRecord[] = recordsToReturn.map((bin) => {
       sequence += 1;
       return {
-        binId: bin.bin_id,
+        bin_id: bin.bin_id,
         name: bin.name,
         location: bin.location,
-        displayOrder: bin.display_order,
-        isActive: bin.is_active,
-        updatedAt: bin.updated_at.toISOString(),
-        syncSequence: sequence,
+        display_order: bin.display_order,
+        is_active: bin.is_active,
+        updated_at: bin.updated_at.toISOString(),
+        sync_sequence: sequence,
       };
     });
 
     return {
       records,
-      totalCount,
-      currentSequence: sequence,
-      hasMore,
-      serverTime: getServerTime(),
-      nextCursor: hasMore ? sequence : undefined,
+      total_count: totalCount,
+      current_sequence: sequence,
+      has_more: hasMore,
+      server_time: getServerTime(),
+      next_cursor: hasMore ? sequence : undefined,
     };
   }
 
@@ -460,11 +460,11 @@ class LotterySyncService {
 
     return {
       records,
-      totalCount,
-      currentSequence: sequence,
-      hasMore,
-      serverTime: getServerTime(),
-      nextCursor: hasMore ? sequence : undefined,
+      total_count: totalCount,
+      current_sequence: sequence,
+      has_more: hasMore,
+      server_time: getServerTime(),
+      next_cursor: hasMore ? sequence : undefined,
     };
   }
 
@@ -512,41 +512,41 @@ class LotterySyncService {
     sequence: number,
   ): LotteryPackSyncRecord {
     return {
-      packId: pack.pack_id,
-      gameId: pack.game_id,
-      gameCode: pack.game.game_code,
-      gameName: pack.game.name,
-      packNumber: pack.pack_number,
-      serialStart: pack.serial_start,
-      serialEnd: pack.serial_end,
+      pack_id: pack.pack_id,
+      game_id: pack.game_id,
+      game_code: pack.game.game_code,
+      game_name: pack.game.name,
+      pack_number: pack.pack_number,
+      serial_start: pack.serial_start,
+      serial_end: pack.serial_end,
       status: pack.status,
-      currentBinId: pack.current_bin_id,
-      currentBinName: pack.bin?.name || null,
-      ticketsSoldCount: pack.tickets_sold_count,
-      lastSoldAt: pack.last_sold_at?.toISOString() || null,
-      receivedAt: pack.received_at?.toISOString() || null,
-      activatedAt: pack.activated_at?.toISOString() || null,
-      depletedAt: pack.depleted_at?.toISOString() || null,
-      returnedAt: pack.returned_at?.toISOString() || null,
-      activatedBy: pack.activated_by,
-      activatedShiftId: pack.activated_shift_id,
-      depletedBy: pack.depleted_by,
-      depletionReason:
-        pack.depletion_reason as LotteryPackSyncRecord["depletionReason"],
-      returnedBy: pack.returned_by,
-      returnReason: pack.return_reason as LotteryPackSyncRecord["returnReason"],
-      returnNotes: pack.return_notes,
-      lastSoldSerial: pack.last_sold_serial,
-      ticketsSoldOnReturn: pack.tickets_sold_on_return,
-      returnSalesAmount: decimalToString(pack.return_sales_amount),
-      serialOverrideApprovedBy: pack.serial_override_approved_by,
-      serialOverrideReason: pack.serial_override_reason,
-      markSoldApprovedBy: pack.mark_sold_approved_by,
-      markSoldReason: pack.mark_sold_reason,
-      ticketPrice: pack.game.price.toString(),
-      packValue: pack.game.pack_value.toString(),
-      updatedAt: pack.updated_at.toISOString(),
-      syncSequence: sequence,
+      current_bin_id: pack.current_bin_id,
+      current_bin_name: pack.bin?.name || null,
+      tickets_sold_count: pack.tickets_sold_count,
+      last_sold_at: pack.last_sold_at?.toISOString() || null,
+      received_at: pack.received_at?.toISOString() || null,
+      activated_at: pack.activated_at?.toISOString() || null,
+      depleted_at: pack.depleted_at?.toISOString() || null,
+      returned_at: pack.returned_at?.toISOString() || null,
+      activated_by: pack.activated_by,
+      activated_shift_id: pack.activated_shift_id,
+      depleted_by: pack.depleted_by,
+      depletion_reason:
+        pack.depletion_reason as LotteryPackSyncRecord["depletion_reason"],
+      returned_by: pack.returned_by,
+      return_reason: pack.return_reason as LotteryPackSyncRecord["return_reason"],
+      return_notes: pack.return_notes,
+      last_sold_serial: pack.last_sold_serial,
+      tickets_sold_on_return: pack.tickets_sold_on_return,
+      return_sales_amount: decimalToString(pack.return_sales_amount),
+      serial_override_approved_by: pack.serial_override_approved_by,
+      serial_override_reason: pack.serial_override_reason,
+      mark_sold_approved_by: pack.mark_sold_approved_by,
+      mark_sold_reason: pack.mark_sold_reason,
+      ticket_price: pack.game.price.toString(),
+      pack_value: pack.game.pack_value.toString(),
+      updated_at: pack.updated_at.toISOString(),
+      sync_sequence: sequence,
     };
   }
 
@@ -586,29 +586,29 @@ class LotterySyncService {
     });
 
     const records: LotteryDayStatusSyncRecord[] = days.map((day, index) => ({
-      dayId: day.day_id,
-      businessDate: day.business_date.toISOString().split("T")[0],
+      day_id: day.day_id,
+      business_date: day.business_date.toISOString().split("T")[0],
       status: day.status as "OPEN" | "PENDING_CLOSE" | "CLOSED",
-      openedAt: day.opened_at.toISOString(),
-      openedBy: day.opened_by,
-      closedAt: day.closed_at?.toISOString() || null,
-      closedBy: day.closed_by,
+      opened_at: day.opened_at.toISOString(),
+      opened_by: day.opened_by,
+      closed_at: day.closed_at?.toISOString() || null,
+      closed_by: day.closed_by,
       notes: day.notes,
-      pendingCloseBy: day.pending_close_by,
-      pendingCloseAt: day.pending_close_at?.toISOString() || null,
-      pendingCloseExpiresAt:
+      pending_close_by: day.pending_close_by,
+      pending_close_at: day.pending_close_at?.toISOString() || null,
+      pending_close_expires_at:
         day.pending_close_expires_at?.toISOString() || null,
-      daySummaryId: day.day_summary_id,
-      updatedAt: day.updated_at.toISOString(),
-      syncSequence: index + 1,
+      day_summary_id: day.day_summary_id,
+      updated_at: day.updated_at.toISOString(),
+      sync_sequence: index + 1,
     }));
 
     return {
       records,
-      totalCount: records.length,
-      currentSequence: records.length,
-      hasMore: false,
-      serverTime: getServerTime(),
+      total_count: records.length,
+      current_sequence: records.length,
+      has_more: false,
+      server_time: getServerTime(),
     };
   }
 
@@ -668,25 +668,25 @@ class LotterySyncService {
       (opening) => {
         sequence += 1;
         return {
-          openingId: opening.opening_id,
-          shiftId: opening.shift_id,
-          packId: opening.pack_id,
-          packNumber: opening.pack.pack_number,
-          gameCode: opening.pack.game.game_code,
-          openingSerial: opening.opening_serial,
-          createdAt: opening.created_at.toISOString(),
-          syncSequence: sequence,
+          opening_id: opening.opening_id,
+          shift_id: opening.shift_id,
+          pack_id: opening.pack_id,
+          pack_number: opening.pack.pack_number,
+          game_code: opening.pack.game.game_code,
+          opening_serial: opening.opening_serial,
+          created_at: opening.created_at.toISOString(),
+          sync_sequence: sequence,
         };
       },
     );
 
     return {
       records,
-      totalCount,
-      currentSequence: sequence,
-      hasMore,
-      serverTime: getServerTime(),
-      nextCursor: hasMore ? sequence : undefined,
+      total_count: totalCount,
+      current_sequence: sequence,
+      has_more: hasMore,
+      server_time: getServerTime(),
+      next_cursor: hasMore ? sequence : undefined,
     };
   }
 
@@ -745,30 +745,30 @@ class LotterySyncService {
       (closing) => {
         sequence += 1;
         return {
-          closingId: closing.closing_id,
-          shiftId: closing.shift_id,
-          packId: closing.pack_id,
-          packNumber: closing.pack.pack_number,
-          gameCode: closing.pack.game.game_code,
-          cashierId: closing.cashier_id,
-          closingSerial: closing.closing_serial,
-          entryMethod: closing.entry_method,
-          manualEntryAuthorizedBy: closing.manual_entry_authorized_by,
-          manualEntryAuthorizedAt:
+          closing_id: closing.closing_id,
+          shift_id: closing.shift_id,
+          pack_id: closing.pack_id,
+          pack_number: closing.pack.pack_number,
+          game_code: closing.pack.game.game_code,
+          cashier_id: closing.cashier_id,
+          closing_serial: closing.closing_serial,
+          entry_method: closing.entry_method,
+          manual_entry_authorized_by: closing.manual_entry_authorized_by,
+          manual_entry_authorized_at:
             closing.manual_entry_authorized_at?.toISOString() || null,
-          createdAt: closing.created_at.toISOString(),
-          syncSequence: sequence,
+          created_at: closing.created_at.toISOString(),
+          sync_sequence: sequence,
         };
       },
     );
 
     return {
       records,
-      totalCount,
-      currentSequence: sequence,
-      hasMore,
-      serverTime: getServerTime(),
-      nextCursor: hasMore ? sequence : undefined,
+      total_count: totalCount,
+      current_sequence: sequence,
+      has_more: hasMore,
+      server_time: getServerTime(),
+      next_cursor: hasMore ? sequence : undefined,
     };
   }
 
@@ -838,30 +838,30 @@ class LotterySyncService {
       (variance) => {
         sequence += 1;
         return {
-          varianceId: variance.variance_id,
-          shiftId: variance.shift_id,
-          packId: variance.pack_id,
-          packNumber: variance.pack.pack_number,
-          gameCode: variance.pack.game.game_code,
+          variance_id: variance.variance_id,
+          shift_id: variance.shift_id,
+          pack_id: variance.pack_id,
+          pack_number: variance.pack.pack_number,
+          game_code: variance.pack.game.game_code,
           expected: variance.expected,
           actual: variance.actual,
           difference: variance.difference,
           reason: variance.reason,
-          approvedBy: variance.approved_by,
-          approvedAt: variance.approved_at?.toISOString() || null,
-          createdAt: variance.created_at.toISOString(),
-          syncSequence: sequence,
+          approved_by: variance.approved_by,
+          approved_at: variance.approved_at?.toISOString() || null,
+          created_at: variance.created_at.toISOString(),
+          sync_sequence: sequence,
         };
       },
     );
 
     return {
       records,
-      totalCount,
-      currentSequence: sequence,
-      hasMore,
-      serverTime: getServerTime(),
-      nextCursor: hasMore ? sequence : undefined,
+      total_count: totalCount,
+      current_sequence: sequence,
+      has_more: hasMore,
+      server_time: getServerTime(),
+      next_cursor: hasMore ? sequence : undefined,
     };
   }
 
@@ -928,31 +928,31 @@ class LotterySyncService {
       (dayPack) => {
         sequence += 1;
         return {
-          dayPackId: dayPack.day_pack_id,
-          dayId: dayPack.day_id,
-          packId: dayPack.pack_id,
-          packNumber: dayPack.pack.pack_number,
-          gameCode: dayPack.pack.game.game_code,
-          binId: dayPack.bin_id,
-          binName: dayPack.bin?.name || null,
-          startingSerial: dayPack.starting_serial,
-          endingSerial: dayPack.ending_serial,
-          ticketsSold: dayPack.tickets_sold,
-          salesAmount: decimalToString(dayPack.sales_amount),
-          entryMethod: dayPack.entry_method,
-          updatedAt: dayPack.updated_at.toISOString(),
-          syncSequence: sequence,
+          day_pack_id: dayPack.day_pack_id,
+          day_id: dayPack.day_id,
+          pack_id: dayPack.pack_id,
+          pack_number: dayPack.pack.pack_number,
+          game_code: dayPack.pack.game.game_code,
+          bin_id: dayPack.bin_id,
+          bin_name: dayPack.bin?.name || null,
+          starting_serial: dayPack.starting_serial,
+          ending_serial: dayPack.ending_serial,
+          tickets_sold: dayPack.tickets_sold,
+          sales_amount: decimalToString(dayPack.sales_amount),
+          entry_method: dayPack.entry_method,
+          updated_at: dayPack.updated_at.toISOString(),
+          sync_sequence: sequence,
         };
       },
     );
 
     return {
       records,
-      totalCount,
-      currentSequence: sequence,
-      hasMore,
-      serverTime: getServerTime(),
-      nextCursor: hasMore ? sequence : undefined,
+      total_count: totalCount,
+      current_sequence: sequence,
+      has_more: hasMore,
+      server_time: getServerTime(),
+      next_cursor: hasMore ? sequence : undefined,
     };
   }
 
@@ -1015,25 +1015,25 @@ class LotterySyncService {
     const records: LotteryBinHistorySyncRecord[] = recordsToReturn.map((h) => {
       sequence += 1;
       return {
-        historyId: h.history_id,
-        packId: h.pack_id,
-        packNumber: h.pack.pack_number,
-        binId: h.bin_id,
-        binName: h.bin.name,
-        movedAt: h.moved_at.toISOString(),
-        movedBy: h.moved_by,
+        history_id: h.history_id,
+        pack_id: h.pack_id,
+        pack_number: h.pack.pack_number,
+        bin_id: h.bin_id,
+        bin_name: h.bin.name,
+        moved_at: h.moved_at.toISOString(),
+        moved_by: h.moved_by,
         reason: h.reason,
-        syncSequence: sequence,
+        sync_sequence: sequence,
       };
     });
 
     return {
       records,
-      totalCount,
-      currentSequence: sequence,
-      hasMore,
-      serverTime: getServerTime(),
-      nextCursor: hasMore ? sequence : undefined,
+      total_count: totalCount,
+      current_sequence: sequence,
+      has_more: hasMore,
+      server_time: getServerTime(),
+      next_cursor: hasMore ? sequence : undefined,
     };
   }
 
@@ -1112,9 +1112,9 @@ class LotterySyncService {
 
     return {
       success: true,
-      packId: pack.pack_id,
+      pack_id: pack.pack_id,
       pack: this.mapPackToSyncRecord(pack, 0),
-      serverTime: getServerTime(),
+      server_time: getServerTime(),
     };
   }
 
@@ -1142,8 +1142,8 @@ class LotterySyncService {
         );
         results.push({
           success: true,
-          localId: packInput.local_id,
-          packId: result.packId,
+          local_id: packInput.local_id,
+          pack_id: result.pack_id,
         });
         successCount++;
       } catch (error) {
@@ -1154,20 +1154,20 @@ class LotterySyncService {
           : ["ERROR", message];
         results.push({
           success: false,
-          localId: packInput.local_id,
-          errorCode,
-          errorMessage,
+          local_id: packInput.local_id,
+          error_code: errorCode,
+          error_message: errorMessage,
         });
         failureCount++;
       }
     }
 
     return {
-      totalProcessed: input.packs.length,
-      successCount,
-      failureCount,
+      total_processed: input.packs.length,
+      success_count: successCount,
+      failure_count: failureCount,
       results,
-      serverTime: getServerTime(),
+      server_time: getServerTime(),
     };
   }
 
@@ -1178,33 +1178,21 @@ class LotterySyncService {
   /**
    * POST /api/v1/sync/lottery/packs/activate
    * Activate a pack and assign to bin
+   *
+   * Desktop App sends all pack data with every activation request.
+   * Server handles:
+   * 1. Pack doesn't exist: Create it and activate
+   * 2. Pack exists with RECEIVED status: Activate it
+   * 3. Pack already ACTIVE in same bin: Idempotent success
+   * 4. Pack ACTIVE in different bin: Error
    */
   async activatePack(
     storeId: string,
+    stateId: string | null,
     input: Omit<LotteryPackActivateInput, "session_id">,
     auditContext: LotterySyncAuditContext,
   ): Promise<LotteryPackActivateResponse> {
-    // Verify pack exists and belongs to store
-    const pack = await prisma.lotteryPack.findFirst({
-      where: {
-        pack_id: input.pack_id,
-        store_id: storeId,
-      },
-    });
-
-    if (!pack) {
-      throw new Error(
-        "PACK_NOT_FOUND: Pack not found or does not belong to this store",
-      );
-    }
-
-    if (pack.status !== "RECEIVED") {
-      throw new Error(
-        `INVALID_STATUS: Pack is ${pack.status}, expected RECEIVED`,
-      );
-    }
-
-    // Verify bin exists and belongs to store
+    // Verify bin exists and belongs to store first
     const bin = await prisma.lotteryBin.findFirst({
       where: {
         bin_id: input.bin_id,
@@ -1217,16 +1205,110 @@ class LotterySyncService {
       throw new Error("BIN_NOT_FOUND: Bin not found or inactive");
     }
 
-    // Update pack (status is ACTIVE not ACTIVATED in Prisma enum)
+    // Try to find existing pack by pack_id first
+    let pack = await prisma.lotteryPack.findFirst({
+      where: {
+        pack_id: input.pack_id,
+        store_id: storeId,
+      },
+    });
+
+    // If not found by pack_id, try by pack_number (Desktop might have different UUID)
+    if (!pack) {
+      pack = await prisma.lotteryPack.findUnique({
+        where: {
+          store_id_pack_number: {
+            store_id: storeId,
+            pack_number: input.pack_number,
+          },
+        },
+      });
+    }
+
+    // Idempotent: pack already ACTIVE in same bin - return success
+    if (pack && pack.status === "ACTIVE" && pack.current_bin_id === input.bin_id) {
+      const existingPack = await prisma.lotteryPack.findFirst({
+        where: { pack_id: pack.pack_id },
+        include: {
+          game: {
+            select: {
+              game_code: true,
+              name: true,
+              price: true,
+              pack_value: true,
+            },
+          },
+          bin: { select: { name: true } },
+        },
+      });
+
+      return {
+        success: true,
+        pack: this.mapPackToSyncRecord(existingPack!, 0),
+        server_time: getServerTime(),
+        idempotent: true,
+      };
+    }
+
+    // Pack doesn't exist - create it
+    if (!pack) {
+      // Lookup game by code
+      const game = await this.lookupGameByCode(input.game_code, storeId, stateId);
+      if (!game) {
+        throw new Error(
+          `GAME_NOT_FOUND: Game with code ${input.game_code} not found`,
+        );
+      }
+
+      // Create the pack with provided pack_id
+      pack = await prisma.lotteryPack.create({
+        data: {
+          pack_id: input.pack_id,
+          game_id: game.game_id,
+          store_id: storeId,
+          pack_number: input.pack_number,
+          serial_start: input.serial_start,
+          serial_end: input.serial_end,
+          status: "RECEIVED",
+          received_at: input.received_at
+            ? new Date(input.received_at)
+            : new Date(),
+        },
+      });
+
+      // Log pack creation
+      this.logSyncOperation(auditContext, "PACK_RECEIVE_VIA_ACTIVATE", {
+        packId: pack.pack_id,
+        packNumber: input.pack_number,
+        gameCode: input.game_code,
+      }).catch((err) =>
+        console.error("[LotterySyncService] Audit log error:", err),
+      );
+    }
+
+    // Pack must be RECEIVED to activate
+    if (pack.status !== "RECEIVED") {
+      // If pack is ACTIVE but in different bin, that's an error
+      if (pack.status === "ACTIVE") {
+        throw new Error(
+          `ALREADY_ACTIVE: Pack is already active in a different bin`,
+        );
+      }
+      throw new Error(
+        `INVALID_STATUS: Pack is ${pack.status}, expected RECEIVED`,
+      );
+    }
+
+    // Update pack to ACTIVE
     const updatedPack = await prisma.lotteryPack.update({
-      where: { pack_id: input.pack_id },
+      where: { pack_id: pack.pack_id },
       data: {
         status: "ACTIVE",
         current_bin_id: input.bin_id,
         activated_at: input.activated_at
           ? new Date(input.activated_at)
           : new Date(),
-        activated_by: input.mark_sold_approved_by, // User who activated
+        activated_by: input.mark_sold_approved_by,
         activated_shift_id: input.shift_id,
         mark_sold_approved_by: input.mark_sold_approved_by,
         mark_sold_approved_at: input.mark_sold_approved_by ? new Date() : null,
@@ -1246,18 +1328,19 @@ class LotterySyncService {
     });
 
     // Create bin history entry
+    // Note: moved_by is nullable for device API operations without user context
     await prisma.lotteryPackBinHistory.create({
       data: {
-        pack_id: input.pack_id,
+        pack_id: pack.pack_id,
         bin_id: input.bin_id,
-        moved_by: input.mark_sold_approved_by || auditContext.apiKeyId,
+        moved_by: input.mark_sold_approved_by || null, // Use null if no user provided
         reason: "ACTIVATION",
       },
     });
 
     // Log audit event
     this.logSyncOperation(auditContext, "PACK_ACTIVATE", {
-      packId: input.pack_id,
+      packId: pack.pack_id,
       binId: input.bin_id,
     }).catch((err) =>
       console.error("[LotterySyncService] Audit log error:", err),
@@ -1266,7 +1349,7 @@ class LotterySyncService {
     return {
       success: true,
       pack: this.mapPackToSyncRecord(updatedPack, 0),
-      serverTime: getServerTime(),
+      server_time: getServerTime(),
     };
   }
 
@@ -1331,11 +1414,12 @@ class LotterySyncService {
           bin: { select: { name: true } },
         },
       }),
+      // Note: moved_by is null for device API operations without user context
       prisma.lotteryPackBinHistory.create({
         data: {
           pack_id: input.pack_id,
           bin_id: input.to_bin_id,
-          moved_by: auditContext.apiKeyId,
+          moved_by: null, // Device API operations don't have user context
           moved_at: input.moved_at ? new Date(input.moved_at) : new Date(),
           reason: input.reason,
         },
@@ -1358,18 +1442,18 @@ class LotterySyncService {
     return {
       success: true,
       pack: this.mapPackToSyncRecord(updatedPack, 0),
-      historyRecord: {
-        historyId: historyRecord.history_id,
-        packId: historyRecord.pack_id,
-        packNumber: historyRecord.pack.pack_number,
-        binId: historyRecord.bin_id,
-        binName: historyRecord.bin.name,
-        movedAt: historyRecord.moved_at.toISOString(),
-        movedBy: historyRecord.moved_by,
+      history_record: {
+        history_id: historyRecord.history_id,
+        pack_id: historyRecord.pack_id,
+        pack_number: historyRecord.pack.pack_number,
+        bin_id: historyRecord.bin_id,
+        bin_name: historyRecord.bin.name,
+        moved_at: historyRecord.moved_at.toISOString(),
+        moved_by: historyRecord.moved_by,
         reason: historyRecord.reason,
-        syncSequence: 0,
+        sync_sequence: 0,
       },
-      serverTime: getServerTime(),
+      server_time: getServerTime(),
     };
   }
 
@@ -1442,7 +1526,7 @@ class LotterySyncService {
     return {
       success: true,
       pack: this.mapPackToSyncRecord(updatedPack, 0),
-      serverTime: getServerTime(),
+      server_time: getServerTime(),
     };
   }
 
@@ -1532,7 +1616,7 @@ class LotterySyncService {
     return {
       success: true,
       pack: this.mapPackToSyncRecord(updatedPack, 0),
-      serverTime: getServerTime(),
+      server_time: getServerTime(),
     };
   }
 
@@ -1604,16 +1688,16 @@ class LotterySyncService {
     return {
       success: true,
       openings: openings.map((o) => ({
-        openingId: o.opening_id,
-        shiftId: o.shift_id,
-        packId: o.pack_id,
-        packNumber: o.pack.pack_number,
-        gameCode: o.pack.game.game_code,
-        openingSerial: o.opening_serial,
-        createdAt: o.created_at.toISOString(),
-        syncSequence: 0,
+        opening_id: o.opening_id,
+        shift_id: o.shift_id,
+        pack_id: o.pack_id,
+        pack_number: o.pack.pack_number,
+        game_code: o.pack.game.game_code,
+        opening_serial: o.opening_serial,
+        created_at: o.created_at.toISOString(),
+        sync_sequence: 0,
       })),
-      serverTime: getServerTime(),
+      server_time: getServerTime(),
     };
   }
 
@@ -1724,19 +1808,19 @@ class LotterySyncService {
             });
 
             variances.push({
-              varianceId: variance.variance_id,
-              shiftId: variance.shift_id,
-              packId: variance.pack_id,
-              packNumber: variance.pack.pack_number,
-              gameCode: variance.pack.game.game_code,
+              variance_id: variance.variance_id,
+              shift_id: variance.shift_id,
+              pack_id: variance.pack_id,
+              pack_number: variance.pack.pack_number,
+              game_code: variance.pack.game.game_code,
               expected: variance.expected,
               actual: variance.actual,
               difference: variance.difference,
               reason: null,
-              approvedBy: null,
-              approvedAt: null,
-              createdAt: variance.created_at.toISOString(),
-              syncSequence: 0,
+              approved_by: null,
+              approved_at: null,
+              created_at: variance.created_at.toISOString(),
+              sync_sequence: 0,
             });
           }
         }
@@ -1755,22 +1839,22 @@ class LotterySyncService {
     return {
       success: true,
       closings: closings.map((c) => ({
-        closingId: c.closing_id,
-        shiftId: c.shift_id,
-        packId: c.pack_id,
-        packNumber: c.pack.pack_number,
-        gameCode: c.pack.game.game_code,
-        cashierId: c.cashier_id,
-        closingSerial: c.closing_serial,
-        entryMethod: c.entry_method,
-        manualEntryAuthorizedBy: c.manual_entry_authorized_by,
-        manualEntryAuthorizedAt:
+        closing_id: c.closing_id,
+        shift_id: c.shift_id,
+        pack_id: c.pack_id,
+        pack_number: c.pack.pack_number,
+        game_code: c.pack.game.game_code,
+        cashier_id: c.cashier_id,
+        closing_serial: c.closing_serial,
+        entry_method: c.entry_method,
+        manual_entry_authorized_by: c.manual_entry_authorized_by,
+        manual_entry_authorized_at:
           c.manual_entry_authorized_at?.toISOString() || null,
-        createdAt: c.created_at.toISOString(),
-        syncSequence: 0,
+        created_at: c.created_at.toISOString(),
+        sync_sequence: 0,
       })),
       variances,
-      serverTime: getServerTime(),
+      server_time: getServerTime(),
     };
   }
 
@@ -1838,10 +1922,10 @@ class LotterySyncService {
 
     return {
       success: true,
-      dayId: input.day_id,
+      day_id: input.day_id,
       status: "PENDING_CLOSE",
-      expiresAt: expiresAt.toISOString(),
-      serverTime: getServerTime(),
+      expires_at: expiresAt.toISOString(),
+      server_time: getServerTime(),
     };
   }
 
@@ -1950,20 +2034,20 @@ class LotterySyncService {
       });
 
       dayPackRecords.push({
-        dayPackId: dayPack.day_pack_id,
-        dayId: dayPack.day_id,
-        packId: dayPack.pack_id,
-        packNumber: dayPack.pack.pack_number,
-        gameCode: dayPack.pack.game.game_code,
-        binId: dayPack.bin_id,
-        binName: dayPack.bin?.name || null,
-        startingSerial: dayPack.starting_serial,
-        endingSerial: dayPack.ending_serial,
-        ticketsSold: dayPack.tickets_sold,
-        salesAmount: decimalToString(dayPack.sales_amount),
-        entryMethod: dayPack.entry_method,
-        updatedAt: dayPack.updated_at.toISOString(),
-        syncSequence: 0,
+        day_pack_id: dayPack.day_pack_id,
+        day_id: dayPack.day_id,
+        pack_id: dayPack.pack_id,
+        pack_number: dayPack.pack.pack_number,
+        game_code: dayPack.pack.game.game_code,
+        bin_id: dayPack.bin_id,
+        bin_name: dayPack.bin?.name || null,
+        starting_serial: dayPack.starting_serial,
+        ending_serial: dayPack.ending_serial,
+        tickets_sold: dayPack.tickets_sold,
+        sales_amount: decimalToString(dayPack.sales_amount),
+        entry_method: dayPack.entry_method,
+        updated_at: dayPack.updated_at.toISOString(),
+        sync_sequence: 0,
       });
     }
 
@@ -1994,15 +2078,15 @@ class LotterySyncService {
 
     return {
       success: true,
-      dayId: input.day_id,
+      day_id: input.day_id,
       status: "CLOSED",
-      dayPacks: dayPackRecords,
+      day_packs: dayPackRecords,
       summary: {
-        totalPacks: dayPackRecords.length,
-        totalTicketsSold,
-        totalSalesAmount: totalSalesAmount.toString(),
+        total_packs: dayPackRecords.length,
+        total_tickets_sold: totalTicketsSold,
+        total_sales_amount: totalSalesAmount.toString(),
       },
-      serverTime: getServerTime(),
+      server_time: getServerTime(),
     };
   }
 
@@ -2058,9 +2142,9 @@ class LotterySyncService {
 
     return {
       success: true,
-      dayId: input.day_id,
+      day_id: input.day_id,
       status: "OPEN",
-      serverTime: getServerTime(),
+      server_time: getServerTime(),
     };
   }
 
@@ -2132,21 +2216,21 @@ class LotterySyncService {
     return {
       success: true,
       variance: {
-        varianceId: updatedVariance.variance_id,
-        shiftId: updatedVariance.shift_id,
-        packId: updatedVariance.pack_id,
-        packNumber: updatedVariance.pack.pack_number,
-        gameCode: updatedVariance.pack.game.game_code,
+        variance_id: updatedVariance.variance_id,
+        shift_id: updatedVariance.shift_id,
+        pack_id: updatedVariance.pack_id,
+        pack_number: updatedVariance.pack.pack_number,
+        game_code: updatedVariance.pack.game.game_code,
         expected: updatedVariance.expected,
         actual: updatedVariance.actual,
         difference: updatedVariance.difference,
         reason: updatedVariance.reason,
-        approvedBy: updatedVariance.approved_by,
-        approvedAt: updatedVariance.approved_at?.toISOString() || null,
-        createdAt: updatedVariance.created_at.toISOString(),
-        syncSequence: 0,
+        approved_by: updatedVariance.approved_by,
+        approved_at: updatedVariance.approved_at?.toISOString() || null,
+        created_at: updatedVariance.created_at.toISOString(),
+        sync_sequence: 0,
       },
-      serverTime: getServerTime(),
+      server_time: getServerTime(),
     };
   }
 

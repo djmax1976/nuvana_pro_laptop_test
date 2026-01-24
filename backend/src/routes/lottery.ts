@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { Prisma } from "@prisma/client";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
@@ -3265,12 +3266,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         const userAgent = request.headers["user-agent"] || null;
 
         // Build where clause based on user role
-        // - SUPERADMIN sees ALL games (global + all store-scoped)
-        // - Other users see global games + games from stores they have access to
+        // - SUPERADMIN sees ALL games regardless of status (to allow reactivation)
+        // - Other users see only ACTIVE global games + games from stores they have access to
         const isSuperAdmin = user.roles.includes("SUPERADMIN");
         const userRoles = await rbacService.getUserRoles(user.id);
 
-        let whereClause: any = { status: "ACTIVE" };
+        // SUPERADMIN: No status filter - can see ACTIVE, INACTIVE, and DISCONTINUED games
+        // This allows reactivation of deactivated games from the UI
+        let whereClause: Prisma.LotteryGameWhereInput = {};
         if (!isSuperAdmin) {
           // Get store IDs the user has access to
           const accessibleStoreIds: string[] = [];
@@ -3294,7 +3297,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           );
           accessibleStoreIds.push(...storeRoles.map((r) => r.store_id!));
 
-          // Non-super admins see:
+          // Non-super admins see only ACTIVE games:
           // 1. Global games (store_id IS NULL)
           // 2. Games from stores they have access to
           whereClause = {
@@ -3342,7 +3345,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               record_id: crypto.randomUUID(),
               new_values: {
                 query_type: "GET_GAMES",
-                filter_status: "ACTIVE",
+                filter_status: isSuperAdmin ? "ALL" : "ACTIVE",
               } as Record<string, any>,
               ip_address: ipAddress,
               user_agent: userAgent,
@@ -6575,13 +6578,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         });
 
         // Create audit log entry (non-blocking)
+        // Note: Audit log for read operations uses store_id as record_id
         try {
           await prisma.auditLog.create({
             data: {
               user_id: user.id,
               action: "LOTTERY_BIN_READ",
               table_name: "lottery_bins",
-              record_id: "query-operation",
+              record_id: params.storeId, // Use store_id as the record being queried
               new_values: {
                 store_id: params.storeId,
                 bin_count: bins.length,
@@ -7487,13 +7491,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         `;
 
         // Create audit log entry (non-blocking)
+        // Note: Audit log for read operations uses store_id as record_id
         try {
           await prisma.auditLog.create({
             data: {
               user_id: user.id,
               action: "LOTTERY_BIN_DISPLAY_READ",
               table_name: "lottery_bins",
-              record_id: "query-operation",
+              record_id: params.storeId, // Use store_id as the record being queried
               new_values: {
                 store_id: params.storeId,
                 bin_count: displayData.length,

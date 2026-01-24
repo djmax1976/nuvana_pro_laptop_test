@@ -184,6 +184,8 @@ export function Combobox({
                 <button
                   key={option.value}
                   type="button"
+                  role="option"
+                  aria-selected={value === option.value}
                   disabled={option.disabled}
                   onClick={() => handleSelect(option.value)}
                   className={cn(

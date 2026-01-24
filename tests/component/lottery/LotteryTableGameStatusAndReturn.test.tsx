@@ -270,14 +270,23 @@ describe("LotteryTable: Game Status Badge Feature", () => {
     expect(gameStatusBadge).toHaveTextContent("Discontinued");
   });
 
-  it("GAME-STATUS-004: [P1] should use default (blue/primary) variant for game status badge", async () => {
-    // GIVEN: Pack with any game status
+  /**
+   * GAME-STATUS-004: ACTIVE game status uses success (green) variant
+   *
+   * Business Requirement: ACTIVE games should be visually distinguished
+   * with green color to indicate they are currently available.
+   *
+   * Change Date: 2025-01-XX
+   * Reason: Improved visual distinction between game statuses
+   */
+  it("GAME-STATUS-004: [P1] should use success (green) variant for ACTIVE game status badge", async () => {
+    // GIVEN: Pack with ACTIVE game status
     const mockPacks = [
       createMockPack({
         pack_id: "pack-1",
         pack_number: "P001",
         status: "ACTIVE",
-        game_id: "game-1",
+        game_id: "game-active-color",
         game_name: "Test Game",
         game_status: "ACTIVE",
         can_return: true,
@@ -295,11 +304,95 @@ describe("LotteryTable: Game Status Badge Feature", () => {
     // WHEN: Component is rendered
     renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
-    // THEN: Badge exists and is styled with default (primary) variant
-    // Badge component with variant="default" applies primary color classes
-    const gameStatusBadge = screen.getByTestId("game-status-badge-game-1");
+    // THEN: Badge uses success variant (green) - has bg-success class
+    const gameStatusBadge = screen.getByTestId(
+      "game-status-badge-game-active-color",
+    );
     expect(gameStatusBadge).toBeInTheDocument();
-    // Verify it has text-xs class for consistent sizing
+    expect(gameStatusBadge).toHaveClass("bg-success");
+    expect(gameStatusBadge).toHaveClass("text-xs");
+  });
+
+  /**
+   * GAME-STATUS-004b: INACTIVE game status uses destructive (red) variant
+   *
+   * Business Requirement: INACTIVE games must be visually flagged with
+   * red color to immediately alert users that these games are unavailable.
+   *
+   * Change Date: 2025-01-XX
+   * Reason: Super Admin requested red color for inactive games
+   */
+  it("GAME-STATUS-004b: [P1] should use destructive (red) variant for INACTIVE game status badge", async () => {
+    // GIVEN: Pack with INACTIVE game status
+    const mockPacks = [
+      createMockPack({
+        pack_id: "pack-1",
+        pack_number: "P001",
+        status: "ACTIVE",
+        game_id: "game-inactive-color",
+        game_name: "Inactive Game",
+        game_status: "INACTIVE",
+        can_return: true,
+      }),
+    ];
+
+    (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: mockPacks,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    // WHEN: Component is rendered
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // THEN: Badge uses destructive variant (red) - has bg-destructive class
+    const gameStatusBadge = screen.getByTestId(
+      "game-status-badge-game-inactive-color",
+    );
+    expect(gameStatusBadge).toBeInTheDocument();
+    expect(gameStatusBadge).toHaveClass("bg-destructive");
+    expect(gameStatusBadge).toHaveClass("text-xs");
+  });
+
+  /**
+   * GAME-STATUS-004c: DISCONTINUED game status uses destructive (red) variant
+   *
+   * Business Requirement: DISCONTINUED games must be visually flagged with
+   * red color (same as INACTIVE) to indicate they are no longer available.
+   */
+  it("GAME-STATUS-004c: [P1] should use destructive (red) variant for DISCONTINUED game status badge", async () => {
+    // GIVEN: Pack with DISCONTINUED game status
+    const mockPacks = [
+      createMockPack({
+        pack_id: "pack-1",
+        pack_number: "P001",
+        status: "ACTIVE",
+        game_id: "game-discontinued-color",
+        game_name: "Old Game",
+        game_status: "DISCONTINUED",
+        can_return: true,
+      }),
+    ];
+
+    (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: mockPacks,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    // WHEN: Component is rendered
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // THEN: Badge uses destructive variant (red) - has bg-destructive class
+    const gameStatusBadge = screen.getByTestId(
+      "game-status-badge-game-discontinued-color",
+    );
+    expect(gameStatusBadge).toBeInTheDocument();
+    expect(gameStatusBadge).toHaveClass("bg-destructive");
     expect(gameStatusBadge).toHaveClass("text-xs");
   });
 

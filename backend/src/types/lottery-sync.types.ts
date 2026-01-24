@@ -28,12 +28,13 @@ import type {
 /**
  * Lottery game sync record
  * Represents an active lottery game for the store's state
+ * Field names match database column names (snake_case)
  */
 export interface LotteryGameSyncRecord {
   /** Unique game identifier */
-  gameId: string;
+  game_id: string;
   /** 4-digit game code */
-  gameCode: string;
+  game_code: string;
   /** Game name */
   name: string;
   /** Game description */
@@ -41,237 +42,244 @@ export interface LotteryGameSyncRecord {
   /** Ticket price (decimal string for precision) */
   price: string;
   /** Pack value (default $300) */
-  packValue: string;
+  pack_value: string;
   /** Tickets per pack (calculated from pack_value / price) */
-  ticketsPerPack: number | null;
+  tickets_per_pack: number | null;
   /** Game status */
   status: LotteryGameStatus;
   /** State ID (for state-scoped games) */
-  stateId: string | null;
+  state_id: string | null;
   /** Last modified timestamp */
-  updatedAt: string;
+  updated_at: string;
   /** Sync sequence number */
-  syncSequence: number;
+  sync_sequence: number;
 }
 
 /**
  * Lottery config value sync record
  * Dropdown values for ticket prices, pack values
+ * Field names match database column names (snake_case)
  */
 export interface LotteryConfigSyncRecord {
   /** Unique config value identifier */
-  configValueId: string;
+  config_value_id: string;
   /** Config type (TICKET_PRICE, PACK_VALUE) */
-  configType: LotteryConfigType;
+  config_type: LotteryConfigType;
   /** Amount value (decimal string) */
   amount: string;
   /** Display order */
-  displayOrder: number;
+  display_order: number;
   /** Whether active */
-  isActive: boolean;
+  is_active: boolean;
   /** Last modified timestamp */
-  updatedAt: string;
+  updated_at: string;
   /** Sync sequence number */
-  syncSequence: number;
+  sync_sequence: number;
 }
 
 /**
  * Lottery bin sync record
  * Storage bin configuration for the store
+ * Field names match database column names (snake_case)
  */
 export interface LotteryBinSyncRecord {
   /** Unique bin identifier */
-  binId: string;
+  bin_id: string;
   /** Bin name */
   name: string;
   /** Bin location (optional) */
   location: string | null;
   /** Display order */
-  displayOrder: number;
+  display_order: number;
   /** Whether active */
-  isActive: boolean;
+  is_active: boolean;
   /** Last modified timestamp */
-  updatedAt: string;
+  updated_at: string;
   /** Sync sequence number */
-  syncSequence: number;
+  sync_sequence: number;
 }
 
 /**
  * Lottery pack sync record
  * Full pack details for sync
+ * Field names match database column names (snake_case)
  */
 export interface LotteryPackSyncRecord {
   /** Unique pack identifier */
-  packId: string;
+  pack_id: string;
   /** Game ID reference */
-  gameId: string;
+  game_id: string;
   /** Game code (denormalized for offline) */
-  gameCode: string;
+  game_code: string;
   /** Game name (denormalized for offline) */
-  gameName: string;
+  game_name: string;
   /** Pack number */
-  packNumber: string;
+  pack_number: string;
   /** Starting serial number */
-  serialStart: string;
+  serial_start: string;
   /** Ending serial number */
-  serialEnd: string;
+  serial_end: string;
   /** Pack status */
   status: LotteryPackStatus;
   /** Current bin ID (if assigned) */
-  currentBinId: string | null;
+  current_bin_id: string | null;
   /** Current bin name (denormalized) */
-  currentBinName: string | null;
+  current_bin_name: string | null;
   /** Tickets sold count */
-  ticketsSoldCount: number;
+  tickets_sold_count: number;
   /** Last sold timestamp */
-  lastSoldAt: string | null;
+  last_sold_at: string | null;
   /** Received timestamp */
-  receivedAt: string | null;
+  received_at: string | null;
   /** Activated timestamp */
-  activatedAt: string | null;
+  activated_at: string | null;
   /** Depleted timestamp */
-  depletedAt: string | null;
+  depleted_at: string | null;
   /** Returned timestamp */
-  returnedAt: string | null;
+  returned_at: string | null;
   /** Activated by user ID */
-  activatedBy: string | null;
+  activated_by: string | null;
   /** Activated in shift ID */
-  activatedShiftId: string | null;
+  activated_shift_id: string | null;
   /** Depleted by user ID */
-  depletedBy: string | null;
+  depleted_by: string | null;
   /** Depletion reason */
-  depletionReason: LotteryPackDepletionReason | null;
+  depletion_reason: LotteryPackDepletionReason | null;
   /** Returned by user ID */
-  returnedBy: string | null;
+  returned_by: string | null;
   /** Return reason */
-  returnReason: LotteryPackReturnReason | null;
+  return_reason: LotteryPackReturnReason | null;
   /** Return notes */
-  returnNotes: string | null;
+  return_notes: string | null;
   /** Last sold serial on return */
-  lastSoldSerial: string | null;
+  last_sold_serial: string | null;
   /** Tickets sold on return */
-  ticketsSoldOnReturn: number | null;
+  tickets_sold_on_return: number | null;
   /** Return sales amount (decimal string) */
-  returnSalesAmount: string | null;
+  return_sales_amount: string | null;
   /** Serial override approved by */
-  serialOverrideApprovedBy: string | null;
+  serial_override_approved_by: string | null;
   /** Serial override reason */
-  serialOverrideReason: string | null;
+  serial_override_reason: string | null;
   /** Mark sold approved by */
-  markSoldApprovedBy: string | null;
+  mark_sold_approved_by: string | null;
   /** Mark sold reason */
-  markSoldReason: string | null;
+  mark_sold_reason: string | null;
   /** Ticket price (denormalized for calculations) */
-  ticketPrice: string;
+  ticket_price: string;
   /** Pack value (denormalized) */
-  packValue: string;
+  pack_value: string;
   /** Last modified timestamp */
-  updatedAt: string;
+  updated_at: string;
   /** Sync sequence number */
-  syncSequence: number;
+  sync_sequence: number;
 }
 
 /**
  * Lottery day status sync record
  * Current business day state
+ * Field names match database column names (snake_case)
  */
 export interface LotteryDayStatusSyncRecord {
   /** Unique day identifier */
-  dayId: string;
+  day_id: string;
   /** Business date (YYYY-MM-DD) */
-  businessDate: string;
+  business_date: string;
   /** Day status */
   status: "OPEN" | "PENDING_CLOSE" | "CLOSED";
   /** Opened timestamp */
-  openedAt: string;
+  opened_at: string;
   /** Opened by user ID */
-  openedBy: string | null;
+  opened_by: string | null;
   /** Closed timestamp */
-  closedAt: string | null;
+  closed_at: string | null;
   /** Closed by user ID */
-  closedBy: string | null;
+  closed_by: string | null;
   /** Notes */
   notes: string | null;
   /** Pending close by user ID */
-  pendingCloseBy: string | null;
+  pending_close_by: string | null;
   /** Pending close timestamp */
-  pendingCloseAt: string | null;
+  pending_close_at: string | null;
   /** Pending close expiration */
-  pendingCloseExpiresAt: string | null;
+  pending_close_expires_at: string | null;
   /** Day summary ID (if linked) */
-  daySummaryId: string | null;
+  day_summary_id: string | null;
   /** Last modified timestamp */
-  updatedAt: string;
+  updated_at: string;
   /** Sync sequence number */
-  syncSequence: number;
+  sync_sequence: number;
 }
 
 /**
  * Lottery shift opening sync record
+ * Field names match database column names (snake_case)
  */
 export interface LotteryShiftOpeningSyncRecord {
   /** Unique opening identifier */
-  openingId: string;
+  opening_id: string;
   /** Shift ID */
-  shiftId: string;
+  shift_id: string;
   /** Pack ID */
-  packId: string;
+  pack_id: string;
   /** Pack number (denormalized) */
-  packNumber: string;
+  pack_number: string;
   /** Game code (denormalized) */
-  gameCode: string;
+  game_code: string;
   /** Opening serial number */
-  openingSerial: string;
+  opening_serial: string;
   /** Created timestamp */
-  createdAt: string;
+  created_at: string;
   /** Sync sequence number */
-  syncSequence: number;
+  sync_sequence: number;
 }
 
 /**
  * Lottery shift closing sync record
+ * Field names match database column names (snake_case)
  */
 export interface LotteryShiftClosingSyncRecord {
   /** Unique closing identifier */
-  closingId: string;
+  closing_id: string;
   /** Shift ID */
-  shiftId: string;
+  shift_id: string;
   /** Pack ID */
-  packId: string;
+  pack_id: string;
   /** Pack number (denormalized) */
-  packNumber: string;
+  pack_number: string;
   /** Game code (denormalized) */
-  gameCode: string;
+  game_code: string;
   /** Cashier ID */
-  cashierId: string | null;
+  cashier_id: string | null;
   /** Closing serial number */
-  closingSerial: string;
+  closing_serial: string;
   /** Entry method (SCAN or MANUAL) */
-  entryMethod: string | null;
+  entry_method: string | null;
   /** Manual entry authorized by */
-  manualEntryAuthorizedBy: string | null;
+  manual_entry_authorized_by: string | null;
   /** Manual entry authorized at */
-  manualEntryAuthorizedAt: string | null;
+  manual_entry_authorized_at: string | null;
   /** Created timestamp */
-  createdAt: string;
+  created_at: string;
   /** Sync sequence number */
-  syncSequence: number;
+  sync_sequence: number;
 }
 
 /**
  * Lottery variance sync record
+ * Field names match database column names (snake_case)
  */
 export interface LotteryVarianceSyncRecord {
   /** Unique variance identifier */
-  varianceId: string;
+  variance_id: string;
   /** Shift ID */
-  shiftId: string;
+  shift_id: string;
   /** Pack ID */
-  packId: string;
+  pack_id: string;
   /** Pack number (denormalized) */
-  packNumber: string;
+  pack_number: string;
   /** Game code (denormalized) */
-  gameCode: string;
+  game_code: string;
   /** Expected ticket count */
   expected: number;
   /** Actual ticket count */
@@ -281,71 +289,73 @@ export interface LotteryVarianceSyncRecord {
   /** Reason/notes */
   reason: string | null;
   /** Approved by user ID */
-  approvedBy: string | null;
+  approved_by: string | null;
   /** Approved timestamp */
-  approvedAt: string | null;
+  approved_at: string | null;
   /** Created timestamp */
-  createdAt: string;
+  created_at: string;
   /** Sync sequence number */
-  syncSequence: number;
+  sync_sequence: number;
 }
 
 /**
  * Lottery day pack sync record
+ * Field names match database column names (snake_case)
  */
 export interface LotteryDayPackSyncRecord {
   /** Unique day pack identifier */
-  dayPackId: string;
+  day_pack_id: string;
   /** Day ID */
-  dayId: string;
+  day_id: string;
   /** Pack ID */
-  packId: string;
+  pack_id: string;
   /** Pack number (denormalized) */
-  packNumber: string;
+  pack_number: string;
   /** Game code (denormalized) */
-  gameCode: string;
+  game_code: string;
   /** Bin ID */
-  binId: string | null;
+  bin_id: string | null;
   /** Bin name (denormalized) */
-  binName: string | null;
+  bin_name: string | null;
   /** Starting serial (from previous day or "000") */
-  startingSerial: string;
+  starting_serial: string;
   /** Ending serial (entered at day close) */
-  endingSerial: string | null;
+  ending_serial: string | null;
   /** Tickets sold (calculated) */
-  ticketsSold: number | null;
+  tickets_sold: number | null;
   /** Sales amount (decimal string) */
-  salesAmount: string | null;
+  sales_amount: string | null;
   /** Entry method */
-  entryMethod: string | null;
+  entry_method: string | null;
   /** Last modified timestamp */
-  updatedAt: string;
+  updated_at: string;
   /** Sync sequence number */
-  syncSequence: number;
+  sync_sequence: number;
 }
 
 /**
  * Lottery bin history sync record
+ * Field names match database column names (snake_case)
  */
 export interface LotteryBinHistorySyncRecord {
   /** Unique history identifier */
-  historyId: string;
+  history_id: string;
   /** Pack ID */
-  packId: string;
+  pack_id: string;
   /** Pack number (denormalized) */
-  packNumber: string;
+  pack_number: string;
   /** Bin ID */
-  binId: string;
+  bin_id: string;
   /** Bin name (denormalized) */
-  binName: string;
+  bin_name: string;
   /** Moved timestamp */
-  movedAt: string;
-  /** Moved by user ID */
-  movedBy: string;
+  moved_at: string;
+  /** Moved by user ID (null for device API operations without user context) */
+  moved_by: string | null;
   /** Move reason */
   reason: string | null;
   /** Sync sequence number */
-  syncSequence: number;
+  sync_sequence: number;
 }
 
 // =============================================================================
@@ -354,20 +364,21 @@ export interface LotteryBinHistorySyncRecord {
 
 /**
  * Base sync response with pagination
+ * Field names use snake_case for consistency
  */
 export interface BaseSyncResponse<T> {
   /** Records */
   records: T[];
   /** Total count matching query */
-  totalCount: number;
+  total_count: number;
   /** Current sync sequence */
-  currentSequence: number;
+  current_sequence: number;
   /** Whether more records are available */
-  hasMore: boolean;
+  has_more: boolean;
   /** Server timestamp for clock sync */
-  serverTime: string;
+  server_time: string;
   /** Next sync cursor (use as since_sequence in next request) */
-  nextCursor?: number;
+  next_cursor?: number;
 }
 
 /** Games sync response */
@@ -413,52 +424,56 @@ export type LotteryBinHistorySyncResponse =
 
 /**
  * Result of a single pack receive operation
+ * Field names match database column names (snake_case)
  */
 export interface PackReceiveResult {
   /** Whether operation succeeded */
   success: boolean;
   /** Local ID (if provided) */
-  localId?: string;
+  local_id?: string;
   /** Server-assigned pack ID (if created) */
-  packId?: string;
+  pack_id?: string;
   /** Error code (if failed) */
-  errorCode?: string;
+  error_code?: string;
   /** Error message (if failed) */
-  errorMessage?: string;
+  error_message?: string;
 }
 
 /**
  * Response from pack receive (single)
+ * Field names use snake_case for consistency
  */
 export interface LotteryPackReceiveResponse {
   /** Whether operation succeeded */
   success: boolean;
   /** Server-assigned pack ID */
-  packId: string;
+  pack_id: string;
   /** Updated pack record */
   pack: LotteryPackSyncRecord;
   /** Server timestamp */
-  serverTime: string;
+  server_time: string;
 }
 
 /**
  * Response from pack receive (batch)
+ * Field names use snake_case for consistency
  */
 export interface LotteryPackReceiveBatchResponse {
   /** Total packs processed */
-  totalProcessed: number;
+  total_processed: number;
   /** Successful receives */
-  successCount: number;
+  success_count: number;
   /** Failed receives */
-  failureCount: number;
+  failure_count: number;
   /** Individual results */
   results: PackReceiveResult[];
   /** Server timestamp */
-  serverTime: string;
+  server_time: string;
 }
 
 /**
  * Response from pack activation
+ * Field names use snake_case for consistency
  */
 export interface LotteryPackActivateResponse {
   /** Whether operation succeeded */
@@ -466,13 +481,16 @@ export interface LotteryPackActivateResponse {
   /** Updated pack record */
   pack: LotteryPackSyncRecord;
   /** Generated UPC code (if POS sync enabled) */
-  upcCode?: string;
+  upc_code?: string;
   /** Server timestamp */
-  serverTime: string;
+  server_time: string;
+  /** True if pack was already active in same bin (idempotent response) */
+  idempotent?: boolean;
 }
 
 /**
  * Response from pack move
+ * Field names use snake_case for consistency
  */
 export interface LotteryPackMoveResponse {
   /** Whether operation succeeded */
@@ -480,13 +498,14 @@ export interface LotteryPackMoveResponse {
   /** Updated pack record */
   pack: LotteryPackSyncRecord;
   /** Created history record */
-  historyRecord: LotteryBinHistorySyncRecord;
+  history_record: LotteryBinHistorySyncRecord;
   /** Server timestamp */
-  serverTime: string;
+  server_time: string;
 }
 
 /**
  * Response from pack depletion
+ * Field names use snake_case for consistency
  */
 export interface LotteryPackDepleteResponse {
   /** Whether operation succeeded */
@@ -494,11 +513,12 @@ export interface LotteryPackDepleteResponse {
   /** Updated pack record */
   pack: LotteryPackSyncRecord;
   /** Server timestamp */
-  serverTime: string;
+  server_time: string;
 }
 
 /**
  * Response from pack return
+ * Field names use snake_case for consistency
  */
 export interface LotteryPackReturnResponse {
   /** Whether operation succeeded */
@@ -506,11 +526,12 @@ export interface LotteryPackReturnResponse {
   /** Updated pack record */
   pack: LotteryPackSyncRecord;
   /** Server timestamp */
-  serverTime: string;
+  server_time: string;
 }
 
 /**
  * Response from shift open
+ * Field names use snake_case for consistency
  */
 export interface LotteryShiftOpenResponse {
   /** Whether operation succeeded */
@@ -518,11 +539,12 @@ export interface LotteryShiftOpenResponse {
   /** Created opening records */
   openings: LotteryShiftOpeningSyncRecord[];
   /** Server timestamp */
-  serverTime: string;
+  server_time: string;
 }
 
 /**
  * Response from shift close
+ * Field names use snake_case for consistency
  */
 export interface LotteryShiftCloseResponse {
   /** Whether operation succeeded */
@@ -532,65 +554,69 @@ export interface LotteryShiftCloseResponse {
   /** Detected variances (if any) */
   variances: LotteryVarianceSyncRecord[];
   /** Server timestamp */
-  serverTime: string;
+  server_time: string;
 }
 
 /**
  * Response from day prepare close (Phase 1)
+ * Field names use snake_case for consistency
  */
 export interface LotteryDayPrepareCloseResponse {
   /** Whether operation succeeded */
   success: boolean;
   /** Day ID */
-  dayId: string;
+  day_id: string;
   /** New status (should be PENDING_CLOSE) */
   status: "PENDING_CLOSE";
   /** Expiration timestamp */
-  expiresAt: string;
+  expires_at: string;
   /** Validation warnings (non-blocking) */
   warnings?: string[];
   /** Server timestamp */
-  serverTime: string;
+  server_time: string;
 }
 
 /**
  * Response from day commit close (Phase 2)
+ * Field names use snake_case for consistency
  */
 export interface LotteryDayCommitCloseResponse {
   /** Whether operation succeeded */
   success: boolean;
   /** Day ID */
-  dayId: string;
+  day_id: string;
   /** New status (should be CLOSED) */
   status: "CLOSED";
   /** Created day pack records */
-  dayPacks: LotteryDayPackSyncRecord[];
+  day_packs: LotteryDayPackSyncRecord[];
   /** Summary statistics */
   summary: {
-    totalPacks: number;
-    totalTicketsSold: number;
-    totalSalesAmount: string;
+    total_packs: number;
+    total_tickets_sold: number;
+    total_sales_amount: string;
   };
   /** Server timestamp */
-  serverTime: string;
+  server_time: string;
 }
 
 /**
  * Response from day cancel close
+ * Field names use snake_case for consistency
  */
 export interface LotteryDayCancelCloseResponse {
   /** Whether operation succeeded */
   success: boolean;
   /** Day ID */
-  dayId: string;
+  day_id: string;
   /** New status (should be OPEN) */
   status: "OPEN";
   /** Server timestamp */
-  serverTime: string;
+  server_time: string;
 }
 
 /**
  * Response from variance approval
+ * Field names use snake_case for consistency
  */
 export interface LotteryVarianceApproveResponse {
   /** Whether operation succeeded */
@@ -598,7 +624,7 @@ export interface LotteryVarianceApproveResponse {
   /** Updated variance record */
   variance: LotteryVarianceSyncRecord;
   /** Server timestamp */
-  serverTime: string;
+  server_time: string;
 }
 
 // =============================================================================

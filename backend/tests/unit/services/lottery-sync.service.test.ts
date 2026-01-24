@@ -232,7 +232,7 @@ describe("LotterySyncService - Get Games", () => {
       expect(findManyCall.where.OR).toBeDefined();
     });
 
-    it("should apply sinceTimestamp filter correctly", async () => {
+    it("should apply sinceTimestamp filter correctly for delta sync", async () => {
       const timestamp = new Date("2024-01-15T00:00:00Z");
       mockPrisma.lotteryGame.count.mockResolvedValue(0);
       mockPrisma.lotteryGame.findMany.mockResolvedValue([]);
@@ -243,26 +243,131 @@ describe("LotterySyncService - Get Games", () => {
 
       const findManyCall = mockPrisma.lotteryGame.findMany.mock.calls[0][0];
       expect(findManyCall.where.updated_at).toEqual({ gt: timestamp });
+      // Delta sync should NOT filter by status - returns all changed games
+      expect(findManyCall.where.status).toBeUndefined();
     });
 
-    it("should filter inactive games by default", async () => {
-      mockPrisma.lotteryGame.count.mockResolvedValue(0);
-      mockPrisma.lotteryGame.findMany.mockResolvedValue([]);
-
-      await lotterySyncService.getGamesForSync(TEST_STORE_ID, TEST_STATE_ID);
-
-      const findManyCall = mockPrisma.lotteryGame.findMany.mock.calls[0][0];
-      expect(findManyCall.where.status).toBe("ACTIVE");
-    });
-
-    it("should include inactive games when flag is set", async () => {
-      mockPrisma.lotteryGame.count.mockResolvedValue(0);
-      mockPrisma.lotteryGame.findMany.mockResolvedValue([]);
-
-      await lotterySyncService.getGamesForSync(TEST_STORE_ID, TEST_STATE_ID, {
-        includeInactive: true,
+    /**
+     * CRITICAL TEST: Full sync returns ALL games including inactive
+     *
+     * Business Requirement: Local desktop apps need complete game catalog
+     * including inactive games so they can update their local database
+     * when games are deactivated in the cloud.
+     *
+     * Change Date: 2025-01-XX
+     * Reason: Local app was not receiving inactive game status updates
+     */
+    it("should return ALL games including inactive on full sync (no sinceTimestamp)", async () => {
+      // GIVEN: Games with different statuses
+      const activeGame = createTestLotteryGame({
+        game_id: createTestUuid("game", 1),
+        store_id: TEST_STORE_ID,
+        status: "ACTIVE",
+      });
+      const inactiveGame = createTestLotteryGame({
+        game_id: createTestUuid("game", 2),
+        store_id: TEST_STORE_ID,
+        status: "INACTIVE",
+      });
+      const discontinuedGame = createTestLotteryGame({
+        game_id: createTestUuid("game", 3),
+        store_id: TEST_STORE_ID,
+        status: "DISCONTINUED",
       });
 
+      mockPrisma.lotteryGame.count.mockResolvedValue(3);
+      mockPrisma.lotteryGame.findMany.mockResolvedValue([
+        activeGame,
+        inactiveGame,
+        discontinuedGame,
+      ]);
+
+      // WHEN: Full sync (no sinceTimestamp)
+      const result = await lotterySyncService.getGamesForSync(
+        TEST_STORE_ID,
+        TEST_STATE_ID,
+      );
+
+      // THEN: No status filter is applied - all games returned
+      const findManyCall = mockPrisma.lotteryGame.findMany.mock.calls[0][0];
+      expect(findManyCall.where.status).toBeUndefined();
+      expect(result.records).toHaveLength(3);
+    });
+
+    /**
+     * Test: Inactive games include status field in sync response
+     *
+     * Enterprise Requirement: Local apps need the status field to know
+     * which games are inactive and update their local database accordingly.
+     */
+    it("should include game status in sync response for all games", async () => {
+      const inactiveGame = createTestLotteryGame({
+        game_id: TEST_GAME_ID,
+        store_id: TEST_STORE_ID,
+        game_code: "0001",
+        name: "Inactive Game",
+        status: "INACTIVE",
+      });
+
+      mockPrisma.lotteryGame.count.mockResolvedValue(1);
+      mockPrisma.lotteryGame.findMany.mockResolvedValue([inactiveGame]);
+
+      const result = await lotterySyncService.getGamesForSync(
+        TEST_STORE_ID,
+        TEST_STATE_ID,
+      );
+
+      // THEN: Response includes status field
+      expect(result.records[0].status).toBe("INACTIVE");
+    });
+
+    /**
+     * Test: Delta sync returns inactive games that were recently changed
+     *
+     * Business Rule: When a game is marked inactive, the local app needs
+     * to receive this update during delta sync.
+     */
+    it("should return inactive games in delta sync when updated after timestamp", async () => {
+      const timestamp = new Date("2024-01-15T00:00:00Z");
+      const recentlyInactivatedGame = createTestLotteryGame({
+        game_id: TEST_GAME_ID,
+        store_id: TEST_STORE_ID,
+        status: "INACTIVE",
+        updated_at: new Date("2024-01-16T00:00:00Z"), // After timestamp
+      });
+
+      mockPrisma.lotteryGame.count.mockResolvedValue(1);
+      mockPrisma.lotteryGame.findMany.mockResolvedValue([
+        recentlyInactivatedGame,
+      ]);
+
+      const result = await lotterySyncService.getGamesForSync(
+        TEST_STORE_ID,
+        TEST_STATE_ID,
+        { sinceTimestamp: timestamp },
+      );
+
+      // THEN: Inactive game is returned in delta sync
+      expect(result.records).toHaveLength(1);
+      expect(result.records[0].status).toBe("INACTIVE");
+    });
+
+    /**
+     * BACKWARD COMPATIBILITY: includeInactive parameter is now ignored
+     *
+     * Note: The includeInactive parameter is kept for API compatibility
+     * but no longer affects behavior - all games are always returned.
+     */
+    it("should ignore includeInactive parameter (always returns all games)", async () => {
+      mockPrisma.lotteryGame.count.mockResolvedValue(0);
+      mockPrisma.lotteryGame.findMany.mockResolvedValue([]);
+
+      // WHEN: Called with includeInactive=false (would have filtered before)
+      await lotterySyncService.getGamesForSync(TEST_STORE_ID, TEST_STATE_ID, {
+        includeInactive: false,
+      });
+
+      // THEN: No status filter is applied (parameter is ignored)
       const findManyCall = mockPrisma.lotteryGame.findMany.mock.calls[0][0];
       expect(findManyCall.where.status).toBeUndefined();
     });

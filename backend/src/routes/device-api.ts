@@ -13,6 +13,8 @@
  * - GET  /api/v1/sync/pull            - Pull server updates
  * - POST /api/v1/sync/complete        - Complete sync session
  * - GET  /api/v1/sync/cashiers        - Sync cashier data for offline auth
+ * - GET  /api/v1/sync/employees       - Sync all employee types for offline auth
+ * - POST /api/v1/store/reset          - Authorize store data reset
  *
  * @module routes/device-api
  */
@@ -41,6 +43,7 @@ import {
   syncCompleteSchema,
   cashierSyncQuerySchema,
   employeeSyncQuerySchema,
+  storeResetSchema,
 } from "../schemas/api-key.schema";
 import type {
   ActivateApiKeyResponse,
@@ -50,6 +53,8 @@ import type {
   SyncPullResponse,
   CashierSyncResponse,
   ApiKeyIdentityPayload,
+  StoreResetResponse,
+  StoreResetType,
 } from "../types/api-key.types";
 
 // ============================================================================
@@ -1001,6 +1006,143 @@ export async function deviceApiRoutes(fastify: FastifyInstance): Promise<void> {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to sync employees",
+          },
+        });
+      }
+    },
+  );
+
+  // ==========================================================================
+  // STORE RESET
+  // ==========================================================================
+
+  /**
+   * POST /api/v1/store/reset
+   * Authorize and log store data reset operation
+   *
+   * This endpoint validates the request and authorizes the Desktop App
+   * to perform a local data reset. The actual deletion happens client-side.
+   * All reset operations are automatically audit-logged.
+   *
+   * Security Controls:
+   * - API key authentication required
+   * - Store isolation: Can only reset data for the API key's bound store
+   * - Explicit confirmation required (confirmed: true)
+   * - Full audit trail with reason and device info
+   *
+   * Reset Types:
+   * - FULL_RESET: Wipe all local data (lottery, transactions, settings)
+   * - LOTTERY_ONLY: Reset only lottery-related data (packs, shifts, activations)
+   * - SYNC_STATE: Reset sync state only (forces full re-sync from server)
+   */
+  fastify.post(
+    "/api/v1/store/reset",
+    {
+      preHandler: [apiKeyMiddleware],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const identity = requireApiKeyIdentity(request);
+        const clientIp = getClientIp(request);
+
+        // Validate request body with Zod schema
+        const parseResult = storeResetSchema.safeParse(request.body);
+        if (!parseResult.success) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid request body",
+              details: formatZodError(parseResult.error),
+            },
+          });
+        }
+
+        const body = parseResult.data;
+        const resetType = body.resetType as StoreResetType;
+
+        // Generate audit reference ID for correlation
+        const auditReferenceId = crypto.randomUUID();
+
+        // Log the reset authorization (async, non-blocking)
+        apiKeyAuditService.logEvent({
+          apiKeyId: identity.apiKeyId,
+          eventType: "SYNC_COMPLETED", // Using existing event type for reset logging
+          actorType: "DEVICE",
+          ipAddress: clientIp,
+          userAgent: request.headers["user-agent"] || undefined,
+          eventDetails: {
+            operation: "STORE_RESET",
+            resetType: resetType,
+            reason: body.reason,
+            deviceFingerprint: body.deviceFingerprint,
+            appVersion: body.appVersion,
+            auditReferenceId,
+            storeId: identity.storeId,
+            storeName: identity.storeName,
+          },
+        });
+
+        // Determine clear targets and resync requirement based on reset type
+        let clearTargets: string[];
+        let resyncRequired: boolean;
+
+        switch (resetType) {
+          case "FULL_RESET":
+            clearTargets = [
+              "lottery_packs",
+              "lottery_shifts",
+              "lottery_activations",
+              "lottery_settlements",
+              "transactions",
+              "sync_state",
+              "offline_queue",
+              "local_settings",
+            ];
+            resyncRequired = true;
+            break;
+          case "LOTTERY_ONLY":
+            clearTargets = [
+              "lottery_packs",
+              "lottery_shifts",
+              "lottery_activations",
+              "lottery_settlements",
+            ];
+            resyncRequired = true;
+            break;
+          case "SYNC_STATE":
+            clearTargets = ["sync_state", "offline_queue"];
+            resyncRequired = true;
+            break;
+          default:
+            clearTargets = [];
+            resyncRequired = false;
+        }
+
+        const response: StoreResetResponse = {
+          authorized: true,
+          resetType: resetType,
+          serverTime: new Date().toISOString(),
+          auditReferenceId,
+          instructions: {
+            clearTargets,
+            resyncRequired,
+          },
+        };
+
+        return reply.code(200).send({
+          success: true,
+          data: response,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        console.error("[DeviceApi] Store reset error:", message);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to authorize store reset",
           },
         });
       }

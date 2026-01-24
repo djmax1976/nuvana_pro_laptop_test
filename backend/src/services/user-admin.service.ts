@@ -7,6 +7,8 @@ import {
   invalidateUserStatusCache,
   invalidateMultipleUserStatusCache,
 } from "../middleware/active-status.middleware";
+import type { USAddressInput } from "../schemas/address.schema";
+import { isLegacyAddress, type CompanyAddressInput } from "../schemas/user.schema";
 
 /**
  * Roles that REQUIRE PIN for terminal/desktop authentication
@@ -50,6 +52,11 @@ export interface AssignRoleRequest {
 
 /**
  * Create user input
+ *
+ * Phase 1: Structured Address Implementation
+ * - companyAddress now accepts USAddressInput (structured object)
+ * - Enables tax jurisdiction calculations, geographic filtering, and address validation
+ * - Backward compatibility: Legacy address string stored in Company.address field
  */
 export interface CreateUserInput {
   email: string;
@@ -58,7 +65,10 @@ export interface CreateUserInput {
   roles?: AssignRoleRequest[];
   // Company fields for CLIENT_OWNER role (creates new company)
   companyName?: string;
-  companyAddress?: string;
+  // Company address - accepts both formats for backward compatibility
+  // Phase 4: Structured (preferred) or legacy string (deprecated)
+  // Contains: address_line1, address_line2, city, state_id, county_id, zip_code
+  companyAddress?: CompanyAddressInput;
   // Company and store IDs for CLIENT_USER role (assigns to existing company/store)
   company_id?: string;
   store_id?: string;
@@ -268,6 +278,152 @@ export class UserAdminService {
   }
 
   // =========================================================================
+  // Address Helper Methods (Phase 1: Structured Address Implementation)
+  // =========================================================================
+
+  /**
+   * Format structured address as a single string for backward compatibility
+   * Populates the legacy Company.address field for existing API consumers
+   *
+   * Format: "address_line1, address_line2, city, state_code zip_code"
+   * Example: "123 Main Street, Suite 100, Atlanta, GA 30301"
+   *
+   * @param address - Structured address input
+   * @param stateCode - State code (e.g., "GA") - fetched separately
+   * @returns Formatted address string (max 500 chars to fit legacy field)
+   */
+  private formatAddressAsString(
+    address: USAddressInput,
+    stateCode: string,
+  ): string {
+    const parts: string[] = [];
+
+    // Add address line 1 (required)
+    parts.push(address.address_line1);
+
+    // Add address line 2 if present
+    if (address.address_line2) {
+      parts.push(address.address_line2);
+    }
+
+    // Add city
+    parts.push(address.city);
+
+    // Add state code and ZIP
+    parts.push(`${stateCode} ${address.zip_code}`);
+
+    // Join with ", " and truncate to 500 chars (legacy field limit)
+    const formatted = parts.join(", ");
+    return formatted.length > 500 ? formatted.substring(0, 497) + "..." : formatted;
+  }
+
+  /**
+   * Validate state_id exists in us_states table
+   * DB-001 ORM_USAGE: Using Prisma query builder
+   *
+   * @param stateId - UUID of state to validate
+   * @param tx - Optional transaction client
+   * @returns State record with code
+   * @throws Error if state not found or inactive
+   */
+  private async validateStateExists(
+    stateId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ state_id: string; code: string; name: string; is_active: boolean }> {
+    const db = tx || prisma;
+
+    const state = await db.uSState.findUnique({
+      where: { state_id: stateId },
+      select: {
+        state_id: true,
+        code: true,
+        name: true,
+        is_active: true,
+      },
+    });
+
+    if (!state) {
+      throw new Error(`State with ID ${stateId} not found`);
+    }
+
+    if (!state.is_active) {
+      throw new Error(`State ${state.code} (${state.name}) is not active`);
+    }
+
+    return state;
+  }
+
+  /**
+   * Validate county_id exists and belongs to the specified state
+   * DB-001 ORM_USAGE: Using Prisma query builder
+   * ADDR-REQ-005: Validate county belongs to state
+   *
+   * @param countyId - UUID of county to validate
+   * @param stateId - UUID of state the county should belong to
+   * @param tx - Optional transaction client
+   * @returns County record
+   * @throws Error if county not found, inactive, or doesn't belong to state
+   */
+  private async validateCountyBelongsToState(
+    countyId: string,
+    stateId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ county_id: string; name: string; state_id: string; is_active: boolean }> {
+    const db = tx || prisma;
+
+    const county = await db.uSCounty.findUnique({
+      where: { county_id: countyId },
+      select: {
+        county_id: true,
+        name: true,
+        state_id: true,
+        is_active: true,
+      },
+    });
+
+    if (!county) {
+      throw new Error(`County with ID ${countyId} not found`);
+    }
+
+    if (!county.is_active) {
+      throw new Error(`County ${county.name} is not active`);
+    }
+
+    if (county.state_id !== stateId) {
+      throw new Error(
+        `County ${county.name} does not belong to the specified state. ` +
+        `This is a data integrity violation.`
+      );
+    }
+
+    return county;
+  }
+
+  /**
+   * Validate structured address fields
+   * Performs database lookups to verify state_id and county_id exist and are valid
+   *
+   * @param address - Structured address input
+   * @param tx - Optional transaction client (for atomic validation in transaction)
+   * @returns Validated state code for backward compatibility formatting
+   * @throws Error if validation fails
+   */
+  private async validateStructuredAddress(
+    address: USAddressInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<string> {
+    // Validate state exists and is active
+    const state = await this.validateStateExists(address.state_id, tx);
+
+    // Validate county if provided
+    if (address.county_id) {
+      await this.validateCountyBelongsToState(address.county_id, address.state_id, tx);
+    }
+
+    return state.code;
+  }
+
+  // =========================================================================
   // User CRUD Operations
   // =========================================================================
 
@@ -371,6 +527,8 @@ export class UserAdminService {
     const isClientUser = hasClientOwnerRole || hasClientUserRole;
 
     // Validate company fields if CLIENT_OWNER role is being assigned
+    // Phase 1: Structured address validation
+    // Phase 4: Support both structured (preferred) and legacy string (deprecated) formats
     if (hasClientOwnerRole) {
       if (!data.companyName || data.companyName.trim().length === 0) {
         throw new Error("Company name is required for Client Owner role");
@@ -378,11 +536,26 @@ export class UserAdminService {
       if (data.companyName.trim().length > 255) {
         throw new Error("Company name cannot exceed 255 characters");
       }
-      if (!data.companyAddress || data.companyAddress.trim().length === 0) {
+      // Validate address is provided (schema already validates field formats)
+      if (!data.companyAddress) {
         throw new Error("Company address is required for Client Owner role");
       }
-      if (data.companyAddress.trim().length > 500) {
-        throw new Error("Company address cannot exceed 500 characters");
+      // Only validate required structured fields if NOT a legacy address
+      // Legacy addresses have _legacy=true and _originalValue set by schema transform
+      if (!isLegacyAddress(data.companyAddress)) {
+        // Validate required address fields are present for structured format
+        if (!data.companyAddress.address_line1) {
+          throw new Error("Street address (address_line1) is required");
+        }
+        if (!data.companyAddress.city) {
+          throw new Error("City is required");
+        }
+        if (!data.companyAddress.state_id) {
+          throw new Error("State is required");
+        }
+        if (!data.companyAddress.zip_code) {
+          throw new Error("ZIP code is required");
+        }
       }
     }
 
@@ -485,17 +658,71 @@ export class UserAdminService {
           });
 
           // If CLIENT_OWNER, create a company owned by this user
+          // Phase 1: Store structured address fields + legacy field for backward compatibility
+          // Phase 4: Handle both structured and legacy (deprecated) address formats
           let createdCompany = null;
           if (hasClientOwnerRole && data.companyName && data.companyAddress) {
-            createdCompany = await tx.company.create({
-              data: {
-                public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-                name: data.companyName.trim(),
-                address: data.companyAddress.trim(),
-                owner_user_id: user.user_id,
-                status: "ACTIVE",
-              },
-            });
+            const addr = data.companyAddress as USAddressInput;
+
+            // Phase 4: Check if this is a legacy string address (deprecated)
+            if (isLegacyAddress(data.companyAddress)) {
+              // DEPRECATED: Legacy string address support
+              // Log warning - this path will be removed in v2.0
+              console.warn(
+                `[DEPRECATION] Creating company with legacy string address for user ${data.email}. ` +
+                `Please migrate to structured address format.`
+              );
+
+              // Store only in legacy field - no structured fields available
+              createdCompany = await tx.company.create({
+                data: {
+                  public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+                  name: data.companyName.trim(),
+                  // Legacy field only - use the original address string
+                  address: data.companyAddress._originalValue,
+                  // Structured fields left as null - legacy format doesn't provide these
+                  address_line1: null,
+                  address_line2: null,
+                  city: null,
+                  state_id: null,
+                  county_id: null,
+                  zip_code: null,
+                  // Ownership and status
+                  owner_user_id: user.user_id,
+                  status: "ACTIVE",
+                },
+              });
+            } else {
+              // PREFERRED: Structured address format
+
+              // Validate structured address inside transaction (TOCTOU prevention)
+              // ADDR-REQ-003, ADDR-REQ-004, ADDR-REQ-005: Validate state/county exist and match
+              const stateCode = await this.validateStructuredAddress(addr, tx);
+
+              // Format legacy address string for backward compatibility
+              const legacyAddressString = this.formatAddressAsString(addr, stateCode);
+
+              createdCompany = await tx.company.create({
+                data: {
+                  public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+                  name: data.companyName.trim(),
+                  // Legacy field (for backward compatibility & display)
+                  // @deprecated - Use structured fields below
+                  address: legacyAddressString,
+                  // Structured address fields (enterprise-grade)
+                  // ADDR-REQ-001: Store address in structured fields
+                  address_line1: addr.address_line1,
+                  address_line2: addr.address_line2 || null,
+                  city: addr.city,
+                  state_id: addr.state_id,
+                  county_id: addr.county_id || null,
+                  zip_code: addr.zip_code,
+                  // Ownership and status
+                  owner_user_id: user.user_id,
+                  status: "ACTIVE",
+                },
+              });
+            }
           }
 
           // Create role assignments
@@ -652,6 +879,7 @@ export class UserAdminService {
 
       // Create audit log for user creation (non-blocking)
       // SEC-001: PIN values are REDACTED in audit logs
+      // Phase 1: Include structured address details in audit
       try {
         await prisma.auditLog.create({
           data: {
@@ -667,6 +895,15 @@ export class UserAdminService {
               pin_set: !!data.pin, // Log whether PIN was set, not the actual value
               company_created: result.company
                 ? result.company.company_id
+                : null,
+              // Phase 1: Log structured address metadata (not full address for privacy)
+              company_address_structured: result.company && data.companyAddress
+                ? {
+                    state_id: data.companyAddress.state_id,
+                    county_id: data.companyAddress.county_id || null,
+                    city: data.companyAddress.city,
+                    zip_code: data.companyAddress.zip_code,
+                  }
                 : null,
             } as unknown as Record<string, any>,
             ip_address: auditContext.ipAddress,
@@ -691,8 +928,13 @@ export class UserAdminService {
           error.message.includes("already in use") ||
           error.message.includes("required") ||
           error.message.includes("not found") ||
+          error.message.includes("not active") ||
+          error.message.includes("does not belong") ||
+          error.message.includes("data integrity violation") ||
           error.message.includes("PIN must be") ||
-          error.message.includes("PIN is required"))
+          error.message.includes("PIN is required") ||
+          error.message.includes("State") ||
+          error.message.includes("County"))
       ) {
         throw error;
       }
@@ -2003,6 +2245,372 @@ export class UserAdminService {
       throw error;
     }
   }
+
+  // =========================================================================
+  // Hierarchical User List (SEC-010 AUTHZ, DB-001 ORM_USAGE, PERF-001)
+  // =========================================================================
+
+  /**
+   * Get users organized hierarchically for Super Admin dashboard
+   *
+   * Performance Strategy (Avoids N+1):
+   * - Uses TWO optimized queries instead of N+1
+   * - Query 1: All users with roles, companies, stores in ONE query
+   * - Query 2: All CLIENT_OWNER owned companies with stores in ONE query
+   * - Grouping done in memory after efficient data fetch
+   *
+   * Security:
+   * - SEC-010 AUTHZ: Called only from admin route with ADMIN_SYSTEM_CONFIG permission
+   * - DB-001 ORM_USAGE: Prisma query builder with parameterized queries
+   * - API-008 OUTPUT_FILTERING: Explicit select to whitelist response fields
+   *
+   * @returns Hierarchical user structure grouped by System Users and Client Owners
+   */
+  async getHierarchicalUsers(): Promise<HierarchicalUsersResponse> {
+    try {
+      // Query 1: Fetch ALL users with their roles, companies, and stores in ONE query
+      // DB-001 ORM_USAGE: Using Prisma with explicit includes
+      // PERF: Single query with JOINs instead of N+1
+      const allUsers = await prisma.user.findMany({
+        orderBy: { name: "asc" },
+        select: {
+          user_id: true,
+          email: true,
+          name: true,
+          status: true,
+          created_at: true,
+          updated_at: true,
+          user_roles: {
+            select: {
+              user_role_id: true,
+              assigned_at: true,
+              company_id: true,
+              store_id: true,
+              role: {
+                select: {
+                  role_id: true,
+                  code: true,
+                  description: true,
+                  scope: true,
+                },
+              },
+              company: {
+                select: {
+                  company_id: true,
+                  name: true,
+                },
+              },
+              store: {
+                select: {
+                  store_id: true,
+                  name: true,
+                  company_id: true,
+                },
+              },
+            },
+          },
+          // For CLIENT_OWNER users, get their owned companies
+          owned_companies: {
+            select: {
+              company_id: true,
+              name: true,
+              status: true,
+              stores: {
+                select: {
+                  store_id: true,
+                  name: true,
+                  status: true,
+                },
+                orderBy: { name: "asc" },
+              },
+            },
+            orderBy: { name: "asc" },
+          },
+        },
+      });
+
+      // Separate system users from client owners
+      const systemUsers: SystemUserItem[] = [];
+      const clientOwnerGroups: ClientOwnerGroup[] = [];
+
+      // Maps for efficient lookup
+      // Map: company_id -> { company info, stores map, users by store }
+      const companyDataMap = new Map<
+        string,
+        {
+          company_id: string;
+          company_name: string;
+          stores: Map<string, { store_id: string; store_name: string; users: StoreUserItem[] }>;
+        }
+      >();
+
+      // First pass: Identify CLIENT_OWNERS and build company structure
+      for (const user of allUsers) {
+        const hasSystemRole = user.user_roles.some(
+          (ur) => ur.role.scope === "SYSTEM"
+        );
+        const clientOwnerRole = user.user_roles.find(
+          (ur) => ur.role.code === "CLIENT_OWNER"
+        );
+
+        if (hasSystemRole && !clientOwnerRole) {
+          // System user (SUPERADMIN, CORPORATE_ADMIN)
+          systemUsers.push({
+            user_id: user.user_id,
+            email: user.email,
+            name: user.name,
+            status: user.status as UserStatus,
+            created_at: user.created_at,
+            updated_at: user.updated_at,
+            roles: user.user_roles.map((ur) => ({
+              user_role_id: ur.user_role_id,
+              role: {
+                role_id: ur.role.role_id,
+                code: ur.role.code,
+                description: ur.role.description,
+                scope: ur.role.scope,
+              },
+              company_id: ur.company_id,
+              company_name: ur.company?.name || null,
+              store_id: ur.store_id,
+              store_name: ur.store?.name || null,
+              assigned_at: ur.assigned_at,
+            })),
+          });
+        } else if (clientOwnerRole) {
+          // CLIENT_OWNER - Initialize their company structure from owned_companies
+          const clientOwnerGroup: ClientOwnerGroup = {
+            client_owner: {
+              user_id: user.user_id,
+              email: user.email,
+              name: user.name,
+              status: user.status as UserStatus,
+              created_at: user.created_at,
+              updated_at: user.updated_at,
+              roles: user.user_roles.map((ur) => ({
+                user_role_id: ur.user_role_id,
+                role: {
+                  role_id: ur.role.role_id,
+                  code: ur.role.code,
+                  description: ur.role.description,
+                  scope: ur.role.scope,
+                },
+                company_id: ur.company_id,
+                company_name: ur.company?.name || null,
+                store_id: ur.store_id,
+                store_name: ur.store?.name || null,
+                assigned_at: ur.assigned_at,
+              })),
+            },
+            companies: [],
+          };
+
+          // Build company structure from owned_companies
+          for (const ownedCompany of user.owned_companies) {
+            const companyGroup: CompanyGroup = {
+              company_id: ownedCompany.company_id,
+              company_name: ownedCompany.name,
+              stores: ownedCompany.stores.map((store) => ({
+                store_id: store.store_id,
+                store_name: store.name,
+                users: [], // Will be populated in second pass
+              })),
+            };
+            clientOwnerGroup.companies.push(companyGroup);
+
+            // Register in lookup map for second pass
+            const storesMap = new Map<
+              string,
+              { store_id: string; store_name: string; users: StoreUserItem[] }
+            >();
+            for (const store of ownedCompany.stores) {
+              storesMap.set(store.store_id, {
+                store_id: store.store_id,
+                store_name: store.name,
+                users: [],
+              });
+            }
+            companyDataMap.set(ownedCompany.company_id, {
+              company_id: ownedCompany.company_id,
+              company_name: ownedCompany.name,
+              stores: storesMap,
+            });
+          }
+
+          clientOwnerGroups.push(clientOwnerGroup);
+        }
+      }
+
+      // Second pass: Assign store-level users to their stores
+      for (const user of allUsers) {
+        const hasSystemRole = user.user_roles.some(
+          (ur) => ur.role.scope === "SYSTEM"
+        );
+        const isClientOwner = user.user_roles.some(
+          (ur) => ur.role.code === "CLIENT_OWNER"
+        );
+
+        // Skip system users and client owners (already processed)
+        if (hasSystemRole || isClientOwner) {
+          continue;
+        }
+
+        // This is a store-level user - find their store assignment
+        for (const userRole of user.user_roles) {
+          if (userRole.store_id && userRole.company_id) {
+            const companyData = companyDataMap.get(userRole.company_id);
+            if (companyData) {
+              const storeData = companyData.stores.get(userRole.store_id);
+              if (storeData) {
+                // Add user to this store (avoid duplicates)
+                const existingUser = storeData.users.find(
+                  (u) => u.user_id === user.user_id
+                );
+                if (!existingUser) {
+                  storeData.users.push({
+                    user_id: user.user_id,
+                    email: user.email,
+                    name: user.name,
+                    status: user.status as UserStatus,
+                    created_at: user.created_at,
+                    updated_at: user.updated_at,
+                    roles: user.user_roles.map((ur) => ({
+                      user_role_id: ur.user_role_id,
+                      role: {
+                        role_id: ur.role.role_id,
+                        code: ur.role.code,
+                        description: ur.role.description,
+                        scope: ur.role.scope,
+                      },
+                      company_id: ur.company_id,
+                      company_name: ur.company?.name || null,
+                      store_id: ur.store_id,
+                      store_name: ur.store?.name || null,
+                      assigned_at: ur.assigned_at,
+                    })),
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Final pass: Update clientOwnerGroups with populated store users
+      for (const group of clientOwnerGroups) {
+        for (const company of group.companies) {
+          const companyData = companyDataMap.get(company.company_id);
+          if (companyData) {
+            for (const store of company.stores) {
+              const storeData = companyData.stores.get(store.store_id);
+              if (storeData) {
+                store.users = storeData.users;
+              }
+            }
+          }
+        }
+      }
+
+      return {
+        system_users: systemUsers,
+        client_owners: clientOwnerGroups,
+        meta: {
+          total_system_users: systemUsers.length,
+          total_client_owners: clientOwnerGroups.length,
+          total_companies: clientOwnerGroups.reduce(
+            (sum, g) => sum + g.companies.length,
+            0
+          ),
+          total_stores: clientOwnerGroups.reduce(
+            (sum, g) =>
+              sum + g.companies.reduce((s, c) => s + c.stores.length, 0),
+            0
+          ),
+          total_store_users: clientOwnerGroups.reduce(
+            (sum, g) =>
+              sum +
+              g.companies.reduce(
+                (s, c) => s + c.stores.reduce((su, st) => su + st.users.length, 0),
+                0
+              ),
+            0
+          ),
+        },
+      };
+    } catch (error) {
+      console.error("Error fetching hierarchical users:", error);
+      throw error;
+    }
+  }
+}
+
+// =========================================================================
+// Hierarchical User Types (API-008 OUTPUT_FILTERING)
+// =========================================================================
+
+/**
+ * Base user item for hierarchical display
+ * API-008: Explicit field whitelist - no sensitive data
+ */
+export interface HierarchicalUserItem {
+  user_id: string;
+  email: string;
+  name: string;
+  status: UserStatus;
+  created_at: Date;
+  updated_at: Date;
+  roles: UserRoleDetail[];
+}
+
+/**
+ * System user (SUPERADMIN, CORPORATE_ADMIN)
+ */
+export type SystemUserItem = HierarchicalUserItem;
+
+/**
+ * Store-level user (STORE_MANAGER, SHIFT_MANAGER, CLIENT_USER, CASHIER)
+ */
+export type StoreUserItem = HierarchicalUserItem;
+
+/**
+ * Store group containing users
+ */
+export interface StoreGroup {
+  store_id: string;
+  store_name: string;
+  users: StoreUserItem[];
+}
+
+/**
+ * Company group containing stores
+ */
+export interface CompanyGroup {
+  company_id: string;
+  company_name: string;
+  stores: StoreGroup[];
+}
+
+/**
+ * Client owner group with their companies and store users
+ */
+export interface ClientOwnerGroup {
+  client_owner: HierarchicalUserItem;
+  companies: CompanyGroup[];
+}
+
+/**
+ * Hierarchical users response
+ */
+export interface HierarchicalUsersResponse {
+  system_users: SystemUserItem[];
+  client_owners: ClientOwnerGroup[];
+  meta: {
+    total_system_users: number;
+    total_client_owners: number;
+    total_companies: number;
+    total_stores: number;
+    total_store_users: number;
+  };
 }
 
 // Export singleton instance
