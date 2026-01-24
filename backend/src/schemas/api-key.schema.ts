@@ -446,3 +446,48 @@ export type SyncCompleteInput = z.infer<typeof syncCompleteSchema>;
 export type CashierSyncQuery = z.infer<typeof cashierSyncQuerySchema>;
 export type CashierOfflineAuthInput = z.infer<typeof cashierOfflineAuthSchema>;
 export type EmployeeSyncQuery = z.infer<typeof employeeSyncQuerySchema>;
+
+// =============================================================================
+// Store Reset Schemas
+// =============================================================================
+
+/** Valid store reset types */
+export const STORE_RESET_TYPES = [
+  "FULL_RESET", // Complete data wipe (lottery, transactions, all local data)
+  "LOTTERY_ONLY", // Reset only lottery data (packs, shifts, activations)
+  "SYNC_STATE", // Reset sync state only (re-sync from server)
+] as const;
+
+/**
+ * Store Reset Request Schema
+ * Validates request body for store data reset operations
+ */
+export const storeResetSchema = z.object({
+  /** Type of reset operation */
+  resetType: z.enum(STORE_RESET_TYPES, {
+    message: `resetType must be one of: ${STORE_RESET_TYPES.join(", ")}`,
+  }),
+
+  /** Device fingerprint for audit trail */
+  deviceFingerprint: z
+    .string()
+    .min(32, "Device fingerprint must be at least 32 characters")
+    .max(64, "Device fingerprint cannot exceed 64 characters")
+    .regex(/^[a-fA-F0-9]+$/, "Device fingerprint must be a hex string"),
+
+  /** Reason for the reset (required for audit) */
+  reason: z
+    .string()
+    .min(1, "Reason is required")
+    .max(500, "Reason cannot exceed 500 characters"),
+
+  /** App version performing the reset */
+  appVersion: z.string().min(1).max(50),
+
+  /** Confirmation flag to prevent accidental resets */
+  confirmed: z.literal(true, {
+    message: "Reset must be explicitly confirmed with confirmed: true",
+  }),
+});
+
+export type StoreResetInput = z.infer<typeof storeResetSchema>;

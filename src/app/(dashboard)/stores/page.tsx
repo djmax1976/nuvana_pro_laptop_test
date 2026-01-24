@@ -435,7 +435,12 @@ export default function StoresPage() {
                     {store.company?.name || "—"}
                   </TableCell>
                   <TableCell>
-                    <AddressDisplay location={store.location_json} />
+                    <AddressDisplay
+                      addressLine1={store.address_line1}
+                      addressLine2={store.address_line2}
+                      city={store.city}
+                      zipCode={store.zip_code}
+                    />
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {store.timezone}
@@ -576,22 +581,44 @@ export default function StoresPage() {
 
 /**
  * Address display component
- * Formats location_json address for display
+ * Formats structured address fields for display
+ *
+ * @enterprise-standards
+ * - SEC-004: XSS - React auto-escapes all rendered values
+ * - FE-005: UI_SECURITY - No sensitive data exposed
  */
 function AddressDisplay({
-  location,
+  addressLine1,
+  addressLine2,
+  city,
+  zipCode,
 }: {
-  location: { address?: string; gps?: { lat: number; lng: number } } | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  zipCode?: string | null;
 }) {
-  if (!location) {
+  // Build address string from structured fields
+  const addressParts: string[] = [];
+
+  if (addressLine1) {
+    addressParts.push(addressLine1);
+  }
+  if (addressLine2) {
+    addressParts.push(addressLine2);
+  }
+  if (city) {
+    addressParts.push(city);
+  }
+  if (zipCode) {
+    addressParts.push(zipCode);
+  }
+
+  if (addressParts.length === 0) {
     return <span className="text-muted-foreground">—</span>;
   }
 
-  if (location.address) {
-    return <span className="text-sm">{location.address}</span>;
-  }
-
-  return <span className="text-muted-foreground">—</span>;
+  return <span className="text-sm">{addressParts.join(", ")}</span>;
 }
 
 /**

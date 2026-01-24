@@ -257,19 +257,38 @@ export const lotteryPackReceiveBatchSchema = z.object({
 /**
  * POST /api/v1/sync/lottery/packs/activate
  * Schema for activating a pack and assigning to bin
+ *
+ * Server handles:
+ * 1. Pack exists with RECEIVED status: Activate it
+ * 2. Pack already ACTIVE in same bin: Idempotent success
+ * 3. Pack doesn't exist + optional fields provided: Create and activate
+ * 4. Pack ACTIVE in different bin: Error
  */
 export const lotteryPackActivateSchema = z.object({
   session_id: uuidSchema,
   pack_id: uuidSchema,
   bin_id: uuidSchema,
   opening_serial: serialSchema,
-  activated_at: isoDatetimeSchema.optional(),
+  /** When pack was activated - required */
+  activated_at: isoDatetimeSchema,
+  /** When pack was received - required */
+  received_at: isoDatetimeSchema,
+  // Pack data fields - required for activation
+  game_code: gameCodeSchema,
+  pack_number: packNumberSchema,
+  serial_start: serialSchema,
+  serial_end: serialSchema,
+  // Optional fields
   shift_id: uuidSchema.optional(),
-  /** Manager approval for marking tickets as pre-sold */
+  local_id: z.string().max(100).optional(),
+  /**
+   * Pre-sold tickets fields - OPTIONAL
+   * Only used when opening_serial is NOT "000" (meaning some tickets were sold before activation)
+   * These track tickets that were sold before the pack was officially activated in the system
+   */
   mark_sold_tickets: positiveIntSchema.optional(),
   mark_sold_approved_by: uuidSchema.optional(),
-  mark_sold_reason: reasonSchema,
-  local_id: z.string().max(100).optional(),
+  mark_sold_reason: reasonSchema.optional(),
 });
 
 /**

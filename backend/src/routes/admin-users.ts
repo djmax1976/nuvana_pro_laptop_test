@@ -175,6 +175,53 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * GET /api/admin/users/hierarchical
+   * Get all users organized hierarchically for Super Admin dashboard
+   *
+   * Returns:
+   * - system_users: SUPERADMIN, CORPORATE_ADMIN users (flat list)
+   * - client_owners: CLIENT_OWNER users with their companies, stores, and store users
+   *
+   * Performance:
+   * - Uses optimized single query with JOINs (no N+1)
+   * - Grouping done in memory after efficient data fetch
+   *
+   * Security:
+   * - SEC-010 AUTHZ: Requires ADMIN_SYSTEM_CONFIG permission
+   * - API-008 OUTPUT_FILTERING: Response fields explicitly whitelisted
+   */
+  fastify.get(
+    "/api/admin/users/hierarchical",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
+      ],
+    },
+    async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const result = await userAdminService.getHierarchicalUsers();
+
+        reply.code(200);
+        reply.send({
+          success: true,
+          data: result,
+        });
+      } catch (error) {
+        fastify.log.error({ error }, "Error fetching hierarchical users");
+        reply.code(500);
+        reply.send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch hierarchical users",
+          },
+        });
+      }
+    },
+  );
+
+  /**
    * GET /api/admin/users
    * List all users with pagination, search, and filtering
    */

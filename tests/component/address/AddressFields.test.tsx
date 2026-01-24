@@ -275,11 +275,11 @@ describe("AddressFields - County Cascade", () => {
     const stateDropdown = screen.getByTestId("test-state");
     await user.click(stateDropdown);
 
-    // Find and click Florida
+    // Find and click Florida - label format is "Florida (FL)"
     await waitFor(() => {
-      expect(screen.getByText("Florida")).toBeInTheDocument();
+      expect(screen.getByText("Florida (FL)")).toBeInTheDocument();
     });
-    await user.click(screen.getByText("Florida"));
+    await user.click(screen.getByText("Florida (FL)"));
 
     // THEN: onChange is called with cleared county and city
     expect(onChange).toHaveBeenCalledWith(

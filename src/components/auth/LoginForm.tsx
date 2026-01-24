@@ -173,7 +173,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
     <div className="w-full max-w-md space-y-6">
       <div className="space-y-2 text-center">
         <h1 className="text-3xl font-bold">Welcome back</h1>
-        <p className="text-gray-500">
+        <p className="text-muted-foreground">
           Enter your credentials to access your account
         </p>
       </div>
@@ -232,7 +232,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               disabled={isLoading}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 disabled:opacity-50"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground disabled:opacity-50"
               aria-label={showPassword ? "Hide" : "Show"}
             >
               {showPassword ? (

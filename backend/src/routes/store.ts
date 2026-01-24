@@ -351,6 +351,40 @@ export async function storeRoutes(fastify: FastifyInstance) {
               enum: ["ACTIVE", "INACTIVE", "CLOSED"],
               description: "Store status (defaults to ACTIVE)",
             },
+            // === Structured Address Fields ===
+            address_line1: {
+              type: "string",
+              maxLength: 255,
+              description: "Street address line 1 (e.g., '123 Main Street')",
+            },
+            address_line2: {
+              type: "string",
+              maxLength: 255,
+              nullable: true,
+              description: "Street address line 2 (e.g., 'Suite 100')",
+            },
+            city: {
+              type: "string",
+              maxLength: 100,
+              description: "City name",
+            },
+            state_id: {
+              type: "string",
+              format: "uuid",
+              description:
+                "FK to us_states - determines lottery game visibility",
+            },
+            county_id: {
+              type: "string",
+              format: "uuid",
+              nullable: true,
+              description: "FK to us_counties - for tax jurisdiction",
+            },
+            zip_code: {
+              type: "string",
+              pattern: "^[0-9]{5}(-[0-9]{4})?$",
+              description: "ZIP code (5-digit or ZIP+4 format)",
+            },
             manager: {
               type: "object",
               description:
@@ -523,6 +557,13 @@ export async function storeRoutes(fastify: FastifyInstance) {
           };
           timezone?: string;
           status?: "ACTIVE" | "INACTIVE" | "CLOSED";
+          // === Structured Address Fields ===
+          address_line1?: string;
+          address_line2?: string | null;
+          city?: string;
+          state_id?: string;
+          county_id?: string | null;
+          zip_code?: string;
           manager?: {
             email: string;
             password: string;
@@ -739,6 +780,13 @@ export async function storeRoutes(fastify: FastifyInstance) {
               location_json: body.location_json,
               timezone: body.timezone,
               status: body.status,
+              // === Structured Address Fields ===
+              address_line1: body.address_line1,
+              address_line2: body.address_line2,
+              city: body.city,
+              state_id: body.state_id,
+              county_id: body.county_id,
+              zip_code: body.zip_code,
             },
             tx,
           );

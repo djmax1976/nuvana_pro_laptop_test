@@ -24,6 +24,8 @@ import {
   UserRoleResponse,
   RolesResponse,
   UserRoleDetail,
+  HierarchicalUsersResponse,
+  HierarchicalUsersData,
 } from "@/types/admin-user";
 import apiClient from "./client";
 
@@ -40,6 +42,21 @@ export async function getUsers(
   const response = await apiClient.get<ListUsersResponse>("/api/admin/users", {
     params,
   });
+  return response.data;
+}
+
+/**
+ * Get all users organized hierarchically for Super Admin dashboard
+ * Returns system users and client owners with their companies, stores, and staff
+ *
+ * Performance: Uses optimized single query with JOINs (no N+1)
+ *
+ * @returns Hierarchical user structure
+ */
+export async function getHierarchicalUsers(): Promise<HierarchicalUsersResponse> {
+  const response = await apiClient.get<HierarchicalUsersResponse>(
+    "/api/admin/users/hierarchical",
+  );
   return response.data;
 }
 
@@ -296,6 +313,7 @@ export const adminUserKeys = {
   lists: () => [...adminUserKeys.all, "list"] as const,
   list: (params?: ListUsersParams) =>
     [...adminUserKeys.lists(), params] as const,
+  hierarchical: () => [...adminUserKeys.all, "hierarchical"] as const,
   details: () => [...adminUserKeys.all, "detail"] as const,
   detail: (id: string) => [...adminUserKeys.details(), id] as const,
   roles: () => [...adminUserKeys.all, "roles"] as const,
@@ -310,6 +328,22 @@ export function useAdminUsers(params?: ListUsersParams) {
   return useQuery({
     queryKey: adminUserKeys.list(params),
     queryFn: () => getUsers(params),
+  });
+}
+
+/**
+ * Hook to fetch users organized hierarchically
+ * Returns system users and client owners with their companies, stores, and staff
+ *
+ * @returns TanStack Query result with hierarchical user data
+ */
+export function useHierarchicalUsers() {
+  return useQuery({
+    queryKey: adminUserKeys.hierarchical(),
+    queryFn: async () => {
+      const response = await getHierarchicalUsers();
+      return response.data;
+    },
   });
 }
 
@@ -551,4 +585,5 @@ export type {
   AssignRoleRequest,
   ListUsersParams,
   UserRoleDetail,
+  HierarchicalUsersData,
 };

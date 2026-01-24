@@ -137,6 +137,38 @@ class ApiKeyService {
       throw new Error(`Store not found: ${input.storeId}`);
     }
 
+    // Validate all required store fields are present before creating API key
+    // This prevents creating keys with incomplete identity payloads
+    const missingFields: string[] = [];
+
+    if (!store.name || store.name.trim() === "") {
+      missingFields.push("Store name");
+    }
+    if (!store.public_id) {
+      missingFields.push("Store public ID");
+    }
+    if (!store.company_id || !store.company) {
+      missingFields.push("Company");
+    }
+    if (!store.company?.name || store.company.name.trim() === "") {
+      missingFields.push("Company name");
+    }
+    if (!store.timezone || store.timezone.trim() === "") {
+      missingFields.push("Timezone");
+    }
+    if (!store.state_id || !store.state) {
+      missingFields.push("State");
+    }
+    if (!store.state?.code) {
+      missingFields.push("State code");
+    }
+
+    if (missingFields.length > 0) {
+      throw new Error(
+        `Cannot create API key: Store "${store.name || input.storeId}" is missing required fields: ${missingFields.join(", ")}. Please update the store configuration before creating an API key.`,
+      );
+    }
+
     // Check for existing active key
     const existingActiveKey = await prisma.apiKey.findFirst({
       where: {
@@ -662,12 +694,43 @@ class ApiKeyService {
       throw new Error(`Cannot rotate key with status: ${oldKeyRecord.status}`);
     }
 
+    // Validate all required store fields are present before rotating API key
+    const store = oldKeyRecord.store;
+    const missingFields: string[] = [];
+
+    if (!store.name || store.name.trim() === "") {
+      missingFields.push("Store name");
+    }
+    if (!store.public_id) {
+      missingFields.push("Store public ID");
+    }
+    if (!store.company_id || !store.company) {
+      missingFields.push("Company");
+    }
+    if (!store.company?.name || store.company.name.trim() === "") {
+      missingFields.push("Company name");
+    }
+    if (!store.timezone || store.timezone.trim() === "") {
+      missingFields.push("Timezone");
+    }
+    if (!store.state_id || !store.state) {
+      missingFields.push("State");
+    }
+    if (!store.state?.code) {
+      missingFields.push("State code");
+    }
+
+    if (missingFields.length > 0) {
+      throw new Error(
+        `Cannot rotate API key: Store "${store.name || store.store_id}" is missing required fields: ${missingFields.join(", ")}. Please update the store configuration before rotating the API key.`,
+      );
+    }
+
     const gracePeriodDays = input.gracePeriodDays || 7;
     const graceEndsAt = new Date();
     graceEndsAt.setDate(graceEndsAt.getDate() + gracePeriodDays);
 
     // Generate new key
-    const store = oldKeyRecord.store;
     const generatedKey = this.generateKey(store.public_id, {
       store_id: store.store_id,
       store_name: store.name,

@@ -1,4 +1,114 @@
 import { z } from "zod";
+import { USAddressSchema, type USAddressInput } from "./address.schema";
+
+// =============================================================================
+// Phase 4: Backward Compatibility - Legacy Address Support
+// =============================================================================
+
+/**
+ * Legacy address marker interface
+ * Used to identify addresses that were provided in legacy string format
+ * @internal For backward compatibility tracking only
+ */
+interface LegacyAddressMarker {
+  /** Flag indicating this address was parsed from legacy string format */
+  _legacy: true;
+  /** The original legacy address string (preserved for debugging) */
+  _originalValue: string;
+}
+
+/**
+ * Legacy String Address Schema
+ * Accepts the deprecated string format for backward compatibility with existing API consumers.
+ *
+ * @deprecated Use USAddressSchema (structured format) instead. This will be removed in v2.0.
+ *
+ * Phase 4: Backward Compatibility (TASK-4.6)
+ * - Transforms legacy string addresses into a minimal structured format
+ * - Sets address_line1 to the full legacy string
+ * - Marks with _legacy flag for downstream processing
+ *
+ * API-001 VALIDATION: Still validates string format constraints
+ * SEC-014 INPUT_VALIDATION: Applies sanitization (trim, max length)
+ */
+export const LegacyStringAddressSchema = z
+  .string()
+  .min(1, "Company address cannot be empty")
+  .max(500, "Company address cannot exceed 500 characters")
+  .transform((val): USAddressInput & LegacyAddressMarker => {
+    // Phase 4 TASK-4.7: Log deprecation warning
+    console.warn(
+      "[DEPRECATION WARNING] String-based companyAddress is deprecated. " +
+      "Please migrate to structured address format with address_line1, city, state_id, county_id, zip_code. " +
+      "String format will be removed in v2.0."
+    );
+
+    // Transform to minimal structured format
+    // The service layer will detect _legacy flag and handle appropriately
+    return {
+      address_line1: val.trim(),
+      address_line2: null,
+      city: "", // Empty - legacy format doesn't provide structured city
+      state_id: "", // Empty - requires frontend/API consumer to provide proper UUID
+      county_id: null,
+      zip_code: "", // Empty - legacy format doesn't provide structured zip
+      _legacy: true,
+      _originalValue: val.trim(),
+    } as USAddressInput & LegacyAddressMarker;
+  });
+
+/**
+ * Company Address Schema with Backward Compatibility
+ *
+ * Phase 4: Data Migration & Backward Compatibility (TASK-4.6)
+ *
+ * Accepts EITHER format for backward compatibility:
+ * 1. **Structured format (PREFERRED)** - USAddressSchema with all geographic fields
+ * 2. **Legacy string format (DEPRECATED)** - Single string address
+ *
+ * API Contract:
+ * - New integrations MUST use structured format
+ * - Existing integrations MAY continue using string format (with deprecation warning)
+ * - String format will be removed in v2.0 (set deprecation timeline accordingly)
+ *
+ * @example Structured format (PREFERRED):
+ * ```json
+ * {
+ *   "companyAddress": {
+ *     "address_line1": "123 Main Street",
+ *     "address_line2": "Suite 100",
+ *     "city": "Atlanta",
+ *     "state_id": "uuid-of-georgia-state",
+ *     "county_id": "uuid-of-fulton-county",
+ *     "zip_code": "30301"
+ *   }
+ * }
+ * ```
+ *
+ * @example Legacy string format (DEPRECATED):
+ * ```json
+ * {
+ *   "companyAddress": "123 Main Street, Atlanta, GA 30301"
+ * }
+ * ```
+ */
+export const CompanyAddressWithBackwardCompatSchema = z.union([
+  // Preferred: Structured address format
+  USAddressSchema,
+  // Deprecated: Legacy string format (for backward compatibility)
+  LegacyStringAddressSchema,
+]);
+
+export type CompanyAddressInput = z.infer<typeof CompanyAddressWithBackwardCompatSchema>;
+
+/**
+ * Type guard to check if address was provided in legacy format
+ * @param address - The parsed address input
+ * @returns true if address was provided as a legacy string
+ */
+export function isLegacyAddress(address: CompanyAddressInput): address is USAddressInput & LegacyAddressMarker {
+  return (address as LegacyAddressMarker)._legacy === true;
+}
 
 /**
  * User Validation Schemas
@@ -219,12 +329,11 @@ export const createUserSchema = z
       .transform((val) => val.trim())
       .optional(),
 
-    companyAddress: z
-      .string()
-      .min(1, "Company address cannot be empty")
-      .max(500, "Company address cannot exceed 500 characters")
-      .transform((val) => val.trim())
-      .optional(),
+    // Company address with backward compatibility
+    // Phase 4: Accepts EITHER structured format (preferred) OR legacy string (deprecated)
+    // API-001 VALIDATION: Full schema validation for both formats
+    // See CompanyAddressWithBackwardCompatSchema for details
+    companyAddress: CompanyAddressWithBackwardCompatSchema.optional(),
 
     // Legacy fields for backwards compatibility
     // These are used by CLIENT_USER role assignments in the roles array
@@ -430,3 +539,6 @@ export const listUsersQuerySchema = z.object({
 });
 
 export type ListUsersQuery = z.infer<typeof listUsersQuerySchema>;
+
+// Re-export USAddressInput for convenience
+export type { USAddressInput };

@@ -1206,6 +1206,13 @@ export async function lotterySyncRoutes(
   /**
    * POST /api/v1/sync/lottery/packs/activate
    * Activate a pack and assign to bin
+   *
+   * Supports two modes:
+   * 1. Activate existing pack: Provide pack_id for a pack with status=RECEIVED
+   * 2. Create and activate: Provide game_code, pack_number, serial_start, serial_end
+   *    to create a new pack and immediately activate it (for Desktop App sync)
+   *
+   * Idempotent: If pack already ACTIVE in same bin, returns success without changes
    */
   fastify.post(
     "/api/v1/sync/lottery/packs/activate",
@@ -1230,10 +1237,11 @@ export async function lotterySyncRoutes(
         const body = parseResult.data;
         auditContext.sessionId = body.session_id;
 
-        const { storeId } = await lotterySyncService.validateSyncSession(
-          body.session_id,
-          identity.apiKeyId,
-        );
+        const { storeId, stateId } =
+          await lotterySyncService.validateSyncSession(
+            body.session_id,
+            identity.apiKeyId,
+          );
 
         if (storeId !== identity.storeId) {
           throw new Error(
@@ -1243,6 +1251,7 @@ export async function lotterySyncRoutes(
 
         const response = await lotterySyncService.activatePack(
           storeId,
+          stateId,
           {
             pack_id: body.pack_id,
             bin_id: body.bin_id,
@@ -1253,6 +1262,12 @@ export async function lotterySyncRoutes(
             mark_sold_approved_by: body.mark_sold_approved_by,
             mark_sold_reason: body.mark_sold_reason,
             local_id: body.local_id,
+            // Optional create-and-activate fields
+            game_code: body.game_code,
+            pack_number: body.pack_number,
+            serial_start: body.serial_start,
+            serial_end: body.serial_end,
+            received_at: body.received_at,
           },
           auditContext,
         );

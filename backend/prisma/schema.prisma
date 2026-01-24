@@ -1934,14 +1934,14 @@ model LotteryPackBinHistory {
   pack_id    String   @db.Uuid
   bin_id     String   @db.Uuid
   moved_at   DateTime @default(now()) @db.Timestamptz(6)
-  moved_by   String   @db.Uuid
+  moved_by   String?  @db.Uuid // Nullable for device API operations without user context
   reason     String?  @db.VarChar(500)
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   pack  LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
   bin   LotteryBin  @relation(fields: [bin_id], references: [bin_id], onDelete: Cascade)
-  mover User        @relation("PackMover", fields: [moved_by], references: [user_id], onDelete: Cascade)
+  mover User?       @relation("PackMover", fields: [moved_by], references: [user_id], onDelete: Cascade)
 
   @@index([pack_id])
   @@index([bin_id])

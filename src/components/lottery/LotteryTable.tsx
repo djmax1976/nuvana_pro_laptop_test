@@ -673,12 +673,24 @@ export function LotteryTable({
                     DISCONTINUED: "Discontinued",
                   };
 
+                  // Map game status to badge variant
+                  // INACTIVE/DISCONTINUED = red (destructive) to indicate unavailable
+                  const statusVariants: Record<
+                    LotteryGameStatus,
+                    "default" | "destructive" | "success"
+                  > = {
+                    ACTIVE: "success",
+                    INACTIVE: "destructive",
+                    DISCONTINUED: "destructive",
+                  };
+
                   const label =
                     statusLabels[game.game_status] || game.game_status;
+                  const variant = statusVariants[game.game_status] || "default";
 
                   return (
                     <Badge
-                      variant="default"
+                      variant={variant}
                       className="text-xs font-medium"
                       data-testid={`game-status-badge-${game.game_id}`}
                     >

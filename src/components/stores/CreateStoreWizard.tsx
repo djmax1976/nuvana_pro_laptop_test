@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useForm, FormProvider } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,6 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -55,6 +54,10 @@ import {
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { ConnectionConfigForm } from "@/components/stores/ConnectionConfigForm";
+import {
+  AddressFields,
+  type AddressFieldsValue,
+} from "@/components/address";
 
 /**
  * Validate IANA timezone format (safer implementation to avoid ReDoS)
@@ -82,6 +85,7 @@ function validateIANATimezoneFormat(timezone: string): boolean {
 
 /**
  * Step 1: Store Information schema
+ * Note: Structured address validation is handled separately via AddressFields component
  */
 const storeInfoSchema = z.object({
   name: z
@@ -95,7 +99,6 @@ const storeInfoSchema = z.object({
       (val) => validateIANATimezoneFormat(val),
       "Timezone must be in IANA format (e.g., America/New_York, Europe/London)",
     ),
-  address: z.string().optional(),
   status: z.enum(["ACTIVE", "INACTIVE", "CLOSED"], {
     message: "Please select a status",
   }),
@@ -147,8 +150,12 @@ interface CreateStoreWizardProps {
 /**
  * CreateStoreWizard component
  * Two-step wizard for creating a store with login and terminals
- * Step 1: Store information (name, timezone, address, status)
+ * Step 1: Store information (name, timezone, structured address, status)
  * Step 2: Store login credentials and terminal configuration
+ *
+ * @enterprise-standards
+ * - FE-002: FORM_VALIDATION - Client-side validation mirrors backend
+ * - SEC-014: INPUT_VALIDATION - Strict validation for all address fields
  */
 export function CreateStoreWizard({
   companyId,
@@ -158,6 +165,16 @@ export function CreateStoreWizard({
   const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Structured address state management
+  const [storeAddress, setStoreAddress] = useState<Partial<AddressFieldsValue>>(
+    {},
+  );
+
+  // Address validation errors state
+  const [addressErrors, setAddressErrors] = useState<
+    Partial<Record<keyof AddressFieldsValue, string>>
+  >({});
 
   // Terminal management state
   const [terminals, setTerminals] = useState<LocalTerminal[]>([]);
@@ -181,7 +198,6 @@ export function CreateStoreWizard({
     defaultValues: {
       name: "",
       timezone: "America/New_York",
-      address: "",
       status: "ACTIVE",
       login_email: "",
       login_password: "",
@@ -189,16 +205,82 @@ export function CreateStoreWizard({
     mode: "onChange",
   });
 
-  // Validate step 1 fields
+  /**
+   * Handle address field changes from AddressFields component
+   */
+  const handleAddressChange = useCallback(
+    (newAddress: Partial<AddressFieldsValue>) => {
+      setStoreAddress(newAddress);
+      // Clear errors for fields that now have values
+      setAddressErrors((prev) => {
+        const updated = { ...prev };
+        if (newAddress.address_line1) delete updated.address_line1;
+        if (newAddress.state_id) delete updated.state_id;
+        if (newAddress.city) delete updated.city;
+        if (newAddress.zip_code) delete updated.zip_code;
+        return updated;
+      });
+    },
+    [],
+  );
+
+  /**
+   * Validate structured address fields
+   * @enterprise-standards SEC-014: INPUT_VALIDATION
+   */
+  const validateAddress = useCallback((): boolean => {
+    const errors: Partial<Record<keyof AddressFieldsValue, string>> = {};
+    let isValid = true;
+
+    // Address line 1 is required
+    if (
+      !storeAddress.address_line1 ||
+      storeAddress.address_line1.trim().length === 0
+    ) {
+      errors.address_line1 = "Street address is required";
+      isValid = false;
+    } else if (storeAddress.address_line1.length > 255) {
+      errors.address_line1 = "Street address cannot exceed 255 characters";
+      isValid = false;
+    }
+
+    // State is required (determines lottery game visibility)
+    if (!storeAddress.state_id) {
+      errors.state_id = "State is required";
+      isValid = false;
+    }
+
+    // City is required
+    if (!storeAddress.city || storeAddress.city.trim().length === 0) {
+      errors.city = "City is required";
+      isValid = false;
+    } else if (storeAddress.city.length > 100) {
+      errors.city = "City cannot exceed 100 characters";
+      isValid = false;
+    }
+
+    // ZIP code is required with format validation
+    if (!storeAddress.zip_code || storeAddress.zip_code.trim().length === 0) {
+      errors.zip_code = "ZIP code is required";
+      isValid = false;
+    } else {
+      const zipRegex = /^[0-9]{5}(-[0-9]{4})?$/;
+      if (!zipRegex.test(storeAddress.zip_code)) {
+        errors.zip_code = "ZIP code must be in format 12345 or 12345-6789";
+        isValid = false;
+      }
+    }
+
+    setAddressErrors(errors);
+    return isValid;
+  }, [storeAddress]);
+
+  // Validate step 1 fields including structured address
   const validateStep1 = useCallback(async () => {
-    const result = await form.trigger([
-      "name",
-      "timezone",
-      "address",
-      "status",
-    ]);
-    return result;
-  }, [form]);
+    const formResult = await form.trigger(["name", "timezone", "status"]);
+    const addressValid = validateAddress();
+    return formResult && addressValid;
+  }, [form, validateAddress]);
 
   // Handle next step
   const handleNextStep = async () => {
@@ -324,9 +406,24 @@ export function CreateStoreWizard({
           name: values.name,
           timezone: values.timezone,
           status: values.status,
-          ...(values.address
-            ? { location_json: { address: values.address } }
-            : {}),
+          // Structured address fields for enterprise-grade storage
+          address_line1: storeAddress.address_line1?.trim(),
+          address_line2: storeAddress.address_line2?.trim() || null,
+          city: storeAddress.city?.trim(),
+          state_id: storeAddress.state_id,
+          county_id: storeAddress.county_id || null,
+          zip_code: storeAddress.zip_code?.trim(),
+          // Keep legacy location_json for backward compatibility
+          location_json: {
+            address: [
+              storeAddress.address_line1,
+              storeAddress.address_line2,
+              storeAddress.city,
+              storeAddress.zip_code,
+            ]
+              .filter(Boolean)
+              .join(", "),
+          },
           manager: {
             email: values.login_email,
             password: values.login_password,
@@ -450,28 +547,15 @@ export function CreateStoreWizard({
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="address"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Address</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder="Enter store address"
-                          {...field}
-                          value={field.value ?? ""}
-                          disabled={isSubmitting}
-                          rows={3}
-                          data-testid="address-input"
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Physical address of the store (optional)
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                {/* Structured Address Fields */}
+                <AddressFields
+                  value={storeAddress}
+                  onChange={handleAddressChange}
+                  required={true}
+                  disabled={isSubmitting}
+                  testIdPrefix="store"
+                  sectionLabel="Store Address"
+                  errors={addressErrors}
                 />
 
                 <FormField

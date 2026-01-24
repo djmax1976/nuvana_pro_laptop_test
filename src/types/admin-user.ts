@@ -1,7 +1,13 @@
 /**
  * Admin User Types
  * TypeScript types for user management and role assignment
+ *
+ * @enterprise-standards
+ * - FE-002: FORM_VALIDATION - Types mirror backend validation schemas
+ * - SEC-014: INPUT_VALIDATION - Strict type definitions for all external input
  */
+
+import type { AddressFieldsValue } from "@/components/address";
 
 /**
  * User status enum
@@ -61,6 +67,11 @@ export interface AssignRoleRequest {
  * Create user input
  * When roles include CLIENT_OWNER, companyName and companyAddress are required
  * When roles include CLIENT_USER, company_id and store_id are required in the role assignment
+ *
+ * Phase 2: Structured Address Implementation
+ * - companyAddress now accepts AddressFieldsValue (structured object)
+ * - Enables tax jurisdiction calculations, geographic filtering, and address validation
+ * - Backend stores both structured fields and legacy address string for backward compatibility
  */
 export interface CreateUserInput {
   email: string;
@@ -68,7 +79,8 @@ export interface CreateUserInput {
   password: string;
   roles: AssignRoleRequest[];
   companyName?: string;
-  companyAddress?: string;
+  /** Structured company address for CLIENT_OWNER role */
+  companyAddress?: AddressFieldsValue;
   company_id?: string;
   store_id?: string;
 }
@@ -151,4 +163,57 @@ export interface RoleOption {
 export interface RolesResponse {
   success: true;
   data: RoleOption[];
+}
+
+// ============================================================================
+// Hierarchical User Types (for Super Admin Dashboard)
+// ============================================================================
+
+/**
+ * Store group containing users
+ */
+export interface StoreGroup {
+  store_id: string;
+  store_name: string;
+  users: AdminUser[];
+}
+
+/**
+ * Company group containing stores
+ */
+export interface CompanyGroup {
+  company_id: string;
+  company_name: string;
+  stores: StoreGroup[];
+}
+
+/**
+ * Client owner group with their companies and store users
+ */
+export interface ClientOwnerGroup {
+  client_owner: AdminUser;
+  companies: CompanyGroup[];
+}
+
+/**
+ * Hierarchical users data structure
+ */
+export interface HierarchicalUsersData {
+  system_users: AdminUser[];
+  client_owners: ClientOwnerGroup[];
+  meta: {
+    total_system_users: number;
+    total_client_owners: number;
+    total_companies: number;
+    total_stores: number;
+    total_store_users: number;
+  };
+}
+
+/**
+ * Hierarchical users API response
+ */
+export interface HierarchicalUsersResponse {
+  success: true;
+  data: HierarchicalUsersData;
 }

@@ -192,31 +192,40 @@ export function createTestSyncSession(
 
 /**
  * Factory for creating test lottery game data
+ *
+ * Supports both legacy is_active boolean and new status enum field.
+ * The status enum values are: ACTIVE, INACTIVE, DISCONTINUED
  */
 export function createTestLotteryGame(
   overrides: Partial<{
     game_id: string;
     store_id: string;
+    state_id: string | null;
     game_code: string;
     name: string;
     price: string | number;
     pack_value: string | number;
     tickets_per_pack: number;
     is_active: boolean;
+    status: "ACTIVE" | "INACTIVE" | "DISCONTINUED";
+    updated_at: Date;
   }> = {},
 ) {
   return {
     game_id: overrides.game_id || createTestUuid("game", 1),
     store_id: overrides.store_id || createTestUuid("store", 1),
+    state_id: overrides.state_id ?? null,
     game_code: overrides.game_code || "0001",
     name: overrides.name || "Test Scratch Game",
     price: new Decimal(overrides.price?.toString() || "5.00"),
     pack_value: new Decimal(overrides.pack_value?.toString() || "300.00"),
     tickets_per_pack: overrides.tickets_per_pack || 60,
     is_active: overrides.is_active ?? true,
+    // Game lifecycle status enum (ACTIVE, INACTIVE, DISCONTINUED)
+    status: overrides.status || "ACTIVE",
     display_order: 1,
     created_at: new Date("2024-01-01T00:00:00Z"),
-    updated_at: new Date("2024-01-01T00:00:00Z"),
+    updated_at: overrides.updated_at || new Date("2024-01-01T00:00:00Z"),
   };
 }
 

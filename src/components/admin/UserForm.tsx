@@ -1,11 +1,29 @@
 "use client";
 
+/**
+ * UserForm Component
+ *
+ * Form for creating new users (System Admin only).
+ * Uses Shadcn/ui Form with react-hook-form and Zod validation.
+ *
+ * Phase 2: Structured Address Implementation
+ * - Integrates AddressFields component for CLIENT_OWNER company address
+ * - Supports cascading State → County → City selection
+ * - Validates structured address before submission
+ *
+ * @enterprise-standards
+ * - FE-002: FORM_VALIDATION - Client-side validation mirroring backend schemas
+ * - SEC-004: XSS - All outputs escaped via React's built-in protection
+ * - SEC-014: INPUT_VALIDATION - UUID validation for geographic references
+ */
+
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCreateUser, useRoles, adminUserKeys } from "@/lib/api/admin-users";
 import { useStoresByCompany } from "@/lib/api/stores";
 import { CompanySearchCombobox } from "@/components/companies/CompanySearchCombobox";
+import { AddressFields, type AddressFieldsValue } from "@/components/address";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +47,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { AssignRoleRequest, ScopeType } from "@/types/admin-user";
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 /**
  * Roles that require PIN for terminal/desktop authentication
@@ -37,7 +55,17 @@ import { useEffect } from "react";
  */
 const PIN_REQUIRED_ROLES = ["STORE_MANAGER", "SHIFT_MANAGER"] as const;
 
-// Zod validation schema for user creation
+/**
+ * Zod validation schema for user creation form
+ *
+ * Note: companyAddress is handled separately via React state (AddressFields component)
+ * since it's a structured object with cascading dependencies. Validation for
+ * companyAddress happens in onSubmit handler.
+ *
+ * @enterprise-standards
+ * - FE-002: FORM_VALIDATION - Client-side validation mirroring backend schemas
+ * - SEC-014: INPUT_VALIDATION - Strict allowlists and format constraints
+ */
 const userFormSchema = z
   .object({
     email: z
@@ -73,13 +101,15 @@ const userFormSchema = z
       .optional()
       .or(z.literal("")),
     companyName: z.string().optional(),
-    companyAddress: z.string().optional(),
+    // Note: companyAddress is managed via useState (AddressFieldsValue)
+    // and validated in onSubmit, not here in the Zod schema
     company_id: z.string().optional(),
     store_id: z.string().optional(),
   })
   .refine(
     (data) => {
       // Will be validated in onSubmit where we have access to the selected role
+      // and the structured companyAddress state
       return true;
     },
     {
@@ -94,6 +124,10 @@ type UserFormValues = z.infer<typeof userFormSchema>;
  * UserForm component
  * Form for creating new users (System Admin only)
  * Uses Shadcn/ui Form with react-hook-form and Zod validation
+ *
+ * Phase 2: Structured Address Implementation
+ * - Manages companyAddress via separate React state (AddressFieldsValue)
+ * - AddressFields component provides cascading State → County → City selection
  */
 export function UserForm() {
   const router = useRouter();
@@ -101,6 +135,18 @@ export function UserForm() {
   const queryClient = useQueryClient();
   const createUserMutation = useCreateUser();
   const { data: rolesData, isLoading: rolesLoading } = useRoles();
+
+  // =========================================================================
+  // Structured Company Address State (Phase 2)
+  // Managed separately from react-hook-form since AddressFields is a
+  // compound component with cascading dependencies
+  // =========================================================================
+  const [companyAddress, setCompanyAddress] = useState<
+    Partial<AddressFieldsValue>
+  >({});
+  const [addressErrors, setAddressErrors] = useState<
+    Partial<Record<keyof AddressFieldsValue, string>>
+  >({});
 
   const form = useForm<UserFormValues>({
     resolver: zodResolver(userFormSchema),
@@ -111,7 +157,6 @@ export function UserForm() {
       role_id: "",
       pin: "",
       companyName: "",
-      companyAddress: "",
       company_id: "",
       store_id: "",
     },
@@ -150,10 +195,13 @@ export function UserForm() {
     form.setValue("store_id", "");
   }, [selectedCompanyId, form]);
 
-  // Reset company_id and store_id when role changes (to clear previous selections)
+  // Reset company_id, store_id, and companyAddress when role changes (to clear previous selections)
   useEffect(() => {
     form.setValue("company_id", "");
     form.setValue("store_id", "");
+    // Phase 2: Reset structured company address when role changes
+    setCompanyAddress({});
+    setAddressErrors({});
   }, [selectedRoleId, form]);
 
   async function onSubmit(data: UserFormValues) {
@@ -173,6 +221,7 @@ export function UserForm() {
       }
 
       // Validate company fields for CLIENT_OWNER role
+      // Phase 2: Validates structured address fields
       const isClientOwnerRole = roleForSubmit.code === "CLIENT_OWNER";
       if (isClientOwnerRole) {
         if (!data.companyName || data.companyName.trim().length === 0) {
@@ -182,13 +231,62 @@ export function UserForm() {
           });
           return;
         }
-        if (!data.companyAddress || data.companyAddress.trim().length === 0) {
-          form.setError("companyAddress", {
-            type: "manual",
-            message: "Company address is required for Client Owner role",
+
+        // Phase 2: Validate structured company address
+        // SEC-014 INPUT_VALIDATION: Strict validation of all required fields
+        const newAddressErrors: Partial<Record<keyof AddressFieldsValue, string>> = {};
+        let hasAddressErrors = false;
+
+        if (!companyAddress.address_line1 || companyAddress.address_line1.trim().length === 0) {
+          newAddressErrors.address_line1 = "Street address is required";
+          hasAddressErrors = true;
+        } else if (companyAddress.address_line1.length > 255) {
+          newAddressErrors.address_line1 = "Street address cannot exceed 255 characters";
+          hasAddressErrors = true;
+        }
+
+        if (!companyAddress.state_id) {
+          newAddressErrors.state_id = "State is required";
+          hasAddressErrors = true;
+        }
+
+        if (!companyAddress.county_id) {
+          newAddressErrors.county_id = "County is required";
+          hasAddressErrors = true;
+        }
+
+        if (!companyAddress.city || companyAddress.city.trim().length === 0) {
+          newAddressErrors.city = "City is required";
+          hasAddressErrors = true;
+        } else if (companyAddress.city.length > 100) {
+          newAddressErrors.city = "City cannot exceed 100 characters";
+          hasAddressErrors = true;
+        }
+
+        if (!companyAddress.zip_code || companyAddress.zip_code.trim().length === 0) {
+          newAddressErrors.zip_code = "ZIP code is required";
+          hasAddressErrors = true;
+        } else {
+          // Validate ZIP code format (5-digit or ZIP+4)
+          const zipRegex = /^[0-9]{5}(-[0-9]{4})?$/;
+          if (!zipRegex.test(companyAddress.zip_code)) {
+            newAddressErrors.zip_code = "ZIP code must be in format 12345 or 12345-6789";
+            hasAddressErrors = true;
+          }
+        }
+
+        if (hasAddressErrors) {
+          setAddressErrors(newAddressErrors);
+          toast({
+            variant: "destructive",
+            title: "Validation Error",
+            description: "Please fill in all required address fields",
           });
           return;
         }
+
+        // Clear any previous address errors
+        setAddressErrors({});
       }
 
       // Validate company and store for ALL STORE-scoped roles
@@ -256,6 +354,7 @@ export function UserForm() {
       };
 
       // Build request payload
+      // Phase 2: companyAddress is now a structured AddressFieldsValue object
       const payload: {
         email: string;
         name: string;
@@ -263,7 +362,7 @@ export function UserForm() {
         roles: AssignRoleRequest[];
         pin?: string;
         companyName?: string;
-        companyAddress?: string;
+        companyAddress?: AddressFieldsValue;
       } = {
         email: data.email.trim(),
         name: data.name.trim(),
@@ -277,9 +376,18 @@ export function UserForm() {
       }
 
       // Add company fields if CLIENT_OWNER role
-      if (isClientOwnerRole && data.companyName && data.companyAddress) {
+      // Phase 2: Include structured address object
+      if (isClientOwnerRole && data.companyName) {
         payload.companyName = data.companyName.trim();
-        payload.companyAddress = data.companyAddress.trim();
+        // Type assertion safe here - we validated all required fields above
+        payload.companyAddress = {
+          address_line1: companyAddress.address_line1!.trim(),
+          address_line2: companyAddress.address_line2?.trim() || undefined,
+          city: companyAddress.city!.trim(),
+          state_id: companyAddress.state_id!,
+          county_id: companyAddress.county_id!,
+          zip_code: companyAddress.zip_code!.trim(),
+        };
       }
 
       await createUserMutation.mutateAsync(payload);
@@ -407,6 +515,7 @@ export function UserForm() {
         />
 
         {/* Company fields - shown only when CLIENT_OWNER role is selected */}
+        {/* Phase 2: Uses AddressFields component for structured address input */}
         {isClientOwner && (
           <>
             <div className="rounded-lg border border-border bg-muted/50 p-4">
@@ -439,25 +548,17 @@ export function UserForm() {
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="companyAddress"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Company Address *</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="123 Main St, City, State 12345"
-                          data-testid="company-address-input"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        The physical address of the company
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                {/* Phase 2: Structured Address Fields Component
+                    Provides cascading State → County → City selection
+                    with full validation and enterprise-grade UX */}
+                <AddressFields
+                  value={companyAddress}
+                  onChange={setCompanyAddress}
+                  required={true}
+                  disabled={createUserMutation.isPending}
+                  errors={addressErrors}
+                  testIdPrefix="company"
+                  sectionLabel="Company Address"
                 />
               </div>
             </div>
