@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -eo pipefail
 
 PROTECTED_BRANCHES=("main" "master" "production" "prod")
 CURRENT_BRANCH=$(git symbolic-ref --short HEAD)

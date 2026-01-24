@@ -32,7 +32,7 @@ import { randomUUID } from "crypto";
  */
 async function createOrphanedApiKey(
   prismaClient: any,
-  superadminUserId: string
+  superadminUserId: string,
 ): Promise<string> {
   // Create company and store
   const companyData = createCompany({ owner_user_id: superadminUserId });
@@ -50,7 +50,9 @@ async function createOrphanedApiKey(
         label: `Orphan Test Key ${Date.now()}`,
         key_prefix: "nvn_orphan",
         key_suffix: randomUUID().slice(0, 8),
-        hashed_key: `hashed_orphan_${randomUUID()}`,
+        key_hash: `hashed_orphan_${randomUUID()}`,
+        identity_payload: JSON.stringify({ v: 1, store_id: store.store_id }),
+        payload_version: 1,
         status: "ACTIVE",
         created_by: superadminUserId,
       },
@@ -156,7 +158,9 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
       superadminUser,
     }) => {
       // GIVEN: Create a company, store, and API key to ensure there's at least one
-      const companyData = createCompany({ owner_user_id: superadminUser.user_id });
+      const companyData = createCompany({
+        owner_user_id: superadminUser.user_id,
+      });
       const company = await prismaClient.company.create({ data: companyData });
       const storeData = createStore({ company_id: company.company_id });
       const store = await prismaClient.store.create({ data: storeData });
@@ -169,14 +173,16 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
           {
             store_id: store.store_id,
             label: `Integrity Test Key ${Date.now()}`,
-          }
+          },
         );
         expect(createResponse.status()).toBe(201);
         const createBody = await createResponse.json();
         apiKeyId = createBody.data.api_key_id;
 
         // WHEN: Accessing API Keys list
-        const response = await superadminApiRequest.get("/api/v1/admin/api-keys");
+        const response = await superadminApiRequest.get(
+          "/api/v1/admin/api-keys",
+        );
 
         // THEN: Keys should have company and store info
         expect(response.status()).toBe(200);
@@ -196,7 +202,7 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
             {
               reason: "ADMIN_ACTION",
               notes: "Test cleanup",
-            }
+            },
           );
         }
         await withBypassClient(async (bypassClient) => {
@@ -243,7 +249,7 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
       // GIVEN: An intentionally orphaned API key
       const orphanedApiKeyId = await createOrphanedApiKey(
         prismaClient,
-        superadminUser.user_id
+        superadminUser.user_id,
       );
 
       try {
@@ -262,7 +268,7 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
           WHERE s.store_id IS NULL OR c.company_id IS NULL
             AND ak.api_key_id = ${orphanedApiKeyId}::uuid
         `;
-        expect(orphaned.length).toBeGreaterThanOrEqual(0);
+        expect((orphaned as unknown[]).length).toBeGreaterThanOrEqual(0);
       } finally {
         await cleanupOrphanedApiKey(orphanedApiKeyId);
       }
@@ -275,7 +281,7 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
       // GIVEN: An orphaned API key (store deleted)
       const orphanedApiKeyId = await createOrphanedApiKey(
         prismaClient,
-        superadminUser.user_id
+        superadminUser.user_id,
       );
 
       try {
@@ -300,7 +306,7 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
       // GIVEN: An orphaned API key (company deleted)
       const orphanedApiKeyId = await createOrphanedApiKey(
         prismaClient,
-        superadminUser.user_id
+        superadminUser.user_id,
       );
 
       try {
@@ -332,14 +338,16 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
       // GIVEN: An orphaned API key exists in the database
       const orphanedApiKeyId = await createOrphanedApiKey(
         prismaClient,
-        superadminUser.user_id
+        superadminUser.user_id,
       );
 
       try {
         // WHEN: Accessing the API Keys list
         // Note: This test verifies the fix for BUG-001
         // Before the fix, this would return 500 due to orphaned records
-        const response = await superadminApiRequest.get("/api/v1/admin/api-keys");
+        const response = await superadminApiRequest.get(
+          "/api/v1/admin/api-keys",
+        );
 
         // THEN: Should NOT return 500
         // The exact behavior depends on implementation:
@@ -360,7 +368,7 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
 
       // WHEN: Accessing the API key
       const response = await superadminApiRequest.get(
-        `/api/v1/admin/api-keys/${fakeApiKeyId}`
+        `/api/v1/admin/api-keys/${fakeApiKeyId}`,
       );
 
       // THEN: Should return 404
@@ -375,7 +383,7 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
 
       // WHEN: Accessing the API key
       const response = await superadminApiRequest.get(
-        `/api/v1/admin/api-keys/${malformedId}`
+        `/api/v1/admin/api-keys/${malformedId}`,
       );
 
       // THEN: Should return 400 Bad Request
@@ -393,7 +401,7 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
     }) => {
       // WHEN: Requesting with pagination params
       const response = await superadminApiRequest.get(
-        "/api/v1/admin/api-keys?page=1&limit=10"
+        "/api/v1/admin/api-keys?page=1&limit=10",
       );
 
       // THEN: Should return 200
@@ -407,7 +415,7 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
     }) => {
       // WHEN: Requesting with status filter
       const response = await superadminApiRequest.get(
-        "/api/v1/admin/api-keys?status=ACTIVE"
+        "/api/v1/admin/api-keys?status=ACTIVE",
       );
 
       // THEN: Should return 200
@@ -436,7 +444,9 @@ test.describe("API-KEYS-INTEGRITY: API Keys Data Integrity", () => {
       storeManagerApiRequest,
     }) => {
       // WHEN: Accessing as Store Manager (not Super Admin)
-      const response = await storeManagerApiRequest.get("/api/v1/admin/api-keys");
+      const response = await storeManagerApiRequest.get(
+        "/api/v1/admin/api-keys",
+      );
 
       // THEN: Should be rejected with 403
       expect(response.status()).toBe(403);

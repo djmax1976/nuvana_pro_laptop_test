@@ -8,7 +8,12 @@ import {
 import { HierarchicalUserList } from "@/components/admin/HierarchicalUserList";
 import userEvent from "@testing-library/user-event";
 import * as adminUsersApi from "@/lib/api/admin-users";
-import { AdminUser, UserStatus, ClientOwnerGroup, HierarchicalUsersResponse } from "@/types/admin-user";
+import {
+  AdminUser,
+  UserStatus,
+  ClientOwnerGroup,
+  HierarchicalUsersData,
+} from "@/types/admin-user";
 
 // =============================================================================
 // Enterprise Test Suite: HierarchicalUserList Component
@@ -68,7 +73,15 @@ vi.mock("@/hooks/use-toast", () => ({
 
 // Mock EditUserModal to simplify testing
 vi.mock("@/components/admin/EditUserModal", () => ({
-  EditUserModal: ({ open, onOpenChange, user }: { open: boolean; onOpenChange: (open: boolean) => void; user: AdminUser | null }) => {
+  EditUserModal: ({
+    open,
+    onOpenChange,
+    user,
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    user: AdminUser | null;
+  }) => {
     if (!open) return null;
     return (
       <div data-testid="edit-user-modal">
@@ -121,52 +134,61 @@ const createMockClientOwnerGroup = (
   ownerOverrides: Partial<AdminUser> = {},
   companiesCount = 1,
   storesPerCompany = 1,
-  usersPerStore = 2
+  usersPerStore = 2,
 ): ClientOwnerGroup => {
-  const ownerId = ownerOverrides.user_id || `owner-${Math.random().toString(36).substring(7)}`;
+  const ownerId =
+    ownerOverrides.user_id ||
+    `owner-${Math.random().toString(36).substring(7)}`;
 
-  const companies = Array.from({ length: companiesCount }, (_, companyIndex) => {
-    const companyId = `company-${companyIndex + 1}`;
-    const stores = Array.from({ length: storesPerCompany }, (_, storeIndex) => {
-      const storeId = `store-${companyIndex + 1}-${storeIndex + 1}`;
-      const users = Array.from({ length: usersPerStore }, (_, userIndex) =>
-        createMockUser({
-          user_id: `user-${companyIndex}-${storeIndex}-${userIndex}`,
-          name: `Store User ${userIndex + 1}`,
-          email: `user${userIndex + 1}@store${storeIndex + 1}.com`,
-          status: userIndex % 2 === 0 ? UserStatus.ACTIVE : UserStatus.INACTIVE,
-          roles: [
-            {
-              user_role_id: `ur-${companyIndex}-${storeIndex}-${userIndex}`,
-              role: {
-                role_id: "role-store-manager",
-                code: "STORE_MANAGER",
-                description: "Store manager",
-                scope: "STORE",
-              },
-              company_id: companyId,
-              company_name: `Company ${companyIndex + 1}`,
-              store_id: storeId,
-              store_name: `Store ${storeIndex + 1}`,
-              assigned_at: new Date().toISOString(),
-            },
-          ],
-        })
+  const companies = Array.from(
+    { length: companiesCount },
+    (_, companyIndex) => {
+      const companyId = `company-${companyIndex + 1}`;
+      const stores = Array.from(
+        { length: storesPerCompany },
+        (_, storeIndex) => {
+          const storeId = `store-${companyIndex + 1}-${storeIndex + 1}`;
+          const users = Array.from({ length: usersPerStore }, (_, userIndex) =>
+            createMockUser({
+              user_id: `user-${companyIndex}-${storeIndex}-${userIndex}`,
+              name: `Store User ${userIndex + 1}`,
+              email: `user${userIndex + 1}@store${storeIndex + 1}.com`,
+              status:
+                userIndex % 2 === 0 ? UserStatus.ACTIVE : UserStatus.INACTIVE,
+              roles: [
+                {
+                  user_role_id: `ur-${companyIndex}-${storeIndex}-${userIndex}`,
+                  role: {
+                    role_id: "role-store-manager",
+                    code: "STORE_MANAGER",
+                    description: "Store manager",
+                    scope: "STORE",
+                  },
+                  company_id: companyId,
+                  company_name: `Company ${companyIndex + 1}`,
+                  store_id: storeId,
+                  store_name: `Store ${storeIndex + 1}`,
+                  assigned_at: new Date().toISOString(),
+                },
+              ],
+            }),
+          );
+
+          return {
+            store_id: storeId,
+            store_name: `Store ${storeIndex + 1}`,
+            users,
+          };
+        },
       );
 
       return {
-        store_id: storeId,
-        store_name: `Store ${storeIndex + 1}`,
-        users,
+        company_id: companyId,
+        company_name: `Company ${companyIndex + 1}`,
+        stores,
       };
-    });
-
-    return {
-      company_id: companyId,
-      company_name: `Company ${companyIndex + 1}`,
-      stores,
-    };
-  });
+    },
+  );
 
   return {
     client_owner: createMockUser({
@@ -197,19 +219,20 @@ const createMockClientOwnerGroup = (
 };
 
 /**
- * Creates a complete mock HierarchicalUsersResponse
+ * Creates mock HierarchicalUsersData (the unwrapped data returned by useHierarchicalUsers hook)
+ * Note: The useHierarchicalUsers hook already unwraps the API response, so we return HierarchicalUsersData
  */
 const createMockResponse = (
   systemUsersCount = 2,
-  clientOwnersCount = 2
-): HierarchicalUsersResponse => {
+  clientOwnersCount = 2,
+): HierarchicalUsersData => {
   const system_users = Array.from({ length: systemUsersCount }, (_, i) =>
     createMockUser({
       user_id: `system-user-${i + 1}`,
       name: `System Admin ${i + 1}`,
       email: `admin${i + 1}@system.com`,
       status: i === 0 ? UserStatus.ACTIVE : UserStatus.INACTIVE,
-    })
+    }),
   );
 
   const client_owners = Array.from({ length: clientOwnersCount }, (_, i) =>
@@ -220,15 +243,19 @@ const createMockResponse = (
         email: `owner${i + 1}@company.com`,
       },
       i + 1, // Companies: 1, 2, ...
-      2,     // 2 stores per company
-      2      // 2 users per store
-    )
+      2, // 2 stores per company
+      2, // 2 users per store
+    ),
   );
 
   const totalStoreUsers = client_owners.reduce(
     (sum, co) =>
-      sum + co.companies.reduce((s, c) => s + c.stores.reduce((ss, st) => ss + st.users.length, 0), 0),
-    0
+      sum +
+      co.companies.reduce(
+        (s, c) => s + c.stores.reduce((ss, st) => ss + st.users.length, 0),
+        0,
+      ),
+    0,
   );
 
   return {
@@ -237,10 +264,14 @@ const createMockResponse = (
     meta: {
       total_system_users: system_users.length,
       total_client_owners: client_owners.length,
-      total_companies: client_owners.reduce((sum, co) => sum + co.companies.length, 0),
+      total_companies: client_owners.reduce(
+        (sum, co) => sum + co.companies.length,
+        0,
+      ),
       total_stores: client_owners.reduce(
-        (sum, co) => sum + co.companies.reduce((s, c) => s + c.stores.length, 0),
-        0
+        (sum, co) =>
+          sum + co.companies.reduce((s, c) => s + c.stores.length, 0),
+        0,
       ),
       total_store_users: totalStoreUsers,
     },
@@ -359,15 +390,21 @@ describe("HierarchicalUserList Component", () => {
 
       // THEN: Summary stats should be visible
       const { meta } = mockData;
-      const totalUsers = meta.total_system_users + meta.total_client_owners + meta.total_store_users;
+      const totalUsers =
+        meta.total_system_users +
+        meta.total_client_owners +
+        meta.total_store_users;
       expect(
-        screen.getByText(new RegExp(`${totalUsers} total users`))
+        // eslint-disable-next-line security/detect-non-literal-regexp
+        screen.getByText(new RegExp(`${totalUsers} total users`)),
       ).toBeInTheDocument();
       expect(
-        screen.getByText(new RegExp(`${meta.total_companies} companies`))
+        // eslint-disable-next-line security/detect-non-literal-regexp
+        screen.getByText(new RegExp(`${meta.total_companies} companies`)),
       ).toBeInTheDocument();
       expect(
-        screen.getByText(new RegExp(`${meta.total_stores} stores`))
+        // eslint-disable-next-line security/detect-non-literal-regexp
+        screen.getByText(new RegExp(`${meta.total_stores} stores`)),
       ).toBeInTheDocument();
     });
 
@@ -569,8 +606,12 @@ describe("HierarchicalUserList Component", () => {
 
       // THEN: Action buttons should be present
       expect(screen.getByRole("button", { name: /Edit/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Deactivate|Activate/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Delete/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Deactivate|Activate/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Delete/i }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -596,7 +637,9 @@ describe("HierarchicalUserList Component", () => {
       // THEN: Each client owner should have an accordion
       mockData.client_owners.forEach((group) => {
         expect(
-          screen.getByTestId(`client-owner-accordion-${group.client_owner.user_id}`)
+          screen.getByTestId(
+            `client-owner-accordion-${group.client_owner.user_id}`,
+          ),
         ).toBeInTheDocument();
       });
     });
@@ -659,7 +702,9 @@ describe("HierarchicalUserList Component", () => {
       renderWithProviders(<HierarchicalUserList />);
 
       // THEN: Stats should be displayed (format: "X company/companies • Y store/stores • Z user/users")
-      expect(screen.getByText(/1 company.*2 stores.*5 users/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/1 company.*2 stores.*5 users/i),
+      ).toBeInTheDocument();
     });
 
     it("[P0] HUL-044: should expand accordion when clicked", async () => {
@@ -678,7 +723,7 @@ describe("HierarchicalUserList Component", () => {
       // WHEN: Component is rendered and accordion is clicked
       renderWithProviders(<HierarchicalUserList />);
       const accordionTrigger = screen.getByTestId(
-        `client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`
+        `client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`,
       );
       await user.click(accordionTrigger);
 
@@ -706,7 +751,9 @@ describe("HierarchicalUserList Component", () => {
       // WHEN: Accordion is expanded
       renderWithProviders(<HierarchicalUserList />);
       await user.click(
-        screen.getByTestId(`client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`)
+        screen.getByTestId(
+          `client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`,
+        ),
       );
 
       // THEN: Table should have Company and Store columns
@@ -734,7 +781,9 @@ describe("HierarchicalUserList Component", () => {
       // WHEN: Accordion is expanded
       renderWithProviders(<HierarchicalUserList />);
       await user.click(
-        screen.getByTestId(`client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`)
+        screen.getByTestId(
+          `client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`,
+        ),
       );
 
       // THEN: Client owner should be the first row
@@ -743,7 +792,9 @@ describe("HierarchicalUserList Component", () => {
         const rows = screen.getAllByRole("row");
         // First row is header, second is client owner
         const firstDataRow = rows[1];
-        expect(within(firstDataRow).getByText(clientOwnerName)).toBeInTheDocument();
+        expect(
+          within(firstDataRow).getByText(clientOwnerName),
+        ).toBeInTheDocument();
       });
     });
 
@@ -763,7 +814,9 @@ describe("HierarchicalUserList Component", () => {
       // WHEN: Accordion is expanded
       renderWithProviders(<HierarchicalUserList />);
       await user.click(
-        screen.getByTestId(`client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`)
+        screen.getByTestId(
+          `client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`,
+        ),
       );
 
       // THEN: Table should be visible with flat structure (Company and Store as columns)
@@ -801,7 +854,7 @@ describe("HierarchicalUserList Component", () => {
 
       renderWithProviders(<HierarchicalUserList />);
       const accordionTrigger = screen.getByTestId(
-        `client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`
+        `client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`,
       );
 
       // Expand
@@ -939,7 +992,9 @@ describe("HierarchicalUserList Component", () => {
       // WHEN: First accordion is expanded and a user is selected
       renderWithProviders(<HierarchicalUserList />);
       await user.click(
-        screen.getByTestId(`client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`)
+        screen.getByTestId(
+          `client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`,
+        ),
       );
 
       // THEN: Only that accordion should have selection state
@@ -978,7 +1033,9 @@ describe("HierarchicalUserList Component", () => {
         expect(screen.getByText(/1.*selected/i)).toBeInTheDocument();
       });
       // Find the Activate button that's inside the bulk actions bar (not individual row)
-      const activateButtons = screen.getAllByRole("button", { name: /Activate/i });
+      const activateButtons = screen.getAllByRole("button", {
+        name: /Activate/i,
+      });
       expect(activateButtons.length).toBeGreaterThan(0);
     });
 
@@ -1005,7 +1062,9 @@ describe("HierarchicalUserList Component", () => {
       await waitFor(() => {
         expect(screen.getByText(/1.*selected/i)).toBeInTheDocument();
       });
-      const deactivateButtons = screen.getAllByRole("button", { name: /Deactivate/i });
+      const deactivateButtons = screen.getAllByRole("button", {
+        name: /Deactivate/i,
+      });
       expect(deactivateButtons.length).toBeGreaterThan(0);
     });
 
@@ -1060,14 +1119,18 @@ describe("HierarchicalUserList Component", () => {
       });
 
       // WHEN: Activate button is clicked (find the one in bulk actions bar, not in table cell)
-      const activateButtons = screen.getAllByRole("button", { name: /Activate/i });
+      const activateButtons = screen.getAllByRole("button", {
+        name: /Activate/i,
+      });
       const bulkActivateBtn = activateButtons.find((btn) => !btn.closest("td"));
       expect(bulkActivateBtn).toBeDefined();
       await user.click(bulkActivateBtn!);
 
       // THEN: Confirmation dialog should appear with confirmation button
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /Activate All/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole("button", { name: /Activate All/i }),
+        ).toBeInTheDocument();
       });
     });
 
@@ -1104,7 +1167,9 @@ describe("HierarchicalUserList Component", () => {
       // THEN: Confirmation dialog should appear with confirmation button
       await waitFor(() => {
         // Bulk delete dialog has "Delete Selected" button and requires typing DELETE
-        expect(screen.getByRole("button", { name: /Delete Selected/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole("button", { name: /Delete Selected/i }),
+        ).toBeInTheDocument();
       });
     });
 
@@ -1132,12 +1197,16 @@ describe("HierarchicalUserList Component", () => {
       });
 
       // Click Activate in bulk actions bar
-      const activateButtons = screen.getAllByRole("button", { name: /Activate/i });
+      const activateButtons = screen.getAllByRole("button", {
+        name: /Activate/i,
+      });
       await user.click(activateButtons[0]);
 
       // Confirm in dialog
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /Activate All/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole("button", { name: /Activate All/i }),
+        ).toBeInTheDocument();
       });
       await user.click(screen.getByRole("button", { name: /Activate All/i }));
 
@@ -1169,11 +1238,15 @@ describe("HierarchicalUserList Component", () => {
       });
 
       // Click Activate in bulk actions bar
-      const activateButtons = screen.getAllByRole("button", { name: /Activate/i });
+      const activateButtons = screen.getAllByRole("button", {
+        name: /Activate/i,
+      });
       await user.click(activateButtons[0]);
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /Activate All/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole("button", { name: /Activate All/i }),
+        ).toBeInTheDocument();
       });
       await user.click(screen.getByRole("button", { name: /Activate All/i }));
 
@@ -1182,7 +1255,7 @@ describe("HierarchicalUserList Component", () => {
         expect(mockToast).toHaveBeenCalledWith(
           expect.objectContaining({
             title: "Success",
-          })
+          }),
         );
       });
     });
@@ -1213,7 +1286,7 @@ describe("HierarchicalUserList Component", () => {
       await waitFor(() => {
         expect(screen.getByTestId("edit-user-modal")).toBeInTheDocument();
         expect(screen.getByTestId("edit-modal-user-name")).toHaveTextContent(
-          mockData.system_users[0].name
+          mockData.system_users[0].name,
         );
       });
     });
@@ -1262,7 +1335,9 @@ describe("HierarchicalUserList Component", () => {
 
       // WHEN: Confirm button is clicked
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /^Deactivate$/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole("button", { name: /^Deactivate$/i }),
+        ).toBeInTheDocument();
       });
       await user.click(screen.getByRole("button", { name: /^Deactivate$/i }));
 
@@ -1342,7 +1417,9 @@ describe("HierarchicalUserList Component", () => {
       // THEN: Dialog should require typing DELETE to confirm
       await waitFor(() => {
         // The ConfirmDialog uses confirmationLabel which defaults to "Type 'DELETE' to confirm"
-        expect(screen.getByText(/Type.*DELETE.*to confirm/i)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Type.*DELETE.*to confirm/i),
+        ).toBeInTheDocument();
       });
     });
 
@@ -1372,11 +1449,15 @@ describe("HierarchicalUserList Component", () => {
         expect(screen.getByPlaceholderText("DELETE")).toBeInTheDocument();
       });
       await user.type(screen.getByPlaceholderText("DELETE"), "DELETE");
-      await user.click(screen.getByRole("button", { name: /Delete Permanently/i }));
+      await user.click(
+        screen.getByRole("button", { name: /Delete Permanently/i }),
+      );
 
       // THEN: API should be called
       await waitFor(() => {
-        expect(mockDeleteUser).toHaveBeenCalledWith(mockData.system_users[0].user_id);
+        expect(mockDeleteUser).toHaveBeenCalledWith(
+          mockData.system_users[0].user_id,
+        );
       });
     });
 
@@ -1397,7 +1478,9 @@ describe("HierarchicalUserList Component", () => {
       renderWithProviders(<HierarchicalUserList />);
       await user.click(screen.getByRole("button", { name: /Deactivate/i }));
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /^Deactivate$/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole("button", { name: /^Deactivate$/i }),
+        ).toBeInTheDocument();
       });
       await user.click(screen.getByRole("button", { name: /^Deactivate$/i }));
 
@@ -1406,7 +1489,7 @@ describe("HierarchicalUserList Component", () => {
         expect(mockToast).toHaveBeenCalledWith(
           expect.objectContaining({
             title: "Success",
-          })
+          }),
         );
       });
     });
@@ -1429,7 +1512,9 @@ describe("HierarchicalUserList Component", () => {
       renderWithProviders(<HierarchicalUserList />);
       await user.click(screen.getByRole("button", { name: /Deactivate/i }));
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /^Deactivate$/i })).toBeInTheDocument();
+        expect(
+          screen.getByRole("button", { name: /^Deactivate$/i }),
+        ).toBeInTheDocument();
       });
       await user.click(screen.getByRole("button", { name: /^Deactivate$/i }));
 
@@ -1439,7 +1524,7 @@ describe("HierarchicalUserList Component", () => {
           expect.objectContaining({
             title: "Error",
             variant: "destructive",
-          })
+          }),
         );
       });
     });
@@ -1455,7 +1540,12 @@ describe("HierarchicalUserList Component", () => {
       mockData.system_users[0].roles = [
         {
           user_role_id: "ur-1",
-          role: { role_id: "role-1", code: "SUPERADMIN", description: "Super admin", scope: "SYSTEM" },
+          role: {
+            role_id: "role-1",
+            code: "SUPERADMIN",
+            description: "Super admin",
+            scope: "SYSTEM",
+          },
           company_id: null,
           company_name: null,
           store_id: null,
@@ -1464,7 +1554,12 @@ describe("HierarchicalUserList Component", () => {
         },
         {
           user_role_id: "ur-2",
-          role: { role_id: "role-2", code: "CORPORATE_ADMIN", description: "Corp admin", scope: "COMPANY" },
+          role: {
+            role_id: "role-2",
+            code: "CORPORATE_ADMIN",
+            description: "Corp admin",
+            scope: "COMPANY",
+          },
           company_id: "c1",
           company_name: "Company 1",
           store_id: null,
@@ -1506,13 +1601,16 @@ describe("HierarchicalUserList Component", () => {
       renderWithProviders(<HierarchicalUserList />);
 
       // THEN: Component should render without errors
-      expect(screen.getByText(mockData.system_users[0].name)).toBeInTheDocument();
+      expect(
+        screen.getByText(mockData.system_users[0].name),
+      ).toBeInTheDocument();
     });
 
     it("[P2] HUL-132: should handle special characters in user names", () => {
       // GIVEN: User has special characters in name
       const mockData = createMockResponse(1, 0);
-      mockData.system_users[0].name = "José García 日本語 <script>alert('xss')</script>";
+      mockData.system_users[0].name =
+        "José García 日本語 <script>alert('xss')</script>";
       vi.mocked(adminUsersApi.useHierarchicalUsers).mockReturnValue({
         data: mockData,
         isLoading: false,
@@ -1547,7 +1645,9 @@ describe("HierarchicalUserList Component", () => {
       // WHEN: Accordion is expanded
       renderWithProviders(<HierarchicalUserList />);
       await user.click(
-        screen.getByTestId(`client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`)
+        screen.getByTestId(
+          `client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`,
+        ),
       );
 
       // THEN: Company column should show company name
@@ -1573,7 +1673,9 @@ describe("HierarchicalUserList Component", () => {
       renderWithProviders(<HierarchicalUserList />);
 
       // THEN: Generic error message should be displayed
-      expect(screen.getByText(/An unknown error occurred/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/An unknown error occurred/i),
+      ).toBeInTheDocument();
     });
 
     it("[P1] HUL-135: should handle client owner with no users gracefully", async () => {
@@ -1593,7 +1695,9 @@ describe("HierarchicalUserList Component", () => {
       // WHEN: Accordion is expanded
       renderWithProviders(<HierarchicalUserList />);
       await user.click(
-        screen.getByTestId(`client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`)
+        screen.getByTestId(
+          `client-owner-accordion-${mockData.client_owners[0].client_owner.user_id}`,
+        ),
       );
 
       // THEN: Should show client owner as only user in the table
@@ -1626,8 +1730,12 @@ describe("HierarchicalUserList Component", () => {
 
       // THEN: All action buttons should have accessible names
       expect(screen.getByRole("button", { name: /Edit/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Deactivate|Activate/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Delete/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Deactivate|Activate/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Delete/i }),
+      ).toBeInTheDocument();
     });
 
     it("[P2] HUL-141: should have accessible label for select all checkbox", () => {
@@ -1645,7 +1753,9 @@ describe("HierarchicalUserList Component", () => {
       renderWithProviders(<HierarchicalUserList />);
 
       // THEN: Select all checkbox should have accessible label
-      expect(screen.getByRole("checkbox", { name: /Select all/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("checkbox", { name: /Select all/i }),
+      ).toBeInTheDocument();
     });
 
     it("[P2] HUL-142: should have accessible labels for individual user checkboxes", () => {
@@ -1665,7 +1775,10 @@ describe("HierarchicalUserList Component", () => {
 
       // THEN: User checkbox should have accessible label with user name
       expect(
-        screen.getByRole("checkbox", { name: new RegExp(`Select ${mockData.system_users[0].name}`, "i") })
+        screen.getByRole("checkbox", {
+          // eslint-disable-next-line security/detect-non-literal-regexp
+          name: new RegExp(`Select ${mockData.system_users[0].name}`, "i"),
+        }),
       ).toBeInTheDocument();
     });
   });

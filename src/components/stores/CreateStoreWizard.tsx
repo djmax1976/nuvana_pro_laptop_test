@@ -54,10 +54,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { ConnectionConfigForm } from "@/components/stores/ConnectionConfigForm";
-import {
-  AddressFields,
-  type AddressFieldsValue,
-} from "@/components/address";
+import { AddressFields, type AddressFieldsValue } from "@/components/address";
 
 /**
  * Validate IANA timezone format (safer implementation to avoid ReDoS)
@@ -264,6 +261,7 @@ export function CreateStoreWizard({
       errors.zip_code = "ZIP code is required";
       isValid = false;
     } else {
+      // eslint-disable-next-line security/detect-unsafe-regex
       const zipRegex = /^[0-9]{5}(-[0-9]{4})?$/;
       if (!zipRegex.test(storeAddress.zip_code)) {
         errors.zip_code = "ZIP code must be in format 12345 or 12345-6789";

@@ -45,7 +45,7 @@ async function createTestHierarchy(
     createAuditEvents?: boolean;
     createSyncSessions?: boolean;
     storeCount?: number;
-  } = {}
+  } = {},
 ) {
   const {
     createApiKey = true,
@@ -105,7 +105,12 @@ async function createTestHierarchy(
             label: `Test API Key ${Date.now()}-${randomUUID().slice(0, 8)}`,
             key_prefix: "nvn_test",
             key_suffix: randomUUID().slice(0, 8),
-            hashed_key: `hashed_${randomUUID()}`,
+            key_hash: `hashed_${randomUUID()}`,
+            identity_payload: JSON.stringify({
+              v: 1,
+              store_id: store.store_id,
+            }),
+            payload_version: 1,
             status: "ACTIVE",
             created_by: user.user_id,
           },
@@ -120,13 +125,15 @@ async function createTestHierarchy(
             data: [
               {
                 api_key_id: apiKey.api_key_id,
-                event_type: "KEY_CREATED",
+                event_type: "CREATED",
                 actor_user_id: user.user_id,
+                actor_type: "ADMIN",
                 ip_address: "127.0.0.1",
               },
               {
                 api_key_id: apiKey.api_key_id,
-                event_type: "KEY_USED",
+                event_type: "USED",
+                actor_type: "DEVICE",
                 ip_address: "192.168.1.1",
               },
             ],
@@ -140,11 +147,12 @@ async function createTestHierarchy(
           await bypassClient.apiKeySyncSession.create({
             data: {
               api_key_id: apiKey.api_key_id,
-              session_token: `session_${randomUUID()}`,
-              sync_type: "FULL",
+              device_fingerprint: `device_${randomUUID().slice(0, 32)}`,
+              app_version: "1.0.0",
+              server_time_at_start: new Date(),
               sync_status: "COMPLETED",
               session_started_at: new Date(),
-              expires_at: new Date(Date.now() + 3600000),
+              session_ended_at: new Date(),
             },
           });
         });
@@ -169,7 +177,7 @@ async function createTestHierarchy(
 async function cleanupTestHierarchy(
   userId: string,
   companyId: string,
-  storeIds: string[]
+  storeIds: string[],
 ) {
   await withBypassClient(async (bypassClient) => {
     // 1. Delete API key sync sessions
@@ -296,7 +304,10 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         const apiKeyBefore = await prismaClient.apiKey.findUnique({
           where: { api_key_id: hierarchy.apiKeys[0].api_key_id },
         });
-        expect(apiKeyBefore, "API key should exist before deletion").not.toBeNull();
+        expect(
+          apiKeyBefore,
+          "API key should exist before deletion",
+        ).not.toBeNull();
 
         // Step 1: Deactivate the user (required before deletion)
         await prismaClient.user.update({
@@ -320,7 +331,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Super Admin deletes the user via API
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`
+          `/api/v1/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: User is deleted successfully
@@ -332,21 +343,21 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         });
         expect(
           apiKeyAfter,
-          "API key should be deleted when user is deleted"
+          "API key should be deleted when user is deleted",
         ).toBeNull();
 
         // AND: No orphaned API keys exist
         const orphanCheck = await checkForOrphanedApiKeys(prismaClient);
         expect(
           orphanCheck.count,
-          "No orphaned API keys should exist after user deletion"
+          "No orphaned API keys should exist after user deletion",
         ).toBe(0);
       } catch (error) {
         // Cleanup on failure
         await cleanupTestHierarchy(
           hierarchy.user.user_id,
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -369,7 +380,10 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
           const keyBefore = await prismaClient.apiKey.findUnique({
             where: { api_key_id: apiKey.api_key_id },
           });
-          expect(keyBefore, "API key should exist before deletion").not.toBeNull();
+          expect(
+            keyBefore,
+            "API key should exist before deletion",
+          ).not.toBeNull();
         }
 
         // Deactivate everything
@@ -390,7 +404,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Super Admin deletes the user
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`
+          `/api/v1/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: Deletion succeeds
@@ -403,7 +417,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
           });
           expect(
             keyAfter,
-            `API key ${apiKey.api_key_id} should be deleted`
+            `API key ${apiKey.api_key_id} should be deleted`,
           ).toBeNull();
         }
 
@@ -414,7 +428,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         await cleanupTestHierarchy(
           hierarchy.user.user_id,
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -437,7 +451,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         });
         expect(
           auditEventsBefore,
-          "Audit events should exist before deletion"
+          "Audit events should exist before deletion",
         ).toBeGreaterThan(0);
 
         // Deactivate
@@ -458,7 +472,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`
+          `/api/v1/admin/users/${hierarchy.user.user_id}`,
         );
         expect(deleteResponse.status()).toBe(200);
 
@@ -468,13 +482,13 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         });
         expect(
           auditEventsAfter,
-          "Audit events should be deleted when user is deleted"
+          "Audit events should be deleted when user is deleted",
         ).toBe(0);
       } catch (error) {
         await cleanupTestHierarchy(
           hierarchy.user.user_id,
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -498,7 +512,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         });
         expect(
           syncSessionsBefore,
-          "Sync sessions should exist before deletion"
+          "Sync sessions should exist before deletion",
         ).toBeGreaterThan(0);
 
         // Deactivate
@@ -519,7 +533,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`
+          `/api/v1/admin/users/${hierarchy.user.user_id}`,
         );
         expect(deleteResponse.status()).toBe(200);
 
@@ -529,13 +543,13 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         });
         expect(
           syncSessionsAfter,
-          "Sync sessions should be deleted when user is deleted"
+          "Sync sessions should be deleted when user is deleted",
         ).toBe(0);
       } catch (error) {
         await cleanupTestHierarchy(
           hierarchy.user.user_id,
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -580,20 +594,20 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`
+          `/api/v1/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: No new orphans should exist
         const orphansAfter = await checkForOrphanedApiKeys(prismaClient);
         expect(
           orphansAfter.count,
-          "No new orphaned API keys should be created by deletion"
+          "No new orphaned API keys should be created by deletion",
         ).toBe(initialOrphanCount);
       } catch (error) {
         await cleanupTestHierarchy(
           hierarchy.user.user_id,
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -627,18 +641,18 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         }
 
         await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`
+          `/api/v1/admin/users/${hierarchy.user.user_id}`,
         );
 
         // WHEN: Accessing the API Keys page
         const apiKeysResponse = await superadminApiRequest.get(
-          "/api/v1/admin/api-keys"
+          "/api/v1/admin/api-keys",
         );
 
         // THEN: Page should load successfully (no 500 error from orphaned records)
         expect(
           apiKeysResponse.status(),
-          "API Keys page should load successfully after user deletion"
+          "API Keys page should load successfully after user deletion",
         ).toBe(200);
 
         const body = await apiKeysResponse.json();
@@ -647,7 +661,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         await cleanupTestHierarchy(
           hierarchy.user.user_id,
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -690,7 +704,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`
+          `/api/v1/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: Store should also be deleted
@@ -702,7 +716,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         await cleanupTestHierarchy(
           hierarchy.user.user_id,
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -745,7 +759,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`
+          `/api/v1/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: Company should also be deleted
@@ -757,7 +771,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         await cleanupTestHierarchy(
           hierarchy.user.user_id,
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -804,7 +818,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`
+          `/api/v1/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: Deletion should succeed
@@ -819,7 +833,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         await cleanupTestHierarchy(
           hierarchy.user.user_id,
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -872,7 +886,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`
+          `/api/v1/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: Deletion should succeed
@@ -887,7 +901,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         await cleanupTestHierarchy(
           hierarchy.user.user_id,
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }

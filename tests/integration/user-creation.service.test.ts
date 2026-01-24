@@ -27,10 +27,35 @@ let mockAuditContext: any = null;
 
 // Track all test data for cleanup
 const testEmails: string[] = [];
+let testStateId: string;
 
 function registerTestEmail(email: string) {
   testEmails.push(email);
   return email;
+}
+
+/**
+ * Creates a structured address object for testing
+ * SEC-014: INPUT_VALIDATION compliant - uses valid UUID for state_id
+ */
+function createTestAddress(
+  overrides: Partial<{
+    address_line1: string;
+    address_line2: string | null;
+    city: string;
+    state_id: string;
+    county_id: string | null;
+    zip_code: string;
+  }> = {},
+) {
+  return {
+    address_line1: overrides.address_line1 || "123 Test Street",
+    address_line2: overrides.address_line2 ?? null,
+    city: overrides.city || "Test City",
+    state_id: overrides.state_id || testStateId,
+    county_id: overrides.county_id ?? null,
+    zip_code: overrides.zip_code || "12345",
+  };
 }
 
 // Global setup - create audit user once
@@ -61,6 +86,15 @@ beforeAll(async () => {
     ipAddress: "127.0.0.1",
     userAgent: "test-agent",
   };
+
+  // Get a valid state_id for structured address testing
+  const testState = await prisma.uSState.findFirst({
+    where: { is_active: true },
+  });
+  if (!testState) {
+    throw new Error("No active state found - run geographic seed first");
+  }
+  testStateId = testState.state_id;
 });
 
 // Global cleanup - remove all test data
@@ -198,7 +232,7 @@ describe("User Creation Service - CLIENT_OWNER with Company Creation", () => {
         },
       ],
       companyName: "Test Company Inc",
-      companyAddress: "123 Test Street",
+      companyAddress: createTestAddress({ address_line1: "123 Test Street" }),
     };
 
     // WHEN: Creating CLIENT_OWNER user
@@ -240,7 +274,7 @@ describe("User Creation Service - CLIENT_OWNER with Company Creation", () => {
           scope_type: "COMPANY" as const,
         },
       ],
-      companyAddress: "123 Test Street",
+      companyAddress: createTestAddress({ address_line1: "123 Test Street" }),
       // Missing companyName
     };
 

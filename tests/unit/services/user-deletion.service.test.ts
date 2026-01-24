@@ -29,10 +29,35 @@ const userAdminService = new UserAdminService();
 // Shared test data
 let testAdminUser: any;
 let clientOwnerRoleId: string;
+let testStateId: string;
 
 const createdUserIds: string[] = [];
 const createdCompanyIds: string[] = [];
 const createdStoreIds: string[] = [];
+
+/**
+ * Creates a structured address object for testing
+ * SEC-014: INPUT_VALIDATION compliant - uses valid UUID for state_id
+ */
+function createTestAddress(
+  overrides: Partial<{
+    address_line1: string;
+    address_line2: string | null;
+    city: string;
+    state_id: string;
+    county_id: string | null;
+    zip_code: string;
+  }> = {},
+) {
+  return {
+    address_line1: overrides.address_line1 || "123 Test Street",
+    address_line2: overrides.address_line2 ?? null,
+    city: overrides.city || "Test City",
+    state_id: overrides.state_id || testStateId,
+    county_id: overrides.county_id ?? null,
+    zip_code: overrides.zip_code || "12345",
+  };
+}
 
 const auditContext: AuditContext = {
   userId: "",
@@ -66,6 +91,15 @@ beforeAll(async () => {
     throw new Error("CLIENT_OWNER role not found - run RBAC seed first");
   }
   clientOwnerRoleId = clientOwnerRole.role_id;
+
+  // Get a valid state_id for structured address testing
+  const testState = await prisma.uSState.findFirst({
+    where: { is_active: true },
+  });
+  if (!testState) {
+    throw new Error("No active state found - run geographic seed first");
+  }
+  testStateId = testState.state_id;
 });
 
 // Global cleanup
@@ -175,7 +209,7 @@ describe("User Deletion Validation - CLIENT_OWNER with Companies", () => {
         },
       ],
       companyName: companyName,
-      companyAddress: "123 Test St",
+      companyAddress: createTestAddress({ address_line1: "123 Test St" }),
     };
 
     const createdUser = await userAdminService.createUser(input, auditContext);
@@ -228,7 +262,7 @@ describe("User Deletion Validation - CLIENT_OWNER with Companies", () => {
         },
       ],
       companyName: companyName,
-      companyAddress: "456 Test Ave",
+      companyAddress: createTestAddress({ address_line1: "456 Test Ave" }),
     };
 
     const createdUser = await userAdminService.createUser(input, auditContext);
@@ -296,7 +330,7 @@ describe("User Deletion Validation - CLIENT_OWNER with Companies", () => {
         },
       ],
       companyName: companyName,
-      companyAddress: "789 Test Blvd",
+      companyAddress: createTestAddress({ address_line1: "789 Test Blvd" }),
     };
 
     const createdUser = await userAdminService.createUser(input, auditContext);
@@ -375,7 +409,7 @@ describe("User Deletion Validation - Multiple Companies/Stores", () => {
         },
       ],
       companyName: companyName1,
-      companyAddress: "111 Multi St",
+      companyAddress: createTestAddress({ address_line1: "111 Multi St" }),
     };
 
     const createdUser = await userAdminService.createUser(input, auditContext);
@@ -433,7 +467,7 @@ describe("User Deletion Validation - Multiple Companies/Stores", () => {
         },
       ],
       companyName: companyName,
-      companyAddress: "333 Error St",
+      companyAddress: createTestAddress({ address_line1: "333 Error St" }),
     };
 
     const createdUser = await userAdminService.createUser(input, auditContext);

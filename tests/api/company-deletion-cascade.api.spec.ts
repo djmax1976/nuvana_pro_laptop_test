@@ -38,9 +38,13 @@ async function createTestCompanyHierarchy(
     storeCount?: number;
     apiKeysPerStore?: number;
     createAuditEvents?: boolean;
-  } = {}
+  } = {},
 ) {
-  const { storeCount = 1, apiKeysPerStore = 1, createAuditEvents = true } = options;
+  const {
+    storeCount = 1,
+    apiKeysPerStore = 1,
+    createAuditEvents = true,
+  } = options;
 
   // Create company owned by the superadmin
   const companyData = createCompany({ owner_user_id: superadminUserId });
@@ -66,7 +70,12 @@ async function createTestCompanyHierarchy(
             label: `Test API Key ${Date.now()}-${randomUUID().slice(0, 8)}`,
             key_prefix: "nvn_test",
             key_suffix: randomUUID().slice(0, 8),
-            hashed_key: `hashed_${randomUUID()}`,
+            key_hash: `hashed_${randomUUID()}`,
+            identity_payload: JSON.stringify({
+              v: 1,
+              store_id: store.store_id,
+            }),
+            payload_version: 1,
             status: "ACTIVE",
             created_by: superadminUserId,
           },
@@ -81,8 +90,9 @@ async function createTestCompanyHierarchy(
             data: [
               {
                 api_key_id: apiKey.api_key_id,
-                event_type: "KEY_CREATED",
+                event_type: "CREATED",
                 actor_user_id: superadminUserId,
+                actor_type: "ADMIN",
                 ip_address: "127.0.0.1",
               },
             ],
@@ -100,7 +110,7 @@ async function createTestCompanyHierarchy(
  */
 async function cleanupTestCompanyHierarchy(
   companyId: string,
-  storeIds: string[]
+  storeIds: string[],
 ) {
   await withBypassClient(async (bypassClient) => {
     // Delete API key audit events
@@ -187,7 +197,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
           storeCount: 1,
           apiKeysPerStore: 1,
           createAuditEvents: true,
-        }
+        },
       );
 
       try {
@@ -195,7 +205,10 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
         const apiKeyBefore = await prismaClient.apiKey.findUnique({
           where: { api_key_id: hierarchy.apiKeys[0].api_key_id },
         });
-        expect(apiKeyBefore, "API key should exist before deletion").not.toBeNull();
+        expect(
+          apiKeyBefore,
+          "API key should exist before deletion",
+        ).not.toBeNull();
 
         // Deactivate company and stores
         await prismaClient.company.update({
@@ -211,7 +224,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
 
         // WHEN: Delete the company
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/companies/${hierarchy.company.company_id}`
+          `/api/v1/admin/companies/${hierarchy.company.company_id}`,
         );
 
         // THEN: Deletion should succeed
@@ -223,7 +236,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
         });
         expect(
           apiKeyAfter,
-          "API key should be deleted when company is deleted"
+          "API key should be deleted when company is deleted",
         ).toBeNull();
 
         // AND: No orphans
@@ -232,7 +245,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
       } catch (error) {
         await cleanupTestCompanyHierarchy(
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -251,7 +264,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
           storeCount: 3,
           apiKeysPerStore: 1,
           createAuditEvents: true,
-        }
+        },
       );
 
       try {
@@ -278,7 +291,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
 
         // WHEN: Delete company
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/companies/${hierarchy.company.company_id}`
+          `/api/v1/admin/companies/${hierarchy.company.company_id}`,
         );
 
         // THEN: Deletion succeeds
@@ -294,7 +307,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
       } catch (error) {
         await cleanupTestCompanyHierarchy(
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -312,7 +325,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
         {
           storeCount: 2,
           apiKeysPerStore: 1,
-        }
+        },
       );
 
       try {
@@ -338,7 +351,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
 
         // WHEN: Delete company
         await superadminApiRequest.delete(
-          `/api/v1/admin/companies/${hierarchy.company.company_id}`
+          `/api/v1/admin/companies/${hierarchy.company.company_id}`,
         );
 
         // THEN: All stores should be deleted
@@ -351,7 +364,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
       } catch (error) {
         await cleanupTestCompanyHierarchy(
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -370,7 +383,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
           storeCount: 1,
           apiKeysPerStore: 1,
           createAuditEvents: true,
-        }
+        },
       );
 
       try {
@@ -394,7 +407,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
 
         // WHEN: Delete company
         await superadminApiRequest.delete(
-          `/api/v1/admin/companies/${hierarchy.company.company_id}`
+          `/api/v1/admin/companies/${hierarchy.company.company_id}`,
         );
 
         // THEN: Audit events should be deleted
@@ -405,7 +418,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
       } catch (error) {
         await cleanupTestCompanyHierarchy(
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -429,7 +442,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
         {
           storeCount: 2,
           apiKeysPerStore: 1,
-        }
+        },
       );
 
       try {
@@ -450,7 +463,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
         }
 
         await superadminApiRequest.delete(
-          `/api/v1/admin/companies/${hierarchy.company.company_id}`
+          `/api/v1/admin/companies/${hierarchy.company.company_id}`,
         );
 
         // THEN: No new orphans created
@@ -459,7 +472,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
       } catch (error) {
         await cleanupTestCompanyHierarchy(
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -477,7 +490,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
         {
           storeCount: 1,
           apiKeysPerStore: 1,
-        }
+        },
       );
 
       try {
@@ -494,12 +507,12 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
         }
 
         await superadminApiRequest.delete(
-          `/api/v1/admin/companies/${hierarchy.company.company_id}`
+          `/api/v1/admin/companies/${hierarchy.company.company_id}`,
         );
 
         // WHEN: Accessing API Keys page
         const apiKeysResponse = await superadminApiRequest.get(
-          "/api/v1/admin/api-keys"
+          "/api/v1/admin/api-keys",
         );
 
         // THEN: Page loads successfully (no 500 from orphaned records)
@@ -509,7 +522,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
       } catch (error) {
         await cleanupTestCompanyHierarchy(
           hierarchy.company.company_id,
-          hierarchy.stores.map((s: any) => s.store_id)
+          hierarchy.stores.map((s: any) => s.store_id),
         );
         throw error;
       }
@@ -527,7 +540,9 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
       superadminUser,
     }) => {
       // GIVEN: A company with no stores
-      const companyData = createCompany({ owner_user_id: superadminUser.user_id });
+      const companyData = createCompany({
+        owner_user_id: superadminUser.user_id,
+      });
       const company = await prismaClient.company.create({ data: companyData });
 
       try {
@@ -539,7 +554,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
 
         // WHEN: Delete company
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/companies/${company.company_id}`
+          `/api/v1/admin/companies/${company.company_id}`,
         );
 
         // THEN: Deletion succeeds
@@ -570,7 +585,9 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
       superadminUser,
     }) => {
       // GIVEN: A company with stores but no API keys
-      const companyData = createCompany({ owner_user_id: superadminUser.user_id });
+      const companyData = createCompany({
+        owner_user_id: superadminUser.user_id,
+      });
       const company = await prismaClient.company.create({ data: companyData });
       const storeData = createStore({ company_id: company.company_id });
       const store = await prismaClient.store.create({ data: storeData });
@@ -594,7 +611,7 @@ test.describe("COMPANY-DELETE-CASCADE: Company Deletion Cascade to API Keys", ()
 
         // WHEN: Delete company
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/companies/${company.company_id}`
+          `/api/v1/admin/companies/${company.company_id}`,
         );
 
         // THEN: Deletion succeeds

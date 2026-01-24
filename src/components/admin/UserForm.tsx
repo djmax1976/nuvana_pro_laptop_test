@@ -234,14 +234,20 @@ export function UserForm() {
 
         // Phase 2: Validate structured company address
         // SEC-014 INPUT_VALIDATION: Strict validation of all required fields
-        const newAddressErrors: Partial<Record<keyof AddressFieldsValue, string>> = {};
+        const newAddressErrors: Partial<
+          Record<keyof AddressFieldsValue, string>
+        > = {};
         let hasAddressErrors = false;
 
-        if (!companyAddress.address_line1 || companyAddress.address_line1.trim().length === 0) {
+        if (
+          !companyAddress.address_line1 ||
+          companyAddress.address_line1.trim().length === 0
+        ) {
           newAddressErrors.address_line1 = "Street address is required";
           hasAddressErrors = true;
         } else if (companyAddress.address_line1.length > 255) {
-          newAddressErrors.address_line1 = "Street address cannot exceed 255 characters";
+          newAddressErrors.address_line1 =
+            "Street address cannot exceed 255 characters";
           hasAddressErrors = true;
         }
 
@@ -263,14 +269,19 @@ export function UserForm() {
           hasAddressErrors = true;
         }
 
-        if (!companyAddress.zip_code || companyAddress.zip_code.trim().length === 0) {
+        if (
+          !companyAddress.zip_code ||
+          companyAddress.zip_code.trim().length === 0
+        ) {
           newAddressErrors.zip_code = "ZIP code is required";
           hasAddressErrors = true;
         } else {
           // Validate ZIP code format (5-digit or ZIP+4)
+          // eslint-disable-next-line security/detect-unsafe-regex
           const zipRegex = /^[0-9]{5}(-[0-9]{4})?$/;
           if (!zipRegex.test(companyAddress.zip_code)) {
-            newAddressErrors.zip_code = "ZIP code must be in format 12345 or 12345-6789";
+            newAddressErrors.zip_code =
+              "ZIP code must be in format 12345 or 12345-6789";
             hasAddressErrors = true;
           }
         }
