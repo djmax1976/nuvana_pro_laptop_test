@@ -85,6 +85,11 @@ const COMMON_TIMEZONES = [
 
 /**
  * Day operating hours schema
+ * Validates operating hours for a single day:
+ * - If closed is true, times are not required
+ * - If both open and close are empty, treat as "not configured" (valid)
+ * - If only one time is provided, it's invalid (partial config)
+ * - If both times are provided, validate format and that close > open
  */
 const dayOperatingHoursSchema = z
   .object({
@@ -94,12 +99,26 @@ const dayOperatingHoursSchema = z
   })
   .refine(
     (data) => {
+      // If day is marked as closed, no times needed
       if (data.closed) return true;
-      if (!data.open || !data.close) return false;
-      if (!TIME_FORMAT_REGEX.test(data.open)) return false;
-      if (!TIME_FORMAT_REGEX.test(data.close)) return false;
-      const [openHour, openMin] = data.open.split(":").map(Number);
-      const [closeHour, closeMin] = data.close.split(":").map(Number);
+
+      // Check if times are provided (non-empty strings)
+      const hasOpen = Boolean(data.open && data.open.trim().length > 0);
+      const hasClose = Boolean(data.close && data.close.trim().length > 0);
+
+      // If BOTH are empty, treat as "not configured" - valid
+      if (!hasOpen && !hasClose) return true;
+
+      // If only one is provided, it's invalid (partial config)
+      if (!hasOpen || !hasClose) return false;
+
+      // Both times are provided - validate format
+      if (!TIME_FORMAT_REGEX.test(data.open!)) return false;
+      if (!TIME_FORMAT_REGEX.test(data.close!)) return false;
+
+      // Validate that close time is after open time
+      const [openHour, openMin] = data.open!.split(":").map(Number);
+      const [closeHour, closeMin] = data.close!.split(":").map(Number);
       const openMinutes = openHour * 60 + openMin;
       const closeMinutes = closeHour * 60 + closeMin;
       return closeMinutes > openMinutes;
