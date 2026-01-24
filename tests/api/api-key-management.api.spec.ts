@@ -6,16 +6,35 @@ import { withBypassClient } from "../support/prisma-bypass";
  * Creates a test store with company for API key testing.
  * Each test that creates API keys should use this to avoid conflicts
  * since a store can only have one active API key.
+ *
+ * API key creation requires stores to have:
+ * - name, public_id, company, timezone (handled by factory)
+ * - state_id with valid state relation (required for identity payload)
  */
 async function createTestStoreWithCompany(
   prismaClient: any,
   ownerUserId: string,
 ) {
+  // Get a valid state from the seeded data (Georgia is always available)
+  const state = await prismaClient.uSState.findFirst({
+    where: { code: "GA", is_active: true },
+  });
+  if (!state) {
+    throw new Error(
+      "Georgia state not found in database. Run geographic data seed first.",
+    );
+  }
+
   const companyData = createCompany({ owner_user_id: ownerUserId });
   const company = await prismaClient.company.create({ data: companyData });
 
   const storeData = createStore({ company_id: company.company_id });
-  const store = await prismaClient.store.create({ data: storeData });
+  const store = await prismaClient.store.create({
+    data: {
+      ...storeData,
+      state_id: state.state_id, // Required for API key creation
+    },
+  });
 
   return { company, store };
 }

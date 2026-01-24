@@ -1,11 +1,17 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
 import { cleanupTestData } from "../support/cleanup-helper";
+import { loginAsSuperAdmin } from "../support/auth.helper";
+
+// Admin credentials (same as global-setup.ts)
+const ADMIN_CREDENTIALS = {
+  email: "admin@nuvana.com",
+  password: "Admin123!",
+};
 
 // Initialize Prisma client lazily to ensure DATABASE_URL from test environment is used
 let prisma: PrismaClient | null = null;
@@ -42,119 +48,100 @@ function getPrisma(): PrismaClient {
 test.describe.configure({ mode: "serial" });
 
 test.describe("Store Management E2E", () => {
-  let superadminUser: any;
+  let adminUser: any;
   let testCompany: any;
   let testStore: any;
 
   test.beforeAll(async () => {
-    // Clean up existing test data (delete userRoles before users to avoid FK violations)
-    const existingUsers = await getPrisma().user.findMany({
-      where: { email: "store-e2e@test.com" },
-      select: { user_id: true },
-    });
+    console.log("[beforeAll] Starting test setup...");
 
-    for (const user of existingUsers) {
-      await getPrisma().userRole.deleteMany({
-        where: { user_id: user.user_id },
-      });
+    // Get the admin user created by global-setup (guaranteed to exist)
+    adminUser = await getPrisma().user.findUnique({
+      where: { email: ADMIN_CREDENTIALS.email },
+    });
+    console.log("[beforeAll] Admin user:", adminUser?.user_id || "NOT FOUND");
+
+    if (!adminUser) {
+      throw new Error(
+        `Admin user ${ADMIN_CREDENTIALS.email} not found. Ensure global-setup runs first.`,
+      );
     }
 
-    await getPrisma().user.deleteMany({
-      where: { email: "store-e2e@test.com" },
+    // Clean up any existing test companies and stores from previous runs
+    const deletedStores = await getPrisma().store.deleteMany({
+      where: { name: { startsWith: "E2E Test" } },
     });
+    console.log("[beforeAll] Deleted stores:", deletedStores.count);
 
-    // Create superadmin user
-    const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
-    superadminUser = await getPrisma().user.create({
-      data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-        email: "store-e2e@test.com",
-        name: "Store E2E Tester",
-        password_hash: hashedPassword,
-        status: "ACTIVE",
-      },
+    const deletedCompanies = await getPrisma().company.deleteMany({
+      where: { name: { startsWith: "E2E Test" } },
     });
+    console.log("[beforeAll] Deleted companies:", deletedCompanies.count);
 
-    // Assign SUPERADMIN role
-    const superadminRole = await getPrisma().role.findUnique({
-      where: { code: "SUPERADMIN" },
-    });
-
-    if (superadminRole) {
-      await getPrisma().userRole.create({
-        data: {
-          user_id: superadminUser.user_id,
-          role_id: superadminRole.role_id,
-          assigned_by: superadminUser.user_id,
-        },
-      });
-    }
-
-    // Create test company owned by superadmin
+    // Create test company owned by admin user
     testCompany = await getPrisma().company.create({
       data: {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
         name: "E2E Test Company for Stores",
         status: "ACTIVE",
-        owner_user_id: superadminUser.user_id,
+        owner_user_id: adminUser.user_id,
       },
     });
+    console.log("[beforeAll] Created company:", testCompany.company_id);
 
-    // Create test store
+    // Look up a valid state for structured address fields (required by StoreForm)
+    // Use New York (NY) as it's commonly available in seeded data
+    const testState = await getPrisma().uSState.findFirst({
+      where: { code: "NY" },
+    });
+    // Fallback to any available state if NY not found
+    const fallbackState = testState || (await getPrisma().uSState.findFirst());
+    console.log("[beforeAll] State found:", fallbackState?.code || "NONE");
+
+    // Create test store with structured address fields (required by StoreForm validation)
     testStore = await getPrisma().store.create({
       data: {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
-
         name: "E2E Test Store",
         status: "ACTIVE",
         company_id: testCompany.company_id,
         timezone: "America/New_York",
+        // Legacy location_json (for backward compatibility)
         location_json: {
           address: "123 Test St, Test City, TS 12345",
           gps: { lat: 40.7128, lng: -74.006 },
         },
+        // Structured address fields (required by StoreForm validation)
+        address_line1: "123 Test Street",
+        address_line2: "Suite 100",
+        city: "New York",
+        state_id: fallbackState?.state_id || null,
+        zip_code: "10001",
       },
     });
+    console.log("[beforeAll] Created store:", testStore.store_id);
+    console.log("[beforeAll] Test setup complete!");
   });
 
   test.afterAll(async () => {
     // Cleanup: Delete test data using helper (respects FK constraints)
+    // Note: We don't delete the admin user since it's created by global-setup
     await cleanupTestData(getPrisma(), {
       stores: testStore ? [testStore.store_id] : [],
       companies: testCompany ? [testCompany.company_id] : [],
-      users: superadminUser ? [superadminUser.user_id] : [],
+      users: [], // Don't delete admin user
     });
 
     await getPrisma().$disconnect();
   });
 
   test.beforeEach(async ({ page }) => {
-    // Login - use domcontentloaded for better CI reliability
-    await page.goto("http://localhost:3000/login", {
-      waitUntil: "domcontentloaded",
-    });
-    // Wait for login form to be ready
-    await page.waitForLoadState("load");
-    const emailInput = page.locator('input[type="email"]');
-    await emailInput.waitFor({ state: "visible", timeout: 15000 });
-    await emailInput.fill("store-e2e@test.com");
-    await page.fill('input[type="password"]', "TestPassword123!");
-    await page.click('button[type="submit"]');
-    await page.waitForURL("**/dashboard", { timeout: 30000 });
-
-    // Wait for auth session to be set in localStorage
-    await page.waitForFunction(
-      () => {
-        const authSession = localStorage.getItem("auth_session");
-        if (!authSession) return false;
-        try {
-          const data = JSON.parse(authSession);
-          return data.authenticated === true && data.user != null;
-        } catch {
-          return false;
-        }
-      },
-      { timeout: 30000 },
+    // Login using the admin user (created by global-setup, guaranteed to work)
+    await loginAsSuperAdmin(
+      page,
+      ADMIN_CREDENTIALS.email,
+      ADMIN_CREDENTIALS.password,
+      "http://localhost:3000",
     );
   });
 
@@ -261,18 +248,29 @@ test.describe("Store Management E2E", () => {
     // Use accessible selector for submit button
     const submitButton = page.getByRole("button", { name: "Update Store" });
     await expect(submitButton).toBeEnabled({ timeout: 5000 });
+
+    // Set up API response listener BEFORE clicking to capture the PUT response
+    const putResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/stores/${testStore.store_id}`) &&
+        response.request().method() === "PUT",
+      { timeout: 15000 },
+    );
+
     await submitButton.click();
 
-    // Wait for success message or navigation instead of hard wait
-    // Use first() to avoid strict mode violation when toast renders in multiple elements
-    await Promise.any([
+    // Wait for the PUT request to complete AND the success message
+    const [putResponse] = await Promise.all([
+      putResponsePromise,
       expect(page.getByText(/store updated|successfully/i).first()).toBeVisible(
         {
           timeout: 10000,
         },
       ),
-      expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
     ]);
+
+    // Verify the PUT request succeeded
+    expect(putResponse.status()).toBe(200);
 
     const updatedStore = await getPrisma().store.findUnique({
       where: { store_id: testStore.store_id },
@@ -303,39 +301,61 @@ test.describe("Store Management E2E", () => {
     // Wait for store API to complete - ensures form is populated with data
     await storeApiPromise;
 
-    // Use form-specific selector for Address textarea
-    const addressInput = page.locator('form textarea[name="address"]');
-    await expect(addressInput).toBeVisible({ timeout: 10000 });
-    await expect(addressInput).toBeEditable({ timeout: 5000 });
-    await addressInput.clear();
-    await addressInput.fill("456 New Address Ave, New City, NC 54321");
+    // Use structured address fields
+    const streetAddressInput = page.getByLabel(/street address/i);
+    await expect(streetAddressInput).toBeVisible({ timeout: 10000 });
+    await expect(streetAddressInput).toBeEditable({ timeout: 5000 });
+    await streetAddressInput.clear();
+    await streetAddressInput.fill("456 New Address Ave");
+
+    const cityInput = page.getByLabel(/^city/i);
+    await expect(cityInput).toBeVisible({ timeout: 5000 });
+    await cityInput.clear();
+    await cityInput.fill("New City");
+
+    const zipInput = page.getByLabel(/zip code/i);
+    await expect(zipInput).toBeVisible({ timeout: 5000 });
+    await zipInput.clear();
+    await zipInput.fill("54321");
+
+    // Set up PUT response listener BEFORE clicking submit
+    const putResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/stores/${testStore.store_id}`) &&
+        response.request().method() === "PUT",
+      { timeout: 15000 },
+    );
 
     const submitButton = page.getByRole("button", { name: "Update Store" });
     await submitButton.click();
 
-    // Wait for success message or navigation instead of hard wait
-    // Use first() to avoid strict mode violation when toast renders in multiple elements
-    const result = await Promise.race([
-      expect(page.getByText(/store updated|successfully/i).first())
-        .toBeVisible({ timeout: 10000 })
-        .then(() => true),
-      expect(page)
-        .toHaveURL(/\/stores/, { timeout: 10000 })
-        .then(() => true),
+    // Wait for PUT response AND success message
+    const [putResponse] = await Promise.all([
+      putResponsePromise,
+      expect(page.getByText(/store updated|successfully/i).first()).toBeVisible(
+        {
+          timeout: 10000,
+        },
+      ),
     ]);
-    expect(result).toBeTruthy();
+
+    expect(putResponse.status()).toBe(200);
 
     const updatedStore = await getPrisma().store.findUnique({
       where: { store_id: testStore.store_id },
     });
-    expect(updatedStore?.location_json).toMatchObject({
-      address: "456 New Address Ave, New City, NC 54321",
-    });
+    expect(updatedStore?.address_line1).toBe("456 New Address Ave");
+    expect(updatedStore?.city).toBe("New City");
+    expect(updatedStore?.zip_code).toBe("54321");
 
     // Restore
     await getPrisma().store.update({
       where: { store_id: testStore.store_id },
-      data: { location_json: testStore.location_json },
+      data: {
+        address_line1: testStore.address_line1,
+        city: testStore.city,
+        zip_code: testStore.zip_code,
+      },
     });
   });
 
@@ -422,6 +442,28 @@ test.describe("Store Management E2E", () => {
     const nameInput = page.getByLabel("Store Name");
     await expect(nameInput).toBeVisible({ timeout: 10000 });
     await nameInput.fill(newStoreName);
+
+    // Fill required address fields
+    const streetAddressInput = page.getByLabel(/street address/i);
+    await expect(streetAddressInput).toBeVisible({ timeout: 5000 });
+    await streetAddressInput.fill("789 Wizard Test St");
+
+    // Select state - click the state combobox and pick first option
+    const stateCombobox = page.getByTestId("store-state");
+    await expect(stateCombobox).toBeVisible({ timeout: 5000 });
+    await stateCombobox.click();
+    const firstStateOption = page.locator('[role="option"]').first();
+    await expect(firstStateOption).toBeVisible({ timeout: 5000 });
+    await firstStateOption.click();
+
+    // Wait for city field to be enabled after state selection
+    const cityInput = page.getByLabel(/^city/i);
+    await expect(cityInput).toBeEnabled({ timeout: 5000 });
+    await cityInput.fill("Wizard City");
+
+    const zipInput = page.getByLabel(/zip code/i);
+    await expect(zipInput).toBeVisible({ timeout: 5000 });
+    await zipInput.fill("12345");
 
     // Status defaults to ACTIVE, timezone defaults to America/New_York
 

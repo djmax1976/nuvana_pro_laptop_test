@@ -1448,7 +1448,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
                 "State UUID - CRITICAL: determines lottery game visibility",
             },
             county_id: {
-              type: "string",
+              type: ["string", "null"],
               format: "uuid",
               description: "County UUID - for tax jurisdiction",
             },
@@ -1569,7 +1569,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
           address_line2?: string | null;
           city?: string;
           state_id?: string;
-          county_id?: string;
+          county_id?: string | null;
           zip_code?: string;
         };
         const user = (request as any).user as UserIdentity;

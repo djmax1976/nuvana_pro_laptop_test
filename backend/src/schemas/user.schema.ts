@@ -35,12 +35,15 @@ export const LegacyStringAddressSchema = z
   .string()
   .min(1, "Company address cannot be empty")
   .max(500, "Company address cannot exceed 500 characters")
+  .refine((val) => val.trim().length > 0, {
+    message: "Company address cannot be whitespace only",
+  })
   .transform((val): USAddressInput & LegacyAddressMarker => {
     // Phase 4 TASK-4.7: Log deprecation warning
     console.warn(
       "[DEPRECATION WARNING] String-based companyAddress is deprecated. " +
-      "Please migrate to structured address format with address_line1, city, state_id, county_id, zip_code. " +
-      "String format will be removed in v2.0."
+        "Please migrate to structured address format with address_line1, city, state_id, county_id, zip_code. " +
+        "String format will be removed in v2.0.",
     );
 
     // Transform to minimal structured format
@@ -92,21 +95,65 @@ export const LegacyStringAddressSchema = z
  * }
  * ```
  */
-export const CompanyAddressWithBackwardCompatSchema = z.union([
+/**
+ * Base union for company address with backward compatibility
+ * Tries structured format first, then falls back to legacy string format
+ */
+const CompanyAddressBaseUnion = z.union([
   // Preferred: Structured address format
   USAddressSchema,
   // Deprecated: Legacy string format (for backward compatibility)
   LegacyStringAddressSchema,
 ]);
 
-export type CompanyAddressInput = z.infer<typeof CompanyAddressWithBackwardCompatSchema>;
+/**
+ * Company Address with Backward Compatibility and improved error messages
+ * Uses superRefine to catch common string-specific errors and provide meaningful messages
+ * (z.union returns generic "Invalid input" when all branches fail)
+ */
+export const CompanyAddressWithBackwardCompatSchema = z
+  .any()
+  .superRefine((val, ctx) => {
+    // If it's a string, validate common constraints and provide meaningful errors
+    // BEFORE the union fails with generic "Invalid input"
+    if (typeof val === "string") {
+      if (val.length > 500) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Company address cannot exceed 500 characters",
+        });
+        return z.NEVER; // Stop further validation
+      }
+      if (val.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Company address cannot be empty",
+        });
+        return z.NEVER;
+      }
+      if (val.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Company address cannot be whitespace only",
+        });
+        return z.NEVER;
+      }
+    }
+  })
+  .pipe(CompanyAddressBaseUnion);
+
+export type CompanyAddressInput = z.infer<
+  typeof CompanyAddressWithBackwardCompatSchema
+>;
 
 /**
  * Type guard to check if address was provided in legacy format
  * @param address - The parsed address input
  * @returns true if address was provided as a legacy string
  */
-export function isLegacyAddress(address: CompanyAddressInput): address is USAddressInput & LegacyAddressMarker {
+export function isLegacyAddress(
+  address: CompanyAddressInput,
+): address is USAddressInput & LegacyAddressMarker {
   return (address as LegacyAddressMarker)._legacy === true;
 }
 
@@ -504,7 +551,8 @@ export const updateUserProfileSchema = z
       return true;
     },
     {
-      message: "Store ID is required when updating PIN (for uniqueness validation)",
+      message:
+        "Store ID is required when updating PIN (for uniqueness validation)",
       path: ["store_id"],
     },
   );

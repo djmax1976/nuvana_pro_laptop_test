@@ -72,8 +72,8 @@ export interface UpdateStoreInput {
   city?: string;
   /** FK to us_states - CRITICAL: determines lottery game visibility */
   state_id?: string;
-  /** FK to us_counties - for tax jurisdiction */
-  county_id?: string;
+  /** FK to us_counties - for tax jurisdiction (null to clear) */
+  county_id?: string | null;
   /** ZIP code (5-digit or ZIP+4 format) */
   zip_code?: string;
 }
@@ -481,8 +481,8 @@ export class StoreService {
       }
     }
 
-    // Validate county_id (UUID format)
-    if (data.county_id !== undefined) {
+    // Validate county_id (UUID format) - null is allowed to clear the county
+    if (data.county_id !== undefined && data.county_id !== null) {
       const uuidRegex =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(data.county_id)) {

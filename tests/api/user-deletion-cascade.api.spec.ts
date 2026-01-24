@@ -102,9 +102,9 @@ async function createTestHierarchy(
           data: {
             store_id: store.store_id,
             company_id: company.company_id,
-            label: `Test API Key ${Date.now()}-${randomUUID().slice(0, 8)}`,
+            label: `Test API Key ${Date.now()}-${randomUUID().slice(0, 4)}`,
             key_prefix: "nvn_test",
-            key_suffix: randomUUID().slice(0, 8),
+            key_suffix: randomUUID().slice(0, 4),
             key_hash: `hashed_${randomUUID()}`,
             identity_payload: JSON.stringify({
               v: 1,
@@ -129,12 +129,6 @@ async function createTestHierarchy(
                 actor_user_id: user.user_id,
                 actor_type: "ADMIN",
                 ip_address: "127.0.0.1",
-              },
-              {
-                api_key_id: apiKey.api_key_id,
-                event_type: "USED",
-                actor_type: "DEVICE",
-                ip_address: "192.168.1.1",
               },
             ],
           });
@@ -331,7 +325,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Super Admin deletes the user via API
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`,
+          `/api/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: User is deleted successfully
@@ -404,7 +398,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Super Admin deletes the user
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`,
+          `/api/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: Deletion succeeds
@@ -472,7 +466,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`,
+          `/api/admin/users/${hierarchy.user.user_id}`,
         );
         expect(deleteResponse.status()).toBe(200);
 
@@ -533,7 +527,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`,
+          `/api/admin/users/${hierarchy.user.user_id}`,
         );
         expect(deleteResponse.status()).toBe(200);
 
@@ -594,7 +588,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`,
+          `/api/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: No new orphans should exist
@@ -641,7 +635,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
         }
 
         await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`,
+          `/api/admin/users/${hierarchy.user.user_id}`,
         );
 
         // WHEN: Accessing the API Keys page
@@ -704,7 +698,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`,
+          `/api/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: Store should also be deleted
@@ -759,7 +753,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`,
+          `/api/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: Company should also be deleted
@@ -818,7 +812,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`,
+          `/api/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: Deletion should succeed
@@ -886,7 +880,7 @@ test.describe("USER-DELETE-CASCADE: User Deletion Cascade to API Keys", () => {
 
         // WHEN: Delete user
         const deleteResponse = await superadminApiRequest.delete(
-          `/api/v1/admin/users/${hierarchy.user.user_id}`,
+          `/api/admin/users/${hierarchy.user.user_id}`,
         );
 
         // THEN: Deletion should succeed

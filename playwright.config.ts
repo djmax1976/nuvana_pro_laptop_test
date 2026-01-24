@@ -106,7 +106,9 @@ export default defineConfig({
           const servers = [];
           if (shouldStartFrontend) {
             servers.push({
-              command: "npm run dev",
+              // Use dev:frontend to avoid starting backend with dev database
+              // The backend will be started separately with serve:test (uses nuvana_test)
+              command: "npm run dev:frontend",
               url: process.env.FRONTEND_URL || "http://localhost:3000",
               reuseExistingServer: true,
               timeout: 120000,
