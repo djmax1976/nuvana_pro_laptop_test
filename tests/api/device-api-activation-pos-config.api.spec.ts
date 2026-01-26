@@ -43,6 +43,11 @@ test.describe("Device API Activation - POS Connection Config", () => {
 
   /**
    * Helper to create an API key for a store
+   *
+   * Generates proper key components matching current ApiKey schema:
+   * - key_prefix: nuvpos_sk_{store_public_id}
+   * - key_hash: SHA-256 hash of full key
+   * - key_suffix: Last 4 characters of key
    */
   async function createApiKey(
     prisma: any,
@@ -51,19 +56,33 @@ test.describe("Device API Activation - POS Connection Config", () => {
     storeName: string,
     companyName: string,
     timezone: string,
+    storePublicId: string,
+    creatorUserId: string,
     stateId?: string,
     stateCode?: string,
   ) {
-    const apiKeyValue = `bmad_${crypto.randomBytes(32).toString("hex")}`;
-    const hashedKey = crypto
-      .createHash("sha256")
-      .update(apiKeyValue)
-      .digest("hex");
+    // Generate random suffix (32 alphanumeric characters)
+    const randomSuffix = crypto
+      .randomBytes(24)
+      .toString("base64")
+      .replace(/[^A-Za-z0-9]/g, "")
+      .substring(0, 32);
+
+    // Construct full key matching backend pattern
+    const keyPrefix = `nuvpos_sk_${storePublicId}`;
+    const rawKey = `${keyPrefix}_${randomSuffix}`;
+
+    // Generate SHA-256 hash for storage
+    const keyHash = crypto.createHash("sha256").update(rawKey).digest("hex");
+
+    // Extract last 4 characters for display
+    const keySuffix = rawKey.slice(-4);
 
     const identityPayload = {
+      v: 1,
       store_id: storeId,
       store_name: storeName,
-      store_public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+      store_public_id: storePublicId,
       company_id: companyId,
       company_name: companyName,
       timezone: timezone,
@@ -71,6 +90,9 @@ test.describe("Device API Activation - POS Connection Config", () => {
       state_code: stateCode || null,
       offline_permissions: ["TRANSACTION_CREATE", "SHIFT_OPEN", "SHIFT_CLOSE"],
       metadata: {},
+      iss: "nuvana-backend",
+      iat: Math.floor(Date.now() / 1000),
+      jti: crypto.randomUUID(),
     };
 
     const identityToken = jwt.sign(identityPayload, JWT_SECRET, {
@@ -79,16 +101,20 @@ test.describe("Device API Activation - POS Connection Config", () => {
 
     const apiKey = await prisma.apiKey.create({
       data: {
-        hashed_key: hashedKey,
-        store_id: storeId,
-        company_id: companyId,
-        status: "PENDING",
+        key_prefix: keyPrefix,
+        key_hash: keyHash,
+        key_suffix: keySuffix,
+        store: { connect: { store_id: storeId } },
+        company: { connect: { company_id: companyId } },
+        creator: { connect: { user_id: creatorUserId } },
+        status: "ACTIVE",
+        activated_at: new Date(),
         identity_payload: identityToken,
-        notes: "Test API key for POS config tests",
+        label: "Test API key for POS config tests",
       },
     });
 
-    return { apiKeyValue, apiKey, identityPayload };
+    return { apiKeyValue: rawKey, apiKey, identityPayload };
   }
 
   /**
@@ -107,15 +133,16 @@ test.describe("Device API Activation - POS Connection Config", () => {
     // GIVEN: A store with GILBARCO_NAXML FILE connection config using snake_case keys
     const owner = await createUser(prismaClient);
     const company = await createCompany(prismaClient, {
-      name: "NAXML Test Company",
+      name: "Test NAXML POS Config Company",
       owner_user_id: owner.user_id,
     });
 
+    const storePublicId = generatePublicId(PUBLIC_ID_PREFIXES.STORE);
     const store = await prismaClient.store.create({
       data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        public_id: storePublicId,
         company_id: company.company_id,
-        name: "NAXML Test Store",
+        name: "Test NAXML Store",
         pos_type: "GILBARCO_NAXML",
         pos_connection_type: "FILE",
         pos_connection_config: {
@@ -132,6 +159,8 @@ test.describe("Device API Activation - POS Connection Config", () => {
       store.name,
       company.name,
       "America/New_York",
+      storePublicId,
+      owner.user_id,
     );
 
     // WHEN: Activating the API key
@@ -141,7 +170,7 @@ test.describe("Device API Activation - POS Connection Config", () => {
         "Content-Type": "application/json",
       },
       data: {
-        deviceFingerprint: "test-device-fingerprint",
+        deviceFingerprint: crypto.randomBytes(32).toString("hex"),
         appVersion: "1.0.0",
       },
     });
@@ -179,15 +208,16 @@ test.describe("Device API Activation - POS Connection Config", () => {
     // GIVEN: A store with SQUARE_REST API connection config using snake_case keys
     const owner = await createUser(prismaClient);
     const company = await createCompany(prismaClient, {
-      name: "Square Test Company",
+      name: "Test Square POS Config Company",
       owner_user_id: owner.user_id,
     });
 
+    const storePublicId = generatePublicId(PUBLIC_ID_PREFIXES.STORE);
     const store = await prismaClient.store.create({
       data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        public_id: storePublicId,
         company_id: company.company_id,
-        name: "Square Test Store",
+        name: "Test Square Store",
         pos_type: "SQUARE_REST",
         pos_connection_type: "API",
         pos_connection_config: {
@@ -205,6 +235,8 @@ test.describe("Device API Activation - POS Connection Config", () => {
       store.name,
       company.name,
       "America/New_York",
+      storePublicId,
+      owner.user_id,
     );
 
     // WHEN: Activating the API key
@@ -214,7 +246,7 @@ test.describe("Device API Activation - POS Connection Config", () => {
         "Content-Type": "application/json",
       },
       data: {
-        deviceFingerprint: "test-device-fingerprint",
+        deviceFingerprint: crypto.randomBytes(32).toString("hex"),
         appVersion: "1.0.0",
       },
     });
@@ -245,15 +277,16 @@ test.describe("Device API Activation - POS Connection Config", () => {
     // GIVEN: A store with MANUAL_ENTRY connection type
     const owner = await createUser(prismaClient);
     const company = await createCompany(prismaClient, {
-      name: "Manual Test Company",
+      name: "Test Manual POS Config Company",
       owner_user_id: owner.user_id,
     });
 
+    const storePublicId = generatePublicId(PUBLIC_ID_PREFIXES.STORE);
     const store = await prismaClient.store.create({
       data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        public_id: storePublicId,
         company_id: company.company_id,
-        name: "Manual Test Store",
+        name: "Test Manual Store",
         pos_type: "MANUAL_ENTRY",
         pos_connection_type: "MANUAL",
         pos_connection_config: Prisma.DbNull,
@@ -267,6 +300,8 @@ test.describe("Device API Activation - POS Connection Config", () => {
       store.name,
       company.name,
       "America/New_York",
+      storePublicId,
+      owner.user_id,
     );
 
     // WHEN: Activating the API key
@@ -276,7 +311,7 @@ test.describe("Device API Activation - POS Connection Config", () => {
         "Content-Type": "application/json",
       },
       data: {
-        deviceFingerprint: "test-device-fingerprint",
+        deviceFingerprint: crypto.randomBytes(32).toString("hex"),
         appVersion: "1.0.0",
       },
     });
@@ -302,7 +337,7 @@ test.describe("Device API Activation - POS Connection Config", () => {
     // GIVEN: A store with NETWORK connection config
     const owner = await createUser(prismaClient);
     const company = await createCompany(prismaClient, {
-      name: "Network Test Company",
+      name: "Test Network POS Config Company",
       owner_user_id: owner.user_id,
     });
 
@@ -312,11 +347,12 @@ test.describe("Device API Activation - POS Connection Config", () => {
       protocol: "TCP",
     };
 
+    const storePublicId = generatePublicId(PUBLIC_ID_PREFIXES.STORE);
     const store = await prismaClient.store.create({
       data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        public_id: storePublicId,
         company_id: company.company_id,
-        name: "Network Test Store",
+        name: "Test Network Store",
         pos_type: "GILBARCO_PASSPORT",
         pos_connection_type: "NETWORK",
         pos_connection_config: networkConfig,
@@ -330,6 +366,8 @@ test.describe("Device API Activation - POS Connection Config", () => {
       store.name,
       company.name,
       "America/New_York",
+      storePublicId,
+      owner.user_id,
     );
 
     // WHEN: Activating the API key
@@ -339,7 +377,7 @@ test.describe("Device API Activation - POS Connection Config", () => {
         "Content-Type": "application/json",
       },
       data: {
-        deviceFingerprint: "test-device-fingerprint",
+        deviceFingerprint: crypto.randomBytes(32).toString("hex"),
         appVersion: "1.0.0",
       },
     });
@@ -371,15 +409,16 @@ test.describe("Device API Activation - POS Connection Config", () => {
     // GIVEN: A store with WEBHOOK connection config
     const owner = await createUser(prismaClient);
     const company = await createCompany(prismaClient, {
-      name: "Webhook Test Company",
+      name: "Test Webhook POS Config Company",
       owner_user_id: owner.user_id,
     });
 
+    const storePublicId = generatePublicId(PUBLIC_ID_PREFIXES.STORE);
     const store = await prismaClient.store.create({
       data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        public_id: storePublicId,
         company_id: company.company_id,
-        name: "Webhook Test Store",
+        name: "Test Webhook Store",
         pos_type: "GENERIC_REST",
         pos_connection_type: "WEBHOOK",
         pos_connection_config: {
@@ -396,6 +435,8 @@ test.describe("Device API Activation - POS Connection Config", () => {
       store.name,
       company.name,
       "America/New_York",
+      storePublicId,
+      owner.user_id,
     );
 
     // WHEN: Activating the API key
@@ -405,7 +446,7 @@ test.describe("Device API Activation - POS Connection Config", () => {
         "Content-Type": "application/json",
       },
       data: {
-        deviceFingerprint: "test-device-fingerprint",
+        deviceFingerprint: crypto.randomBytes(32).toString("hex"),
         appVersion: "1.0.0",
       },
     });
@@ -433,14 +474,14 @@ test.describe("Device API Activation - POS Connection Config", () => {
     // GIVEN: A store created without explicit POS config (using defaults)
     const owner = await createUser(prismaClient);
     const company = await createCompany(prismaClient, {
-      name: "Default Config Test Company",
+      name: "Test Default POS Config Company",
       owner_user_id: owner.user_id,
     });
 
     // Create store without POS config - should get defaults
     const store = await createStore(prismaClient, {
       company_id: company.company_id,
-      name: "Default Config Test Store",
+      name: "Test Default Config Store",
     });
 
     const { apiKeyValue } = await createApiKey(
@@ -450,6 +491,8 @@ test.describe("Device API Activation - POS Connection Config", () => {
       store.name,
       company.name,
       "America/New_York",
+      store.public_id,
+      owner.user_id,
     );
 
     // WHEN: Activating the API key
@@ -459,7 +502,7 @@ test.describe("Device API Activation - POS Connection Config", () => {
         "Content-Type": "application/json",
       },
       data: {
-        deviceFingerprint: "test-device-fingerprint",
+        deviceFingerprint: crypto.randomBytes(32).toString("hex"),
         appVersion: "1.0.0",
       },
     });
@@ -487,7 +530,7 @@ test.describe("Device API Activation - POS Connection Config", () => {
         "Content-Type": "application/json",
       },
       data: {
-        deviceFingerprint: "test-device-fingerprint",
+        deviceFingerprint: crypto.randomBytes(32).toString("hex"),
         appVersion: "1.0.0",
       },
     });
@@ -512,7 +555,7 @@ test.describe("Device API Activation - POS Connection Config", () => {
         "Content-Type": "application/json",
       },
       data: {
-        deviceFingerprint: "test-device-fingerprint",
+        deviceFingerprint: crypto.randomBytes(32).toString("hex"),
         appVersion: "1.0.0",
       },
     });

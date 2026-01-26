@@ -1830,10 +1830,16 @@ export async function storeRoutes(fastify: FastifyInstance) {
         return store;
       } catch (error: any) {
         fastify.log.error({ error }, "Error updating store");
+        // SEC-014: INPUT_VALIDATION - Return 400 for all validation errors from service layer
+        // Check for various validation error patterns (case-insensitive where appropriate)
+        const errorMsg = error.message.toLowerCase();
         if (
           error.message.includes("required") ||
           error.message.includes("Invalid") ||
-          error.message.includes("cannot")
+          error.message.includes("cannot") ||
+          errorMsg.includes("invalid") ||
+          errorMsg.includes("exceeds") ||
+          errorMsg.includes("must be")
         ) {
           reply.code(400);
           return {
