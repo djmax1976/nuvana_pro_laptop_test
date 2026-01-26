@@ -10,7 +10,7 @@ const nextConfig = {
     maxInactiveAge: 30 * 60 * 1000, // 30 minutes
     pagesBufferLength: 2,
   },
-  // API routes are handled by Next.js on Netlify
+  // API routes are handled by Next.js
   // If you have a separate backend, update this rewrite
   async rewrites() {
     // If using Next.js API routes, no rewrite needed
