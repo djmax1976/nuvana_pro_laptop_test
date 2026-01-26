@@ -8,6 +8,7 @@
 
 import { faker } from "@faker-js/faker";
 import { Prisma } from "@prisma/client";
+import type { POSSystemType, POSConnectionType } from "@prisma/client";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
@@ -41,6 +42,9 @@ export type StoreData = {
   location_json?: Prisma.InputJsonValue;
   timezone: string;
   status: "ACTIVE" | "INACTIVE" | "CLOSED";
+  pos_type?: POSSystemType;
+  pos_connection_type?: POSConnectionType;
+  pos_connection_config?: Prisma.InputJsonValue;
 };
 
 /**
