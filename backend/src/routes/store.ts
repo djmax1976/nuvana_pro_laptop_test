@@ -1565,6 +1565,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
               },
               pos_connection_config: {
                 type: ["object", "null"],
+                additionalProperties: true,
               },
               created_at: { type: "string", format: "date-time" },
               updated_at: { type: "string", format: "date-time" },

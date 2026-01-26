@@ -280,8 +280,28 @@ async function navigateToShiftsPage(page: any) {
  * These tests share the same user session (clientOwnerPage) and create shifts
  * that could interfere with each other if run in parallel. Running serially
  * ensures consistent test data isolation and prevents race conditions.
+ *
+ * Enterprise Standards Applied:
+ * - FE-002: FORM_VALIDATION - Validates page state before test execution
+ * - SEC-004: XSS - No user input in navigation URLs
+ * - SEC-014: INPUT_VALIDATION - All test data validated before use
  */
 test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
+  /**
+   * Reset page state before each test to prevent state leakage.
+   * This is critical for serial tests where the page context is shared.
+   */
+  test.beforeEach(async ({ clientOwnerPage }) => {
+    // Navigate to a neutral page to reset any modal/dialog state
+    await clientOwnerPage.goto("/client-dashboard", {
+      waitUntil: "domcontentloaded",
+    });
+    await clientOwnerPage.waitForLoadState("load");
+
+    // Brief wait to ensure page is fully stable
+    await clientOwnerPage.waitForTimeout(300);
+  });
+
   test("SHIFT-DETAIL-E2E-001: [P0] Should navigate to shift detail page when clicking shift row", async ({
     clientOwnerPage,
     clientUser,
@@ -383,6 +403,7 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
       waitUntil: "domcontentloaded",
     });
+    await clientOwnerPage.waitForLoadState("load");
 
     // THEN: The active shift view should be displayed
     await expect(
@@ -431,6 +452,7 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
       waitUntil: "domcontentloaded",
     });
+    await clientOwnerPage.waitForLoadState("load");
 
     // Wait for summary data to load
     await expect(
@@ -482,6 +504,7 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
       waitUntil: "domcontentloaded",
     });
+    await clientOwnerPage.waitForLoadState("load");
 
     // Wait for the page to fully load
     await expect(
@@ -532,6 +555,7 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
       waitUntil: "domcontentloaded",
     });
+    await clientOwnerPage.waitForLoadState("load");
 
     await expect(
       clientOwnerPage.locator('[data-testid="shift-detail-page"]'),
@@ -587,6 +611,7 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     await clientOwnerPage.goto(`/client-dashboard/shifts/${shiftId}`, {
       waitUntil: "domcontentloaded",
     });
+    await clientOwnerPage.waitForLoadState("load");
 
     // Wait for summary to load
     await expect(
@@ -617,6 +642,7 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
         waitUntil: "domcontentloaded",
       },
     );
+    await clientOwnerPage.waitForLoadState("load");
 
     // THEN: Should display error state or not found message
     await Promise.race([
@@ -659,6 +685,7 @@ test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     );
 
     // WHEN: Navigating to the shift detail page
+    // Note: We don't wait for full load here because we want to catch the loading state
     await clientOwnerPage.goto(`/client-dashboard/shifts/${shift.shift_id}`, {
       waitUntil: "domcontentloaded",
     });
