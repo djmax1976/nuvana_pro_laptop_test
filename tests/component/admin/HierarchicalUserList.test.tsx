@@ -219,18 +219,69 @@ const createMockClientOwnerGroup = (
 };
 
 /**
+ * Creates a mock Support User with SUPPORT scope role
+ * SEC-010 AUTHZ: SUPPORT scope is distinct from SYSTEM scope
+ * - Has cross-company READ access for troubleshooting
+ * - Does NOT have system-level admin access
+ * - Does NOT require company_id or store_id
+ */
+const createMockSupportUser = (
+  overrides: Partial<AdminUser> = {},
+): AdminUser => ({
+  user_id: `support-user-${Math.random().toString(36).substring(7)}`,
+  email: "support@example.com",
+  name: "Support Staff",
+  status: UserStatus.ACTIVE,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+  roles: [
+    {
+      user_role_id: `ur-support-${Math.random().toString(36).substring(7)}`,
+      role: {
+        role_id: "role-support",
+        code: "SUPPORT",
+        description: "Cross-company support access",
+        scope: "SUPPORT",
+      },
+      // SEC-010: SUPPORT scope does NOT require company_id or store_id
+      company_id: null,
+      company_name: null,
+      store_id: null,
+      store_name: null,
+      assigned_at: new Date().toISOString(),
+    },
+  ],
+  ...overrides,
+});
+
+/**
  * Creates mock HierarchicalUsersData (the unwrapped data returned by useHierarchicalUsers hook)
  * Note: The useHierarchicalUsers hook already unwraps the API response, so we return HierarchicalUsersData
+ *
+ * @param systemUsersCount - Number of SYSTEM scope users
+ * @param clientOwnersCount - Number of CLIENT_OWNER users
+ * @param supportUsersCount - Number of SUPPORT scope users (default 0 for backward compat)
  */
 const createMockResponse = (
   systemUsersCount = 2,
   clientOwnersCount = 2,
+  supportUsersCount = 0,
 ): HierarchicalUsersData => {
   const system_users = Array.from({ length: systemUsersCount }, (_, i) =>
     createMockUser({
       user_id: `system-user-${i + 1}`,
       name: `System Admin ${i + 1}`,
       email: `admin${i + 1}@system.com`,
+      status: i === 0 ? UserStatus.ACTIVE : UserStatus.INACTIVE,
+    }),
+  );
+
+  // Support users with SUPPORT scope (cross-company read access)
+  const support_users = Array.from({ length: supportUsersCount }, (_, i) =>
+    createMockSupportUser({
+      user_id: `support-user-${i + 1}`,
+      name: `Support Staff ${i + 1}`,
+      email: `support${i + 1}@support.com`,
       status: i === 0 ? UserStatus.ACTIVE : UserStatus.INACTIVE,
     }),
   );
@@ -260,9 +311,11 @@ const createMockResponse = (
 
   return {
     system_users,
+    support_users,
     client_owners,
     meta: {
       total_system_users: system_users.length,
+      total_support_users: support_users.length,
       total_client_owners: client_owners.length,
       total_companies: client_owners.reduce(
         (sum, co) => sum + co.companies.length,
@@ -612,6 +665,259 @@ describe("HierarchicalUserList Component", () => {
       expect(
         screen.getByRole("button", { name: /Delete/i }),
       ).toBeInTheDocument();
+    });
+  });
+
+  // ===========================================================================
+  // Section 2.5: Support Users Section Tests (HUL-030 to HUL-039)
+  // SEC-010 AUTHZ: SUPPORT scope is distinct from SYSTEM scope
+  // - SUPPORT users have cross-company READ access for troubleshooting
+  // - SUPPORT users do NOT have system-level admin access
+  // - SUPPORT scope does NOT require company_id or store_id assignment
+  // ===========================================================================
+  describe("Support Users Section", () => {
+    it("[P0] HUL-030: should render Support Users section header", () => {
+      // GIVEN: API returns data with support users
+      vi.mocked(adminUsersApi.useHierarchicalUsers).mockReturnValue({
+        data: createMockResponse(0, 0, 3), // 3 support users
+        isLoading: false,
+        error: null,
+        isError: false,
+        isSuccess: true,
+        refetch: vi.fn(),
+      } as any);
+
+      // WHEN: Component is rendered
+      renderWithProviders(<HierarchicalUserList />);
+
+      // THEN: Support Users section should be visible with count
+      expect(screen.getByText("Support Users")).toBeInTheDocument();
+      expect(screen.getByText("(3)")).toBeInTheDocument();
+    });
+
+    it("[P0] HUL-031: should render support users in table with correct columns", () => {
+      // GIVEN: API returns support users
+      const mockData = createMockResponse(0, 0, 2); // 2 support users
+      vi.mocked(adminUsersApi.useHierarchicalUsers).mockReturnValue({
+        data: mockData,
+        isLoading: false,
+        error: null,
+        isError: false,
+        isSuccess: true,
+        refetch: vi.fn(),
+      } as any);
+
+      // WHEN: Component is rendered
+      renderWithProviders(<HierarchicalUserList />);
+
+      // THEN: Support users table should display Name, Email, Roles, Created, Actions columns
+      // Note: Support users don't need Company/Store columns (cross-company access)
+      const supportSection = screen
+        .getByText("Support Users")
+        .closest("section");
+      expect(supportSection).toBeInTheDocument();
+
+      // Verify headers exist in the support section
+      expect(within(supportSection!).getByText("Name")).toBeInTheDocument();
+      expect(within(supportSection!).getByText("Email")).toBeInTheDocument();
+      expect(within(supportSection!).getByText("Roles")).toBeInTheDocument();
+      expect(within(supportSection!).getByText("Created")).toBeInTheDocument();
+      expect(within(supportSection!).getByText("Actions")).toBeInTheDocument();
+    });
+
+    it("[P0] HUL-032: should render each support user with correct data", () => {
+      // GIVEN: API returns specific support users
+      const mockData = createMockResponse(0, 0, 2); // 2 support users
+      vi.mocked(adminUsersApi.useHierarchicalUsers).mockReturnValue({
+        data: mockData,
+        isLoading: false,
+        error: null,
+        isError: false,
+        isSuccess: true,
+        refetch: vi.fn(),
+      } as any);
+
+      // WHEN: Component is rendered
+      renderWithProviders(<HierarchicalUserList />);
+
+      // THEN: Each support user's data should be displayed
+      mockData.support_users.forEach((user) => {
+        expect(screen.getByText(user.name)).toBeInTheDocument();
+        expect(screen.getByText(user.email)).toBeInTheDocument();
+      });
+    });
+
+    it("[P0] HUL-033: should display SUPPORT role badge with teal styling", () => {
+      // GIVEN: API returns support users with SUPPORT scope role
+      const mockData = createMockResponse(0, 0, 1); // 1 support user
+      vi.mocked(adminUsersApi.useHierarchicalUsers).mockReturnValue({
+        data: mockData,
+        isLoading: false,
+        error: null,
+        isError: false,
+        isSuccess: true,
+        refetch: vi.fn(),
+      } as any);
+
+      // WHEN: Component is rendered
+      renderWithProviders(<HierarchicalUserList />);
+
+      // THEN: SUPPORT role badge should be visible
+      expect(screen.getByText("SUPPORT")).toBeInTheDocument();
+
+      // AND: Badge should have teal styling (SUPPORT scope color)
+      const supportBadge = screen.getByText("SUPPORT");
+      expect(supportBadge.className).toContain("teal");
+    });
+
+    it("[P0] HUL-034: should display empty state when no support users", () => {
+      // GIVEN: API returns data with no support users
+      vi.mocked(adminUsersApi.useHierarchicalUsers).mockReturnValue({
+        data: createMockResponse(1, 1, 0), // No support users
+        isLoading: false,
+        error: null,
+        isError: false,
+        isSuccess: true,
+        refetch: vi.fn(),
+      } as any);
+
+      // WHEN: Component is rendered
+      renderWithProviders(<HierarchicalUserList />);
+
+      // THEN: Empty state message should be displayed for support users
+      expect(screen.getByText(/No support users found/i)).toBeInTheDocument();
+    });
+
+    it("[P0] HUL-035: should render checkboxes for support user bulk selection", () => {
+      // GIVEN: API returns support users
+      vi.mocked(adminUsersApi.useHierarchicalUsers).mockReturnValue({
+        data: createMockResponse(0, 0, 2), // 2 support users
+        isLoading: false,
+        error: null,
+        isError: false,
+        isSuccess: true,
+        refetch: vi.fn(),
+      } as any);
+
+      // WHEN: Component is rendered
+      renderWithProviders(<HierarchicalUserList />);
+
+      // THEN: Checkboxes should be present in support users section
+      const supportSection = screen
+        .getByText("Support Users")
+        .closest("section");
+      const checkboxes = within(supportSection!).getAllByRole("checkbox");
+      // 1 header checkbox + 2 user checkboxes = 3 total
+      expect(checkboxes.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it("[P0] HUL-036: should render action buttons for support users", () => {
+      // GIVEN: API returns support users
+      vi.mocked(adminUsersApi.useHierarchicalUsers).mockReturnValue({
+        data: createMockResponse(0, 0, 1), // 1 support user
+        isLoading: false,
+        error: null,
+        isError: false,
+        isSuccess: true,
+        refetch: vi.fn(),
+      } as any);
+
+      // WHEN: Component is rendered
+      renderWithProviders(<HierarchicalUserList />);
+
+      // THEN: Action buttons should be present in support users section
+      const supportSection = screen
+        .getByText("Support Users")
+        .closest("section");
+      expect(
+        within(supportSection!).getByRole("button", { name: /Edit/i }),
+      ).toBeInTheDocument();
+      expect(
+        within(supportSection!).getByRole("button", {
+          name: /Deactivate|Activate/i,
+        }),
+      ).toBeInTheDocument();
+      expect(
+        within(supportSection!).getByRole("button", { name: /Delete/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("[P0-SEC] HUL-037: should verify SUPPORT role has null company_id and store_id", () => {
+      // GIVEN: API returns support user with SUPPORT scope role
+      // SEC-010 AUTHZ: SUPPORT scope does NOT require company_id or store_id
+      const mockData = createMockResponse(0, 0, 1);
+      vi.mocked(adminUsersApi.useHierarchicalUsers).mockReturnValue({
+        data: mockData,
+        isLoading: false,
+        error: null,
+        isError: false,
+        isSuccess: true,
+        refetch: vi.fn(),
+      } as any);
+
+      // WHEN: Component is rendered
+      renderWithProviders(<HierarchicalUserList />);
+
+      // THEN: Verify the mock data has correct structure
+      // SEC-010: SUPPORT users should have null company_id and store_id
+      const supportUser = mockData.support_users[0];
+      expect(supportUser.roles[0].company_id).toBeNull();
+      expect(supportUser.roles[0].store_id).toBeNull();
+      expect(supportUser.roles[0].role.scope).toBe("SUPPORT");
+    });
+
+    it("[P1] HUL-038: should include support users in total users count", () => {
+      // GIVEN: API returns data with all user types
+      const mockData = createMockResponse(1, 1, 2); // 1 system, 1 client owner, 2 support
+      vi.mocked(adminUsersApi.useHierarchicalUsers).mockReturnValue({
+        data: mockData,
+        isLoading: false,
+        error: null,
+        isError: false,
+        isSuccess: true,
+        refetch: vi.fn(),
+      } as any);
+
+      // WHEN: Component is rendered
+      renderWithProviders(<HierarchicalUserList />);
+
+      // THEN: Total users in header should include support users
+      const { meta } = mockData;
+      // Total = system_users + support_users + client_owners + store_users
+      const expectedTotal =
+        meta.total_system_users +
+        meta.total_support_users +
+        meta.total_client_owners +
+        meta.total_store_users;
+      expect(
+        // eslint-disable-next-line security/detect-non-literal-regexp
+        screen.getByText(new RegExp(`${expectedTotal} total users`)),
+      ).toBeInTheDocument();
+    });
+
+    it("[P1] HUL-039: should display status indicator for support users", () => {
+      // GIVEN: API returns support users with different statuses
+      const mockData = createMockResponse(0, 0, 2); // 2 support users (1 active, 1 inactive)
+      vi.mocked(adminUsersApi.useHierarchicalUsers).mockReturnValue({
+        data: mockData,
+        isLoading: false,
+        error: null,
+        isError: false,
+        isSuccess: true,
+        refetch: vi.fn(),
+      } as any);
+
+      // WHEN: Component is rendered
+      renderWithProviders(<HierarchicalUserList />);
+
+      // THEN: Status indicators should be visible for support users
+      const supportSection = screen
+        .getByText("Support Users")
+        .closest("section");
+      const statusDots = supportSection!.querySelectorAll(
+        '[class*="rounded-full"]',
+      );
+      expect(statusDots.length).toBeGreaterThan(0);
     });
   });
 

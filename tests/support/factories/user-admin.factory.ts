@@ -20,8 +20,14 @@ export type UserStatus = "ACTIVE" | "INACTIVE";
 
 /**
  * Scope type enum values
+ *
+ * Scope Hierarchy:
+ * - SYSTEM: Access to everything (superadmin)
+ * - SUPPORT: Cross-company read access for support staff (no company_id/store_id required)
+ * - COMPANY: Access to company and all stores within it
+ * - STORE: Access to specific store only
  */
-export type ScopeType = "SYSTEM" | "COMPANY" | "STORE";
+export type ScopeType = "SYSTEM" | "SUPPORT" | "COMPANY" | "STORE";
 
 /**
  * User data structure for test creation
@@ -121,6 +127,27 @@ export const createSystemScopeAssignment = (
 ): AssignRoleRequest => ({
   role_id,
   scope_type: "SYSTEM",
+});
+
+/**
+ * Create a SUPPORT scope role assignment request
+ *
+ * SUPPORT scope has cross-company read access for support staff.
+ * Does NOT require company_id or store_id - access is across all companies.
+ * SEC-010 AUTHZ: SUPPORT scope is different from SYSTEM scope -
+ * SUPPORT cannot access system-level admin functions.
+ *
+ * @param role_id - The role ID to assign
+ * @returns AssignRoleRequest for SUPPORT scope
+ *
+ * @example
+ * const assignment = createSupportScopeAssignment('role-uuid');
+ */
+export const createSupportScopeAssignment = (
+  role_id: string,
+): AssignRoleRequest => ({
+  role_id,
+  scope_type: "SUPPORT",
 });
 
 /**

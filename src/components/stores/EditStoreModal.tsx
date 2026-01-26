@@ -57,11 +57,17 @@ import { AddressFields, type AddressFieldsValue } from "@/components/address";
 import { POSTypeSelector } from "@/components/pos-integration/POSTypeSelector";
 import type { POSSystemType } from "@/types/pos-integration";
 import { getConnectionTypeForPOS } from "@/lib/pos-integration/pos-types";
+import {
+  TimezoneSelector,
+  isValidUSTimezone,
+  DEFAULT_TIMEZONE,
+} from "@/components/stores/TimezoneSelector";
 
 /**
  * Validate IANA timezone format (safer implementation to avoid ReDoS)
  * Supports multi-segment zones (e.g., America/Argentina/Buenos_Aires)
  * and UTC/GMT offsets
+ * @deprecated Use isValidUSTimezone from TimezoneSelector instead
  */
 function validateIANATimezoneFormat(timezone: string): boolean {
   if (timezone === "UTC") {
@@ -156,8 +162,8 @@ const editStoreSchema = z.object({
     .string()
     .min(1, "Timezone is required")
     .refine(
-      (val) => validateIANATimezone(val),
-      "Timezone must be in IANA format (e.g., America/New_York, Europe/London)",
+      (val) => isValidUSTimezone(val),
+      "Please select a valid US timezone",
     ),
   status: z.enum(["ACTIVE", "INACTIVE", "CLOSED"], {
     message: "Please select a status",
@@ -224,7 +230,7 @@ export function EditStoreModal({
     resolver: zodResolver(editStoreSchema),
     defaultValues: {
       name: "",
-      timezone: "America/New_York",
+      timezone: DEFAULT_TIMEZONE,
       status: "ACTIVE",
       // Structured address fields
       address_line1: "",
@@ -294,7 +300,7 @@ export function EditStoreModal({
 
       form.reset({
         name: store.name || "",
-        timezone: store.timezone || "America/New_York",
+        timezone: store.timezone || DEFAULT_TIMEZONE,
         status: store.status || "ACTIVE",
         // Structured address fields
         address_line1: storeWithAddress.address_line1 || "",
@@ -476,15 +482,15 @@ export function EditStoreModal({
                   <FormItem>
                     <FormLabel>Timezone</FormLabel>
                     <FormControl>
-                      <Input
-                        placeholder="America/New_York"
-                        {...field}
+                      <TimezoneSelector
+                        value={field.value}
+                        onChange={field.onChange}
                         disabled={isSubmitting}
+                        data-testid="edit-store-timezone-select"
                       />
                     </FormControl>
                     <FormDescription>
-                      IANA timezone format (e.g., America/New_York,
-                      Europe/London, UTC)
+                      Select the timezone for this store location
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

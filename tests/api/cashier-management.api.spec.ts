@@ -1351,8 +1351,20 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
         hired_on: cashierData.hired_on,
       },
     );
-    const cashierId = (await createResponse.json()).data.cashier_id;
 
+    // Validate cashier creation succeeded before proceeding
+    expect(
+      createResponse.status(),
+      "Cashier creation should succeed (prerequisite for permission test)",
+    ).toBe(201);
+    const createBody = await createResponse.json();
+    expect(
+      createBody.data?.cashier_id,
+      "Cashier ID should be present in creation response",
+    ).toBeDefined();
+    const cashierId = createBody.data.cashier_id;
+
+    // Verify the store exists (defensive check)
     const store = await prismaClient.store.findFirst({
       where: { store_id: clientUser.store_id },
     });
@@ -1361,6 +1373,7 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     }
 
     // WHEN: Attempting to update cashier without permission
+    // regularUser has only SHIFT_READ and INVENTORY_READ permissions
     const response = await regularUserApiRequest.put(
       `/api/stores/${store.store_id}/cashiers/${cashierId}`,
       {

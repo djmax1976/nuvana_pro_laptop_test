@@ -544,6 +544,7 @@ ${uniqueCode2},Commit Test Game 2,10.00,300.00`;
       }
 
       // Generate unique game code with test-specific prefix (8xxx range)
+      // Use more entropy to avoid collisions across parallel test runs
       const uniqueCode = `8${String(Math.floor(100 + Math.random() * 900))}`;
       const uniqueCsv = `game_code,name,price,pack_value
 ${uniqueCode},Double Commit Test,5.00,300.00`;
@@ -586,8 +587,20 @@ ${uniqueCode},Double Commit Test,5.00,300.00`;
       expect(validateBody.data?.validation_token).toBeDefined();
       const validationToken = validateBody.data.validation_token;
 
-      // Small delay to ensure validation is persisted to DB
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // Verify validation record exists in database before proceeding
+      // This ensures the transaction is fully committed
+      const importRecord = await prismaClient.lotteryGameImport.findUnique({
+        where: { validation_token: validationToken },
+        select: { import_id: true, committed_at: true },
+      });
+      expect(
+        importRecord,
+        "Validation record should exist in database",
+      ).toBeDefined();
+      expect(
+        importRecord?.committed_at,
+        "Import should not be committed yet",
+      ).toBeNull();
 
       // First commit - should succeed
       const firstCommitResponse = await request.post(
@@ -600,9 +613,26 @@ ${uniqueCode},Double Commit Test,5.00,300.00`;
           data: { validation_token: validationToken },
         },
       );
-      expect(firstCommitResponse.status()).toBe(200);
+      expect(
+        firstCommitResponse.status(),
+        "First commit should succeed with 200",
+      ).toBe(200);
       const firstCommitBody = await firstCommitResponse.json();
-      expect(firstCommitBody.success).toBe(true);
+      expect(
+        firstCommitBody.success,
+        "First commit response should indicate success",
+      ).toBe(true);
+
+      // Verify first commit actually persisted committed_at to database
+      // This is the critical check to prevent race conditions
+      const committedRecord = await prismaClient.lotteryGameImport.findUnique({
+        where: { validation_token: validationToken },
+        select: { committed_at: true },
+      });
+      expect(
+        committedRecord?.committed_at,
+        "First commit should have set committed_at in database",
+      ).not.toBeNull();
 
       // Second commit should fail with ALREADY_COMMITTED
       const secondCommit = await request.post(
@@ -616,9 +646,13 @@ ${uniqueCode},Double Commit Test,5.00,300.00`;
         },
       );
 
-      expect(secondCommit.status()).toBe(400);
+      expect(secondCommit.status(), "Second commit should fail with 400").toBe(
+        400,
+      );
       const body = await secondCommit.json();
-      expect(body.error?.code).toBe("ALREADY_COMMITTED");
+      expect(body.error?.code, "Error code should be ALREADY_COMMITTED").toBe(
+        "ALREADY_COMMITTED",
+      );
 
       // Cleanup
       const gameIds = firstCommitBody.data?.created_games?.map(

@@ -208,9 +208,22 @@ export type RoleCode = (typeof ROLE_CODES)[keyof typeof ROLE_CODES];
 
 /**
  * Scope types for role assignments
+ *
+ * Scope Hierarchy:
+ * - SYSTEM: Access to everything (superadmin)
+ * - SUPPORT: Access to COMPANY + STORE levels (support staff) - NOT SYSTEM level
+ *   SUPPORT scope users do NOT require company_id or store_id assignment
+ *   as they have read access across all companies and stores for troubleshooting
+ * - COMPANY: Access to company and all stores within it
+ * - STORE: Access to specific store only
+ *
+ * SEC-010 AUTHZ: SUPPORT scope is explicitly different from SYSTEM scope
+ * - SUPPORT cannot access system-level admin functions
+ * - SUPPORT has cross-company read access for support purposes
  */
 export const SCOPE_TYPES = {
   SYSTEM: "SYSTEM",
+  SUPPORT: "SUPPORT",
   COMPANY: "COMPANY",
   STORE: "STORE",
 } as const;
@@ -241,10 +254,19 @@ export const pinSchema = z
  * Base role assignment schema - validates format only
  * Does NOT enforce scope-based company_id/store_id requirements
  * Use this for contexts where cross-field validation happens at a higher level
+ *
+ * Scope Requirements:
+ * - SYSTEM: No company_id or store_id required (full system access)
+ * - SUPPORT: No company_id or store_id required (cross-company read access)
+ * - COMPANY: company_id required
+ * - STORE: company_id AND store_id required
+ *
+ * API-001 VALIDATION: Strict enum validation for scope_type
+ * SEC-010 AUTHZ: Scope determines access boundaries
  */
 export const roleAssignmentSchema = z.object({
   role_id: z.string().uuid("Invalid role ID format"),
-  scope_type: z.enum(["SYSTEM", "COMPANY", "STORE"]),
+  scope_type: z.enum(["SYSTEM", "SUPPORT", "COMPANY", "STORE"]),
   company_id: z.string().uuid("Invalid company ID format").optional(),
   store_id: z.string().uuid("Invalid store ID format").optional(),
 });
@@ -260,13 +282,22 @@ export type RoleAssignment = z.infer<typeof roleAssignmentSchema>;
  * Use this when assigning roles to EXISTING users where company/store must already exist
  *
  * Rules:
- * - SYSTEM scope: no company_id or store_id required
+ * - SYSTEM scope: no company_id or store_id required (full system access)
+ * - SUPPORT scope: no company_id or store_id required (cross-company read access)
  * - COMPANY scope: company_id required
  * - STORE scope: company_id AND store_id required
+ *
+ * SEC-010 AUTHZ: SUPPORT scope has cross-company read access without specific assignment
+ * API-001 VALIDATION: Enforces scope-based requirements
  */
 export const strictRoleAssignmentSchema = roleAssignmentSchema
   .refine(
     (data) => {
+      // SYSTEM and SUPPORT scopes do not require company_id
+      // SUPPORT has cross-company read access for troubleshooting
+      if (data.scope_type === "SYSTEM" || data.scope_type === "SUPPORT") {
+        return true;
+      }
       if (data.scope_type === "COMPANY" || data.scope_type === "STORE") {
         return !!data.company_id;
       }
@@ -428,6 +459,13 @@ export const createUserSchema = z
     for (let i = 0; i < data.roles.length; i++) {
       // eslint-disable-next-line security/detect-object-injection -- i is a controlled index variable
       const role = data.roles[i];
+
+      // SYSTEM and SUPPORT scopes do not require company_id or store_id
+      // SYSTEM: Full system access (superadmin)
+      // SUPPORT: Cross-company read access for troubleshooting (SEC-010 AUTHZ)
+      if (role.scope_type === "SYSTEM" || role.scope_type === "SUPPORT") {
+        continue;
+      }
 
       // If creating a company, COMPANY scope roles don't need company_id
       // (it will be set automatically after company creation)

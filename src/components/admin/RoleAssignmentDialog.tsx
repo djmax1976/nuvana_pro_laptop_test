@@ -37,15 +37,18 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 
 // Zod validation schema for role assignment
+// SEC-010 AUTHZ: SUPPORT scope does NOT require company_id or store_id
+// SUPPORT users have cross-company read access for troubleshooting
 const roleAssignmentSchema = z
   .object({
     role_id: z.string().min(1, "Role is required"),
-    scope_type: z.enum(["SYSTEM", "COMPANY", "STORE"]),
+    scope_type: z.enum(["SYSTEM", "SUPPORT", "COMPANY", "STORE"]),
     company_id: z.string().optional(),
     store_id: z.string().optional(),
   })
   .refine(
     (data) => {
+      // SYSTEM and SUPPORT scopes don't require company_id
       if (data.scope_type === "COMPANY" || data.scope_type === "STORE") {
         return data.company_id;
       }

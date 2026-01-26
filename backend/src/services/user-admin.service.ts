@@ -8,7 +8,10 @@ import {
   invalidateMultipleUserStatusCache,
 } from "../middleware/active-status.middleware";
 import type { USAddressInput } from "../schemas/address.schema";
-import { isLegacyAddress, type CompanyAddressInput } from "../schemas/user.schema";
+import {
+  isLegacyAddress,
+  type CompanyAddressInput,
+} from "../schemas/user.schema";
 
 /**
  * Roles that REQUIRE PIN for terminal/desktop authentication
@@ -37,8 +40,15 @@ export enum UserStatus {
 
 /**
  * Scope type for role assignments
+ *
+ * Scope Hierarchy:
+ * - SYSTEM: Access to everything (superadmin)
+ * - SUPPORT: Access to COMPANY + STORE levels (support staff) - NOT SYSTEM level
+ *   SUPPORT scope users do NOT require company_id or store_id assignment
+ * - COMPANY: Access to company and all stores within it
+ * - STORE: Access to specific store only
  */
-export type ScopeType = "SYSTEM" | "COMPANY" | "STORE";
+export type ScopeType = "SYSTEM" | "SUPPORT" | "COMPANY" | "STORE";
 
 /**
  * Role assignment request
@@ -314,7 +324,9 @@ export class UserAdminService {
 
     // Join with ", " and truncate to 500 chars (legacy field limit)
     const formatted = parts.join(", ");
-    return formatted.length > 500 ? formatted.substring(0, 497) + "..." : formatted;
+    return formatted.length > 500
+      ? formatted.substring(0, 497) + "..."
+      : formatted;
   }
 
   /**
@@ -329,7 +341,12 @@ export class UserAdminService {
   private async validateStateExists(
     stateId: string,
     tx?: Prisma.TransactionClient,
-  ): Promise<{ state_id: string; code: string; name: string; is_active: boolean }> {
+  ): Promise<{
+    state_id: string;
+    code: string;
+    name: string;
+    is_active: boolean;
+  }> {
     const db = tx || prisma;
 
     const state = await db.uSState.findUnique({
@@ -368,7 +385,12 @@ export class UserAdminService {
     countyId: string,
     stateId: string,
     tx?: Prisma.TransactionClient,
-  ): Promise<{ county_id: string; name: string; state_id: string; is_active: boolean }> {
+  ): Promise<{
+    county_id: string;
+    name: string;
+    state_id: string;
+    is_active: boolean;
+  }> {
     const db = tx || prisma;
 
     const county = await db.uSCounty.findUnique({
@@ -392,7 +414,7 @@ export class UserAdminService {
     if (county.state_id !== stateId) {
       throw new Error(
         `County ${county.name} does not belong to the specified state. ` +
-        `This is a data integrity violation.`
+          `This is a data integrity violation.`,
       );
     }
 
@@ -417,7 +439,11 @@ export class UserAdminService {
 
     // Validate county if provided
     if (address.county_id) {
-      await this.validateCountyBelongsToState(address.county_id, address.state_id, tx);
+      await this.validateCountyBelongsToState(
+        address.county_id,
+        address.state_id,
+        tx,
+      );
     }
 
     return state.code;
@@ -670,7 +696,7 @@ export class UserAdminService {
               // Log warning - this path will be removed in v2.0
               console.warn(
                 `[DEPRECATION] Creating company with legacy string address for user ${data.email}. ` +
-                `Please migrate to structured address format.`
+                  `Please migrate to structured address format.`,
               );
 
               // Store only in legacy field - no structured fields available
@@ -700,7 +726,10 @@ export class UserAdminService {
               const stateCode = await this.validateStructuredAddress(addr, tx);
 
               // Format legacy address string for backward compatibility
-              const legacyAddressString = this.formatAddressAsString(addr, stateCode);
+              const legacyAddressString = this.formatAddressAsString(
+                addr,
+                stateCode,
+              );
 
               createdCompany = await tx.company.create({
                 data: {
@@ -856,8 +885,15 @@ export class UserAdminService {
 
                 companyIdForRole = roleAssignment.company_id;
                 storeIdForRole = roleAssignment.store_id;
+              } else if (roleAssignment.scope_type === "SUPPORT") {
+                // SUPPORT scope - no company_id or store_id required
+                // SUPPORT users have cross-company read access for troubleshooting
+                // SEC-010 AUTHZ: Explicitly set null to avoid accidental scope restriction
+                companyIdForRole = null;
+                storeIdForRole = null;
               } else {
-                // For COMPANY-scoped roles, use provided company_id (no store_id needed)
+                // For COMPANY-scoped roles (CORPORATE_ADMIN):
+                // - COMPANY scope: Use provided company_id if available
                 companyIdForRole = roleAssignment.company_id || null;
               }
             }
@@ -897,14 +933,15 @@ export class UserAdminService {
                 ? result.company.company_id
                 : null,
               // Phase 1: Log structured address metadata (not full address for privacy)
-              company_address_structured: result.company && data.companyAddress
-                ? {
-                    state_id: data.companyAddress.state_id,
-                    county_id: data.companyAddress.county_id || null,
-                    city: data.companyAddress.city,
-                    zip_code: data.companyAddress.zip_code,
-                  }
-                : null,
+              company_address_structured:
+                result.company && data.companyAddress
+                  ? {
+                      state_id: data.companyAddress.state_id,
+                      county_id: data.companyAddress.county_id || null,
+                      city: data.companyAddress.city,
+                      zip_code: data.companyAddress.zip_code,
+                    }
+                  : null,
             } as unknown as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
@@ -1357,7 +1394,11 @@ export class UserAdminService {
       // Validate PIN uniqueness if PIN is being updated
       // DB-006 TENANT_ISOLATION: PIN must be unique per-store
       if (data.pin && data.store_id) {
-        await this.validatePINUniquenessInStore(data.pin, data.store_id, userId);
+        await this.validatePINUniquenessInStore(
+          data.pin,
+          data.store_id,
+          userId,
+        );
       }
 
       // Prepare update data
@@ -1385,7 +1426,9 @@ export class UserAdminService {
       if (data.pin) {
         // SEC-001 PASSWORD_HASHING: bcrypt with salt rounds 10
         updateData.pin_hash = await this.hashPIN(data.pin);
-        updateData.sha256_pin_fingerprint = this.computePINFingerprint(data.pin);
+        updateData.sha256_pin_fingerprint = this.computePINFingerprint(
+          data.pin,
+        );
       }
 
       // Update user
@@ -1554,7 +1597,9 @@ export class UserAdminService {
         console.error("Failed to create audit log for PIN update:", auditError);
       }
 
-      return { message: isUpdate ? "PIN updated successfully" : "PIN set successfully" };
+      return {
+        message: isUpdate ? "PIN updated successfully" : "PIN set successfully",
+      };
     } catch (error: unknown) {
       if (
         error instanceof Error &&
@@ -1700,8 +1745,13 @@ export class UserAdminService {
     // Validate scope requirements (basic validation)
     // Note: Critical validations (active status, ownership) are re-checked
     // inside the transaction to prevent TOCTOU vulnerabilities
+    // SEC-010 AUTHZ: Scope determines access boundaries
     if (scope_type === "SYSTEM") {
-      // SYSTEM scope - no additional IDs required
+      // SYSTEM scope - no additional IDs required (full system access)
+    } else if (scope_type === "SUPPORT") {
+      // SUPPORT scope - no additional IDs required (cross-company read access)
+      // SUPPORT users have read access across all companies/stores for troubleshooting
+      // They do NOT have system-level admin access
     } else if (scope_type === "COMPANY") {
       // COMPANY scope - requires company_id
       if (!company_id) {
@@ -1748,7 +1798,9 @@ export class UserAdminService {
         throw new Error("Store does not belong to the specified company");
       }
     } else {
-      throw new Error("Invalid scope_type. Must be SYSTEM, COMPANY, or STORE");
+      throw new Error(
+        "Invalid scope_type. Must be SYSTEM, SUPPORT, COMPANY, or STORE",
+      );
     }
 
     try {
@@ -1855,11 +1907,16 @@ export class UserAdminService {
           }
 
           // Create user role assignment
+          // SEC-010 AUTHZ: SYSTEM and SUPPORT scopes do not require company/store assignment
+          // SUPPORT users have cross-company read access for troubleshooting
           const userRole = await tx.userRole.create({
             data: {
               user_id: userId,
               role_id,
-              company_id: scope_type === "SYSTEM" ? null : company_id,
+              company_id:
+                scope_type === "SYSTEM" || scope_type === "SUPPORT"
+                  ? null
+                  : company_id,
               store_id: scope_type === "STORE" ? store_id : null,
               assigned_by: auditContext.userId,
             },
@@ -2329,8 +2386,9 @@ export class UserAdminService {
         },
       });
 
-      // Separate system users from client owners
+      // Separate system users, support users, and client owners
       const systemUsers: SystemUserItem[] = [];
+      const supportUsers: SupportUserItem[] = [];
       const clientOwnerGroups: ClientOwnerGroup[] = [];
 
       // Maps for efficient lookup
@@ -2340,22 +2398,53 @@ export class UserAdminService {
         {
           company_id: string;
           company_name: string;
-          stores: Map<string, { store_id: string; store_name: string; users: StoreUserItem[] }>;
+          stores: Map<
+            string,
+            { store_id: string; store_name: string; users: StoreUserItem[] }
+          >;
         }
       >();
 
-      // First pass: Identify CLIENT_OWNERS and build company structure
+      // First pass: Identify SYSTEM users, SUPPORT users, and CLIENT_OWNERS
       for (const user of allUsers) {
         const hasSystemRole = user.user_roles.some(
-          (ur) => ur.role.scope === "SYSTEM"
+          (ur) => ur.role.scope === "SYSTEM",
+        );
+        const hasSupportRole = user.user_roles.some(
+          (ur) => ur.role.scope === "SUPPORT",
         );
         const clientOwnerRole = user.user_roles.find(
-          (ur) => ur.role.code === "CLIENT_OWNER"
+          (ur) => ur.role.code === "CLIENT_OWNER",
         );
 
         if (hasSystemRole && !clientOwnerRole) {
           // System user (SUPERADMIN, CORPORATE_ADMIN)
           systemUsers.push({
+            user_id: user.user_id,
+            email: user.email,
+            name: user.name,
+            status: user.status as UserStatus,
+            created_at: user.created_at,
+            updated_at: user.updated_at,
+            roles: user.user_roles.map((ur) => ({
+              user_role_id: ur.user_role_id,
+              role: {
+                role_id: ur.role.role_id,
+                code: ur.role.code,
+                description: ur.role.description,
+                scope: ur.role.scope,
+              },
+              company_id: ur.company_id,
+              company_name: ur.company?.name || null,
+              store_id: ur.store_id,
+              store_name: ur.store?.name || null,
+              assigned_at: ur.assigned_at,
+            })),
+          });
+        } else if (hasSupportRole && !clientOwnerRole) {
+          // SUPPORT user - cross-company read access for troubleshooting
+          // SEC-010 AUTHZ: SUPPORT scope is distinct from SYSTEM scope
+          supportUsers.push({
             user_id: user.user_id,
             email: user.email,
             name: user.name,
@@ -2444,10 +2533,10 @@ export class UserAdminService {
       // Second pass: Assign store-level users to their stores
       for (const user of allUsers) {
         const hasSystemRole = user.user_roles.some(
-          (ur) => ur.role.scope === "SYSTEM"
+          (ur) => ur.role.scope === "SYSTEM",
         );
         const isClientOwner = user.user_roles.some(
-          (ur) => ur.role.code === "CLIENT_OWNER"
+          (ur) => ur.role.code === "CLIENT_OWNER",
         );
 
         // Skip system users and client owners (already processed)
@@ -2464,7 +2553,7 @@ export class UserAdminService {
               if (storeData) {
                 // Add user to this store (avoid duplicates)
                 const existingUser = storeData.users.find(
-                  (u) => u.user_id === user.user_id
+                  (u) => u.user_id === user.user_id,
                 );
                 if (!existingUser) {
                   storeData.users.push({
@@ -2513,27 +2602,30 @@ export class UserAdminService {
 
       return {
         system_users: systemUsers,
+        support_users: supportUsers,
         client_owners: clientOwnerGroups,
         meta: {
           total_system_users: systemUsers.length,
+          total_support_users: supportUsers.length,
           total_client_owners: clientOwnerGroups.length,
           total_companies: clientOwnerGroups.reduce(
             (sum, g) => sum + g.companies.length,
-            0
+            0,
           ),
           total_stores: clientOwnerGroups.reduce(
             (sum, g) =>
               sum + g.companies.reduce((s, c) => s + c.stores.length, 0),
-            0
+            0,
           ),
           total_store_users: clientOwnerGroups.reduce(
             (sum, g) =>
               sum +
               g.companies.reduce(
-                (s, c) => s + c.stores.reduce((su, st) => su + st.users.length, 0),
-                0
+                (s, c) =>
+                  s + c.stores.reduce((su, st) => su + st.users.length, 0),
+                0,
               ),
-            0
+            0,
           ),
         },
       };
@@ -2566,6 +2658,14 @@ export interface HierarchicalUserItem {
  * System user (SUPERADMIN, CORPORATE_ADMIN)
  */
 export type SystemUserItem = HierarchicalUserItem;
+
+/**
+ * Support user (cross-company read access for troubleshooting)
+ * SEC-010 AUTHZ: SUPPORT scope is distinct from SYSTEM scope
+ * - Has read access across all companies and stores
+ * - Does NOT have system-level admin access
+ */
+export type SupportUserItem = HierarchicalUserItem;
 
 /**
  * Store-level user (STORE_MANAGER, SHIFT_MANAGER, CLIENT_USER, CASHIER)
@@ -2603,9 +2703,11 @@ export interface ClientOwnerGroup {
  */
 export interface HierarchicalUsersResponse {
   system_users: SystemUserItem[];
+  support_users: SupportUserItem[];
   client_owners: ClientOwnerGroup[];
   meta: {
     total_system_users: number;
+    total_support_users: number;
     total_client_owners: number;
     total_companies: number;
     total_stores: number;

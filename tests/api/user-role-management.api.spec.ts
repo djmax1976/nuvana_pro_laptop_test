@@ -3,6 +3,7 @@ import {
   createAdminUser,
   createUserRequest,
   createSystemScopeAssignment,
+  createSupportScopeAssignment,
   createCompanyScopeAssignment,
   createStoreScopeAssignment,
   createInvalidScopeAssignment,
@@ -2114,5 +2115,386 @@ test.describe("2.8-API: User Management API - CLIENT_OWNER Role Assignment Busin
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body.error.message).toMatch(/company.*required/i);
+  });
+});
+
+/**
+ * SUPPORT Scope Role Tests
+ *
+ * Tests for SUPPORT scope role assignments and user creation.
+ * SUPPORT scope provides cross-company read access for support staff.
+ *
+ * SEC-010 AUTHZ: SUPPORT scope is explicitly different from SYSTEM scope:
+ * - SUPPORT users have READ access across ALL companies and stores (for troubleshooting)
+ * - SUPPORT users do NOT have system-level admin access
+ * - SUPPORT scope does NOT require company_id or store_id assignment
+ *
+ * Scope Hierarchy Reminder:
+ * - SYSTEM: Full system access (superadmin) - no company_id/store_id required
+ * - SUPPORT: Cross-company READ access (support staff) - no company_id/store_id required
+ * - COMPANY: Access to specific company and its stores - company_id required
+ * - STORE: Access to specific store only - company_id AND store_id required
+ *
+ * Priority: P0 (Critical - New scope type must function correctly)
+ */
+test.describe("2.8-API: User Management API - SUPPORT Scope Role Assignment", () => {
+  test("2.8-API-053: [P0] POST /api/admin/users/:userId/roles - should assign SUPPORT scope role (no company_id/store_id required)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A user exists and a SUPPORT scope role is available
+    const user = await prismaClient.user.create({
+      data: createAdminUser(),
+    });
+
+    const supportRole = await prismaClient.role.findFirst({
+      where: { scope: "SUPPORT" },
+    });
+    if (!supportRole) {
+      throw new Error("No SUPPORT scope role found in database");
+    }
+
+    // WHEN: Assigning SUPPORT scope role (no additional IDs required)
+    const response = await superadminApiRequest.post(
+      `/api/admin/users/${user.user_id}/roles`,
+      createSupportScopeAssignment(supportRole.role_id),
+    );
+
+    // THEN: Role is assigned successfully
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty("user_role_id");
+
+    // AND: Role assignment exists in database with NULL company_id and store_id
+    const userRole = await prismaClient.userRole.findFirst({
+      where: {
+        user_id: user.user_id,
+        role_id: supportRole.role_id,
+      },
+    });
+    expect(userRole).not.toBeNull();
+    expect(userRole?.company_id).toBeNull();
+    expect(userRole?.store_id).toBeNull();
+
+    // AND: Role assignment is logged in AuditLog
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        table_name: "user_roles",
+        action: "CREATE",
+      },
+      orderBy: { timestamp: "desc" },
+    });
+    expect(auditLog).not.toBeNull();
+  });
+
+  test("2.8-API-054: [P0] POST /api/admin/users - should create user with SUPPORT scope role (no company_id/store_id required)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Valid user data and a SUPPORT scope role
+    const userData = createUserRequest();
+
+    const supportRole = await prismaClient.role.findFirst({
+      where: { scope: "SUPPORT" },
+    });
+    if (!supportRole) {
+      throw new Error("No SUPPORT scope role found in database");
+    }
+
+    // WHEN: Creating user with SUPPORT scope role (no company_id or store_id)
+    const response = await superadminApiRequest.post("/api/admin/users", {
+      email: userData.email,
+      name: userData.name,
+      roles: [createSupportScopeAssignment(supportRole.role_id)],
+    });
+
+    // THEN: User is created successfully
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty("user_id");
+    expect(body.data).toHaveProperty("email", userData.email);
+    expect(body.data).toHaveProperty("name", userData.name);
+    expect(body.data).toHaveProperty("status", "ACTIVE");
+
+    // AND: User record exists in database
+    const user = await prismaClient.user.findUnique({
+      where: { user_id: body.data.user_id },
+    });
+    expect(user).not.toBeNull();
+    expect(user?.email).toBe(userData.email);
+
+    // AND: Role assignment exists with NULL company_id and store_id
+    const userRole = await prismaClient.userRole.findFirst({
+      where: {
+        user_id: body.data.user_id,
+        role_id: supportRole.role_id,
+      },
+    });
+    expect(userRole).not.toBeNull();
+    expect(userRole?.company_id).toBeNull();
+    expect(userRole?.store_id).toBeNull();
+
+    // AND: Audit log entry is created for user
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        table_name: "users",
+        record_id: body.data.user_id,
+        action: "CREATE",
+      },
+    });
+    expect(auditLog).not.toBeNull();
+  });
+
+  test("2.8-API-055: [P1] POST /api/admin/users - SUPPORT scope should accept but ignore company_id if provided", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Valid user data, a SUPPORT scope role, and an existing company
+    const userData = createUserRequest();
+
+    const supportRole = await prismaClient.role.findFirst({
+      where: { scope: "SUPPORT" },
+    });
+    if (!supportRole) {
+      throw new Error("No SUPPORT scope role found in database");
+    }
+
+    // Create a company (SUPPORT should not need this, but we're testing it's ignored)
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Support Test Company Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Support Test Company",
+        status: "ACTIVE",
+        owner_user_id: ownerUser.user_id,
+      }),
+    });
+
+    // WHEN: Creating user with SUPPORT scope role AND a company_id
+    // (company_id should be accepted but the user role should have NULL company_id)
+    const response = await superadminApiRequest.post("/api/admin/users", {
+      email: userData.email,
+      name: userData.name,
+      roles: [
+        {
+          role_id: supportRole.role_id,
+          scope_type: "SUPPORT",
+          company_id: company.company_id, // This should be accepted but ignored
+        },
+      ],
+    });
+
+    // THEN: User is created successfully
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty("user_id");
+
+    // AND: Role assignment has NULL company_id (SUPPORT scope doesn't use company_id)
+    const userRole = await prismaClient.userRole.findFirst({
+      where: {
+        user_id: body.data.user_id,
+        role_id: supportRole.role_id,
+      },
+    });
+    expect(userRole).not.toBeNull();
+    // SUPPORT scope stores NULL for company_id regardless of what was provided
+    expect(userRole?.company_id).toBeNull();
+    expect(userRole?.store_id).toBeNull();
+  });
+
+  test("2.8-API-056: [P0] SUPPORT scope validation - should accept valid SUPPORT scope_type in schema", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Valid user data and a SUPPORT scope role
+    const userData = createUserRequest();
+
+    const supportRole = await prismaClient.role.findFirst({
+      where: { scope: "SUPPORT" },
+    });
+    if (!supportRole) {
+      throw new Error("No SUPPORT scope role found in database");
+    }
+
+    // WHEN: Creating user with explicit scope_type: "SUPPORT"
+    const response = await superadminApiRequest.post("/api/admin/users", {
+      email: userData.email,
+      name: userData.name,
+      roles: [
+        {
+          role_id: supportRole.role_id,
+          scope_type: "SUPPORT", // Explicitly using the SUPPORT scope_type
+        },
+      ],
+    });
+
+    // THEN: User is created successfully (SUPPORT is a valid scope_type)
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty("user_id");
+  });
+
+  test("2.8-API-057: [P0-SEC] SUPPORT scope security - SUPPORT role should be distinct from SYSTEM role", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Both SUPPORT and SYSTEM scope roles exist
+    const supportRole = await prismaClient.role.findFirst({
+      where: { scope: "SUPPORT" },
+    });
+    const systemRole = await prismaClient.role.findFirst({
+      where: { scope: "SYSTEM" },
+    });
+
+    if (!supportRole || !systemRole) {
+      throw new Error(
+        "Both SUPPORT and SYSTEM scope roles must exist in database",
+      );
+    }
+
+    // THEN: SUPPORT and SYSTEM roles should have different role_ids
+    expect(supportRole.role_id).not.toBe(systemRole.role_id);
+
+    // AND: SUPPORT and SYSTEM should have different scopes
+    expect(supportRole.scope).toBe("SUPPORT");
+    expect(systemRole.scope).toBe("SYSTEM");
+
+    // AND: Create a user with SUPPORT role and verify they don't have SYSTEM scope
+    const userData = createUserRequest();
+    const response = await superadminApiRequest.post("/api/admin/users", {
+      email: userData.email,
+      name: userData.name,
+      roles: [createSupportScopeAssignment(supportRole.role_id)],
+    });
+
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+
+    // Verify the user's role assignment
+    const userRole = await prismaClient.userRole.findFirst({
+      where: {
+        user_id: body.data.user_id,
+      },
+      include: {
+        role: true,
+      },
+    });
+
+    // SEC-010 AUTHZ: SUPPORT user should NOT have SYSTEM scope
+    expect(userRole?.role.scope).toBe("SUPPORT");
+    expect(userRole?.role.scope).not.toBe("SYSTEM");
+  });
+
+  test("2.8-API-058: [P1] GET /api/admin/users/:userId - should return SUPPORT scope user with role information", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A user exists with SUPPORT scope role
+    const user = await prismaClient.user.create({
+      data: createAdminUser(),
+    });
+
+    const supportRole = await prismaClient.role.findFirst({
+      where: { scope: "SUPPORT" },
+    });
+    if (!supportRole) {
+      throw new Error("No SUPPORT scope role found in database");
+    }
+
+    await prismaClient.userRole.create({
+      data: {
+        user_id: user.user_id,
+        role_id: supportRole.role_id,
+        company_id: null,
+        store_id: null,
+      },
+    });
+
+    // WHEN: Retrieving user details
+    const response = await superadminApiRequest.get(
+      `/api/admin/users/${user.user_id}`,
+    );
+
+    // THEN: User details are returned with SUPPORT role information
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty("user_id", user.user_id);
+    expect(body.data).toHaveProperty("roles");
+    expect(Array.isArray(body.data.roles)).toBe(true);
+
+    // AND: Role shows SUPPORT scope
+    // Note: roles are returned with nested role object structure: { role: { role_id, scope, ... } }
+    const supportRoleAssignment = body.data.roles.find(
+      (r: any) => r.role.role_id === supportRole.role_id,
+    );
+    expect(supportRoleAssignment).toBeDefined();
+    expect(supportRoleAssignment.role.scope).toBe("SUPPORT");
+  });
+
+  test("2.8-API-059: [P0] DELETE /api/admin/users/:userId/roles/:userRoleId - should revoke SUPPORT role", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A user with TWO roles (SUPPORT + another role for minimum role requirement)
+    const user = await prismaClient.user.create({
+      data: createAdminUser(),
+    });
+
+    const supportRole = await prismaClient.role.findFirst({
+      where: { scope: "SUPPORT" },
+    });
+    const systemRole = await prismaClient.role.findFirst({
+      where: { scope: "SYSTEM" },
+    });
+    if (!supportRole || !systemRole) {
+      throw new Error("Need both SUPPORT and SYSTEM scope roles in database");
+    }
+
+    // Create SYSTEM role first (the one to keep)
+    await prismaClient.userRole.create({
+      data: {
+        user_id: user.user_id,
+        role_id: systemRole.role_id,
+        company_id: null,
+      },
+    });
+
+    // Create SUPPORT role (the one to revoke)
+    const supportUserRole = await prismaClient.userRole.create({
+      data: {
+        user_id: user.user_id,
+        role_id: supportRole.role_id,
+        company_id: null,
+      },
+    });
+
+    // WHEN: Revoking the SUPPORT role
+    const response = await superadminApiRequest.delete(
+      `/api/admin/users/${user.user_id}/roles/${supportUserRole.user_role_id}`,
+    );
+
+    // THEN: Role is revoked successfully
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    // AND: SUPPORT role assignment no longer exists
+    const deletedUserRole = await prismaClient.userRole.findUnique({
+      where: { user_role_id: supportUserRole.user_role_id },
+    });
+    expect(deletedUserRole).toBeNull();
+
+    // AND: User still has the SYSTEM role
+    const remainingRoles = await prismaClient.userRole.findMany({
+      where: { user_id: user.user_id },
+    });
+    expect(remainingRoles.length).toBe(1);
+    expect(remainingRoles[0].role_id).toBe(systemRole.role_id);
   });
 });
