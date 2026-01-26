@@ -94,7 +94,7 @@ function formatConnectionDetails(
       return [
         {
           label: "Connection",
-          value: `${getPOSDisplayName(integration.pos_type)} API`,
+          value: `${getPOSDisplayName(integration.pos_type)}`,
         },
       ];
     case "manual":

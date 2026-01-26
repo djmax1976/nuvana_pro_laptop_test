@@ -1522,3 +1522,349 @@ describe("LotterySyncService - Edge Cases", () => {
     });
   });
 });
+
+// =============================================================================
+// GAME_INACTIVE Error Handling Tests (AIP-193 Compliance)
+// =============================================================================
+
+describe("LotterySyncService - Inactive Game Handling", () => {
+  let mockPrisma: MockPrismaClient;
+
+  beforeEach(() => {
+    mockPrisma = getMockPrisma();
+    vi.clearAllMocks();
+  });
+
+  describe("lookupGameByCode - GAME_INACTIVE scenarios", () => {
+    /**
+     * AIP-193 Compliance Test: FAILED_PRECONDITION for inactive games
+     *
+     * When a game exists but is INACTIVE, the service should throw
+     * GAME_INACTIVE instead of returning null (which would cause GAME_NOT_FOUND).
+     * This allows clients to distinguish between:
+     * - Game doesn't exist (404 NOT_FOUND)
+     * - Game exists but is inactive (400 FAILED_PRECONDITION)
+     */
+    it("should throw GAME_INACTIVE when state-scoped game is inactive", async () => {
+      // Arrange: Game exists but is INACTIVE
+      const inactiveGame = createTestLotteryGame({
+        game_id: TEST_GAME_ID,
+        game_code: "0033",
+        status: "INACTIVE",
+        state_id: TEST_STATE_ID,
+      });
+
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(inactiveGame);
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.receivePack(
+          TEST_STORE_ID,
+          TEST_STATE_ID,
+          {
+            game_code: "0033",
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow(
+        "GAME_INACTIVE: Game 0033 is inactive and cannot accept new packs",
+      );
+    });
+
+    it("should throw GAME_INACTIVE when store-scoped game is inactive", async () => {
+      // Arrange: State game not found, store game is inactive
+      mockPrisma.lotteryGame.findFirst
+        .mockResolvedValueOnce(null) // No state game
+        .mockResolvedValueOnce(
+          createTestLotteryGame({
+            game_id: TEST_GAME_ID,
+            game_code: "9999",
+            status: "INACTIVE",
+            store_id: TEST_STORE_ID,
+          }),
+        );
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.receivePack(
+          TEST_STORE_ID,
+          TEST_STATE_ID,
+          {
+            game_code: "9999",
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow("GAME_INACTIVE:");
+    });
+
+    it("should succeed when game is ACTIVE", async () => {
+      // Arrange
+      const activeGame = createTestLotteryGame({
+        game_id: TEST_GAME_ID,
+        game_code: "0033",
+        status: "ACTIVE",
+        state_id: TEST_STATE_ID,
+      });
+
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(activeGame);
+      mockPrisma.lotteryPack.findUnique.mockResolvedValue(null); // No duplicate
+      mockPrisma.lotteryPack.create.mockResolvedValue(
+        createTestLotteryPack({
+          game_id: TEST_GAME_ID,
+          store_id: TEST_STORE_ID,
+        }),
+      );
+
+      // Act
+      const result = await lotterySyncService.receivePack(
+        TEST_STORE_ID,
+        TEST_STATE_ID,
+        {
+          game_code: "0033",
+          pack_number: "123456",
+          serial_start: "001",
+          serial_end: "300",
+        },
+        createValidAuditContext(),
+      );
+
+      // Assert
+      expect(result.success).toBe(true);
+    });
+
+    it("should throw GAME_NOT_FOUND when game code doesn't exist anywhere", async () => {
+      // Arrange: No game found in either state or store scope
+      mockPrisma.lotteryGame.findFirst
+        .mockResolvedValueOnce(null) // No state game
+        .mockResolvedValueOnce(null); // No store game
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.receivePack(
+          TEST_STORE_ID,
+          TEST_STATE_ID,
+          {
+            game_code: "0000",
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow("GAME_NOT_FOUND:");
+    });
+
+    /**
+     * Semantic distinction test: GAME_NOT_FOUND vs GAME_INACTIVE
+     *
+     * These errors have different meanings and require different client actions:
+     * - GAME_NOT_FOUND: Game code is invalid/typo, user should check game code
+     * - GAME_INACTIVE: Game is correct but deactivated, contact admin to reactivate
+     */
+    it("should distinguish GAME_NOT_FOUND from GAME_INACTIVE", async () => {
+      // Test 1: Game doesn't exist -> GAME_NOT_FOUND
+      mockPrisma.lotteryGame.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
+
+      let error: Error | undefined;
+      try {
+        await lotterySyncService.receivePack(
+          TEST_STORE_ID,
+          TEST_STATE_ID,
+          {
+            game_code: "XXXX",
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createValidAuditContext(),
+        );
+      } catch (e) {
+        error = e as Error;
+      }
+      expect(error?.message).toContain("GAME_NOT_FOUND");
+      expect(error?.message).not.toContain("GAME_INACTIVE");
+
+      vi.clearAllMocks();
+
+      // Test 2: Game exists but inactive -> GAME_INACTIVE
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(
+        createTestLotteryGame({
+          game_id: TEST_GAME_ID,
+          game_code: "0033",
+          status: "INACTIVE",
+          state_id: TEST_STATE_ID,
+        }),
+      );
+
+      try {
+        await lotterySyncService.receivePack(
+          TEST_STORE_ID,
+          TEST_STATE_ID,
+          {
+            game_code: "0033",
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createValidAuditContext(),
+        );
+      } catch (e) {
+        error = e as Error;
+      }
+      expect(error?.message).toContain("GAME_INACTIVE");
+      expect(error?.message).not.toContain("GAME_NOT_FOUND");
+    });
+  });
+
+  describe("activatePack - GAME_INACTIVE scenarios", () => {
+    it("should throw GAME_INACTIVE when activating pack for inactive game", async () => {
+      // Arrange
+      const inactiveGame = createTestLotteryGame({
+        game_id: TEST_GAME_ID,
+        game_code: "0033",
+        status: "INACTIVE",
+        state_id: TEST_STATE_ID,
+      });
+
+      const validBin = createTestLotteryBin({
+        bin_id: TEST_BIN_ID,
+        store_id: TEST_STORE_ID,
+        is_active: true,
+      });
+
+      mockPrisma.lotteryBin.findFirst.mockResolvedValue(validBin);
+      mockPrisma.lotteryPack.findFirst.mockResolvedValue(null); // No existing pack
+      mockPrisma.lotteryPack.findUnique.mockResolvedValue(null);
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(inactiveGame);
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.activatePack(
+          TEST_STORE_ID,
+          TEST_STATE_ID,
+          {
+            pack_id: TEST_PACK_ID,
+            bin_id: TEST_BIN_ID,
+            game_code: "0033",
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow("GAME_INACTIVE:");
+    });
+
+    it("should succeed activating pack for active game", async () => {
+      // Arrange
+      const activeGame = createTestLotteryGame({
+        game_id: TEST_GAME_ID,
+        game_code: "0033",
+        status: "ACTIVE",
+        state_id: TEST_STATE_ID,
+      });
+
+      const validBin = createTestLotteryBin({
+        bin_id: TEST_BIN_ID,
+        store_id: TEST_STORE_ID,
+        is_active: true,
+      });
+
+      const createdPack = createTestLotteryPack({
+        pack_id: TEST_PACK_ID,
+        game_id: TEST_GAME_ID,
+        store_id: TEST_STORE_ID,
+        status: "RECEIVED",
+      });
+
+      const updatedPack = createTestLotteryPack({
+        pack_id: TEST_PACK_ID,
+        game_id: TEST_GAME_ID,
+        store_id: TEST_STORE_ID,
+        status: "ACTIVE",
+        current_bin_id: TEST_BIN_ID,
+      });
+
+      mockPrisma.lotteryBin.findFirst.mockResolvedValue(validBin);
+      mockPrisma.lotteryPack.findFirst.mockResolvedValue(null);
+      mockPrisma.lotteryPack.findUnique.mockResolvedValue(null);
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(activeGame);
+      mockPrisma.lotteryPack.create.mockResolvedValue(createdPack);
+      mockPrisma.lotteryPack.update.mockResolvedValue(updatedPack);
+
+      // Act
+      const result = await lotterySyncService.activatePack(
+        TEST_STORE_ID,
+        TEST_STATE_ID,
+        {
+          pack_id: TEST_PACK_ID,
+          bin_id: TEST_BIN_ID,
+          game_code: "0033",
+          pack_number: "123456",
+          serial_start: "001",
+          serial_end: "300",
+        },
+        createValidAuditContext(),
+      );
+
+      // Assert
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe("Query efficiency validation", () => {
+    /**
+     * DB-006: TENANT_ISOLATION - Verify queries are properly scoped
+     * SEC-006: SQL_INJECTION - Verify ORM usage (no raw SQL)
+     */
+    it("should query by game_code with tenant scope but without status filter", async () => {
+      const activeGame = createTestLotteryGame({
+        game_id: TEST_GAME_ID,
+        game_code: "0033",
+        status: "ACTIVE",
+        state_id: TEST_STATE_ID,
+      });
+
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(activeGame);
+      mockPrisma.lotteryPack.findUnique.mockResolvedValue(null);
+      mockPrisma.lotteryPack.create.mockResolvedValue(
+        createTestLotteryPack({ store_id: TEST_STORE_ID }),
+      );
+
+      await lotterySyncService.receivePack(
+        TEST_STORE_ID,
+        TEST_STATE_ID,
+        {
+          game_code: "0033",
+          pack_number: "123456",
+          serial_start: "001",
+          serial_end: "300",
+        },
+        createValidAuditContext(),
+      );
+
+      // Verify query structure
+      const findFirstCall = mockPrisma.lotteryGame.findFirst.mock.calls[0][0];
+
+      // Should have game_code
+      expect(findFirstCall.where.game_code).toBe("0033");
+
+      // Should have tenant isolation (state_id)
+      expect(findFirstCall.where.state_id).toBe(TEST_STATE_ID);
+
+      // Should NOT have status filter (removed to detect inactive games)
+      expect(findFirstCall.where.status).toBeUndefined();
+
+      // Should select status for post-query validation
+      expect(findFirstCall.select.status).toBe(true);
+    });
+  });
+});

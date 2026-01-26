@@ -429,18 +429,27 @@ export async function storeRoutes(fastify: FastifyInstance) {
                     default: "MANUAL",
                     description: "Connection type",
                   },
-                  vendor_type: {
+                  pos_type: {
                     type: "string",
                     enum: [
-                      "GENERIC",
-                      "SQUARE",
-                      "CLOVER",
-                      "TOAST",
-                      "LIGHTSPEED",
-                      "CUSTOM",
+                      "GILBARCO_PASSPORT",
+                      "GILBARCO_NAXML",
+                      "GILBARCO_COMMANDER",
+                      "VERIFONE_RUBY2",
+                      "VERIFONE_COMMANDER",
+                      "VERIFONE_SAPPHIRE",
+                      "CLOVER_REST",
+                      "ORACLE_SIMPHONY",
+                      "NCR_ALOHA",
+                      "LIGHTSPEED_REST",
+                      "SQUARE_REST",
+                      "TOAST_REST",
+                      "GENERIC_XML",
+                      "GENERIC_REST",
+                      "MANUAL_ENTRY",
                     ],
-                    default: "GENERIC",
-                    description: "POS vendor type",
+                    default: "MANUAL_ENTRY",
+                    description: "POS system type (enterprise 15-type enum)",
                   },
                   connection_config: {
                     type: "object",
@@ -494,7 +503,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
                     name: { type: "string" },
                     device_id: { type: "string", nullable: true },
                     connection_type: { type: "string" },
-                    vendor_type: { type: "string" },
+                    pos_type: { type: "string" },
                   },
                 },
               },
@@ -572,7 +581,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             name: string;
             device_id?: string;
             connection_type?: string;
-            vendor_type?: string;
+            pos_type?: string;
             connection_config?: Record<string, unknown>;
           }>;
         };
@@ -797,7 +806,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             name: string;
             device_id: string | null;
             connection_type: string;
-            vendor_type: string;
+            pos_type: string;
           }> = [];
 
           // 2. Create store login if provided
@@ -871,7 +880,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
                   device_id: terminalData.device_id || null,
                   connection_type:
                     (terminalData.connection_type as any) || "MANUAL",
-                  vendor_type: (terminalData.vendor_type as any) || "GENERIC",
+                  pos_type: (terminalData.pos_type as any) || "MANUAL_ENTRY",
                   connection_config:
                     (terminalData.connection_config as any) || {},
                   terminal_status: "ACTIVE",
@@ -884,7 +893,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
                 name: terminal.name,
                 device_id: terminal.device_id,
                 connection_type: terminal.connection_type,
-                vendor_type: terminal.vendor_type,
+                pos_type: terminal.pos_type,
               });
 
               // Audit log for each terminal
@@ -1457,6 +1466,40 @@ export async function storeRoutes(fastify: FastifyInstance) {
               pattern: "^[0-9]{5}(-[0-9]{4})?$",
               description: "ZIP code (5-digit or ZIP+4 format)",
             },
+            // === POS Connection Configuration ===
+            // SEC-014: INPUT_VALIDATION - Strict enum allowlists for POS types
+            pos_type: {
+              type: "string",
+              enum: [
+                "GILBARCO_PASSPORT",
+                "GILBARCO_NAXML",
+                "GILBARCO_COMMANDER",
+                "VERIFONE_RUBY2",
+                "VERIFONE_COMMANDER",
+                "VERIFONE_SAPPHIRE",
+                "CLOVER_REST",
+                "ORACLE_SIMPHONY",
+                "NCR_ALOHA",
+                "LIGHTSPEED_REST",
+                "SQUARE_REST",
+                "TOAST_REST",
+                "GENERIC_XML",
+                "GENERIC_REST",
+                "MANUAL_ENTRY",
+              ],
+              description: "POS System Type - Which POS vendor/protocol to use",
+            },
+            pos_connection_type: {
+              type: "string",
+              enum: ["NETWORK", "API", "WEBHOOK", "FILE", "MANUAL"],
+              description:
+                "POS Connection Type - How to connect to the POS system",
+            },
+            pos_connection_config: {
+              type: ["object", "null"],
+              description:
+                "Connection-specific configuration (JSON) - structure depends on connection type",
+            },
           },
         },
         response: {
@@ -1494,6 +1537,35 @@ export async function storeRoutes(fastify: FastifyInstance) {
                   county_id: { type: "string", format: "uuid" },
                   name: { type: "string" },
                 },
+              },
+              // POS Connection Configuration in response
+              pos_type: {
+                type: "string",
+                enum: [
+                  "GILBARCO_PASSPORT",
+                  "GILBARCO_NAXML",
+                  "GILBARCO_COMMANDER",
+                  "VERIFONE_RUBY2",
+                  "VERIFONE_COMMANDER",
+                  "VERIFONE_SAPPHIRE",
+                  "CLOVER_REST",
+                  "ORACLE_SIMPHONY",
+                  "NCR_ALOHA",
+                  "LIGHTSPEED_REST",
+                  "SQUARE_REST",
+                  "TOAST_REST",
+                  "GENERIC_XML",
+                  "GENERIC_REST",
+                  "MANUAL_ENTRY",
+                ],
+              },
+              pos_connection_type: {
+                type: "string",
+                enum: ["NETWORK", "API", "WEBHOOK", "FILE", "MANUAL"],
+              },
+              pos_connection_config: {
+                type: ["object", "null"],
+                additionalProperties: true,
               },
               created_at: { type: "string", format: "date-time" },
               updated_at: { type: "string", format: "date-time" },
@@ -1571,6 +1643,30 @@ export async function storeRoutes(fastify: FastifyInstance) {
           state_id?: string;
           county_id?: string | null;
           zip_code?: string;
+          // POS Connection Configuration
+          pos_type?:
+            | "GILBARCO_PASSPORT"
+            | "GILBARCO_NAXML"
+            | "GILBARCO_COMMANDER"
+            | "VERIFONE_RUBY2"
+            | "VERIFONE_COMMANDER"
+            | "VERIFONE_SAPPHIRE"
+            | "CLOVER_REST"
+            | "ORACLE_SIMPHONY"
+            | "NCR_ALOHA"
+            | "LIGHTSPEED_REST"
+            | "SQUARE_REST"
+            | "TOAST_REST"
+            | "GENERIC_XML"
+            | "GENERIC_REST"
+            | "MANUAL_ENTRY";
+          pos_connection_type?:
+            | "NETWORK"
+            | "API"
+            | "WEBHOOK"
+            | "FILE"
+            | "MANUAL";
+          pos_connection_config?: Record<string, unknown> | null;
         };
         const user = (request as any).user as UserIdentity;
 
@@ -1655,6 +1751,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
 
         // Update store (service will verify company isolation)
+        // Service layer handles SEC-014: INPUT_VALIDATION for POS fields
         const store = await storeService.updateStore(
           params.storeId,
           userCompanyId || oldStore.company_id,
@@ -1670,6 +1767,10 @@ export async function storeRoutes(fastify: FastifyInstance) {
             state_id: body.state_id,
             county_id: body.county_id,
             zip_code: body.zip_code,
+            // POS Connection Configuration
+            pos_type: body.pos_type,
+            pos_connection_type: body.pos_connection_type,
+            pos_connection_config: body.pos_connection_config,
           },
         );
 
@@ -1697,6 +1798,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
           });
         } catch (auditError) {
           // If audit log fails, revert the update and fail the request
+          // Restore ALL updatable fields to ensure complete rollback
           await storeService.updateStore(
             params.storeId,
             userCompanyId || oldStore.company_id,
@@ -1705,6 +1807,20 @@ export async function storeRoutes(fastify: FastifyInstance) {
               location_json: oldStore.location_json as any,
               timezone: oldStore.timezone,
               status: oldStore.status as any,
+              // Structured address fields
+              address_line1: oldStore.address_line1 ?? undefined,
+              address_line2: oldStore.address_line2,
+              city: oldStore.city ?? undefined,
+              state_id: oldStore.state_id ?? undefined,
+              county_id: oldStore.county_id,
+              zip_code: oldStore.zip_code ?? undefined,
+              // POS Connection Configuration
+              pos_type: oldStore.pos_type as any,
+              pos_connection_type: oldStore.pos_connection_type as any,
+              pos_connection_config: oldStore.pos_connection_config as Record<
+                string,
+                unknown
+              > | null,
             },
           );
           throw new Error("Failed to create audit log - operation rolled back");
@@ -1714,10 +1830,16 @@ export async function storeRoutes(fastify: FastifyInstance) {
         return store;
       } catch (error: any) {
         fastify.log.error({ error }, "Error updating store");
+        // SEC-014: INPUT_VALIDATION - Return 400 for all validation errors from service layer
+        // Check for various validation error patterns (case-insensitive where appropriate)
+        const errorMsg = error.message.toLowerCase();
         if (
           error.message.includes("required") ||
           error.message.includes("Invalid") ||
-          error.message.includes("cannot")
+          error.message.includes("cannot") ||
+          errorMsg.includes("invalid") ||
+          errorMsg.includes("exceeds") ||
+          errorMsg.includes("must be")
         ) {
           reply.code(400);
           return {
@@ -2589,15 +2711,24 @@ export async function storeRoutes(fastify: FastifyInstance) {
                   nullable: true,
                   additionalProperties: true,
                 },
-                vendor_type: {
+                pos_type: {
                   type: "string",
                   enum: [
-                    "GENERIC",
-                    "SQUARE",
-                    "CLOVER",
-                    "TOAST",
-                    "LIGHTSPEED",
-                    "CUSTOM",
+                    "GILBARCO_PASSPORT",
+                    "GILBARCO_NAXML",
+                    "GILBARCO_COMMANDER",
+                    "VERIFONE_RUBY2",
+                    "VERIFONE_COMMANDER",
+                    "VERIFONE_SAPPHIRE",
+                    "CLOVER_REST",
+                    "ORACLE_SIMPHONY",
+                    "NCR_ALOHA",
+                    "LIGHTSPEED_REST",
+                    "SQUARE_REST",
+                    "TOAST_REST",
+                    "GENERIC_XML",
+                    "GENERIC_REST",
+                    "MANUAL_ENTRY",
                   ],
                 },
                 terminal_status: {
@@ -2765,17 +2896,26 @@ export async function storeRoutes(fastify: FastifyInstance) {
               description:
                 "Connection configuration (structure depends on connection_type)",
             },
-            vendor_type: {
+            pos_type: {
               type: "string",
               enum: [
-                "GENERIC",
-                "SQUARE",
-                "CLOVER",
-                "TOAST",
-                "LIGHTSPEED",
-                "CUSTOM",
+                "GILBARCO_PASSPORT",
+                "GILBARCO_NAXML",
+                "GILBARCO_COMMANDER",
+                "VERIFONE_RUBY2",
+                "VERIFONE_COMMANDER",
+                "VERIFONE_SAPPHIRE",
+                "CLOVER_REST",
+                "ORACLE_SIMPHONY",
+                "NCR_ALOHA",
+                "LIGHTSPEED_REST",
+                "SQUARE_REST",
+                "TOAST_REST",
+                "GENERIC_XML",
+                "GENERIC_REST",
+                "MANUAL_ENTRY",
               ],
-              description: "POS vendor type",
+              description: "POS system type (enterprise 15-type enum)",
             },
             terminal_status: {
               type: "string",
@@ -2806,15 +2946,24 @@ export async function storeRoutes(fastify: FastifyInstance) {
                 nullable: true,
                 additionalProperties: true,
               },
-              vendor_type: {
+              pos_type: {
                 type: "string",
                 enum: [
-                  "GENERIC",
-                  "SQUARE",
-                  "CLOVER",
-                  "TOAST",
-                  "LIGHTSPEED",
-                  "CUSTOM",
+                  "GILBARCO_PASSPORT",
+                  "GILBARCO_NAXML",
+                  "GILBARCO_COMMANDER",
+                  "VERIFONE_RUBY2",
+                  "VERIFONE_COMMANDER",
+                  "VERIFONE_SAPPHIRE",
+                  "CLOVER_REST",
+                  "ORACLE_SIMPHONY",
+                  "NCR_ALOHA",
+                  "LIGHTSPEED_REST",
+                  "SQUARE_REST",
+                  "TOAST_REST",
+                  "GENERIC_XML",
+                  "GENERIC_REST",
+                  "MANUAL_ENTRY",
                 ],
               },
               terminal_status: {
@@ -3035,17 +3184,26 @@ export async function storeRoutes(fastify: FastifyInstance) {
               description:
                 "Connection configuration (structure depends on connection_type)",
             },
-            vendor_type: {
+            pos_type: {
               type: "string",
               enum: [
-                "GENERIC",
-                "SQUARE",
-                "CLOVER",
-                "TOAST",
-                "LIGHTSPEED",
-                "CUSTOM",
+                "GILBARCO_PASSPORT",
+                "GILBARCO_NAXML",
+                "GILBARCO_COMMANDER",
+                "VERIFONE_RUBY2",
+                "VERIFONE_COMMANDER",
+                "VERIFONE_SAPPHIRE",
+                "CLOVER_REST",
+                "ORACLE_SIMPHONY",
+                "NCR_ALOHA",
+                "LIGHTSPEED_REST",
+                "SQUARE_REST",
+                "TOAST_REST",
+                "GENERIC_XML",
+                "GENERIC_REST",
+                "MANUAL_ENTRY",
               ],
-              description: "POS vendor type",
+              description: "POS system type (enterprise 15-type enum)",
             },
             terminal_status: {
               type: "string",
@@ -3076,15 +3234,24 @@ export async function storeRoutes(fastify: FastifyInstance) {
                 nullable: true,
                 additionalProperties: true,
               },
-              vendor_type: {
+              pos_type: {
                 type: "string",
                 enum: [
-                  "GENERIC",
-                  "SQUARE",
-                  "CLOVER",
-                  "TOAST",
-                  "LIGHTSPEED",
-                  "CUSTOM",
+                  "GILBARCO_PASSPORT",
+                  "GILBARCO_NAXML",
+                  "GILBARCO_COMMANDER",
+                  "VERIFONE_RUBY2",
+                  "VERIFONE_COMMANDER",
+                  "VERIFONE_SAPPHIRE",
+                  "CLOVER_REST",
+                  "ORACLE_SIMPHONY",
+                  "NCR_ALOHA",
+                  "LIGHTSPEED_REST",
+                  "SQUARE_REST",
+                  "TOAST_REST",
+                  "GENERIC_XML",
+                  "GENERIC_REST",
+                  "MANUAL_ENTRY",
                 ],
               },
               terminal_status: {

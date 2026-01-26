@@ -792,3 +792,237 @@ describe("Lottery Sync Routes - Response Format", () => {
     });
   });
 });
+
+// =============================================================================
+// GAME_INACTIVE HTTP Response Tests (AIP-193 Compliance)
+// =============================================================================
+
+describe("Lottery Sync Routes - GAME_INACTIVE Error Handling", () => {
+  let app: FastifyInstance;
+  let mockPrisma: MockPrismaClient;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    mockPrisma = getMockPrisma();
+    vi.clearAllMocks();
+  });
+
+  describe("POST /api/v1/sync/lottery/packs/receive", () => {
+    const validPayload = {
+      session_id: VALID_SESSION_ID,
+      game_code: "0033",
+      pack_number: "123456",
+      serial_start: "000000001",
+      serial_end: "000000300",
+    };
+
+    /**
+     * AIP-193 Compliance Test: HTTP 400 FAILED_PRECONDITION for inactive game
+     *
+     * When a game exists but is INACTIVE, the API should return:
+     * - HTTP 400 (not 404)
+     * - code: "FAILED_PRECONDITION"
+     * - reason: "GAME_INACTIVE"
+     *
+     * This allows desktop apps to distinguish between:
+     * - Game doesn't exist (needs to check game code)
+     * - Game is inactive (contact admin)
+     */
+    it("should return 400 FAILED_PRECONDITION for inactive game (not 404)", async () => {
+      // Arrange: Valid session, inactive game
+      const validSession = createTestSyncSession({
+        sync_session_id: VALID_SESSION_ID,
+        api_key_id: TEST_API_KEY_ID,
+      });
+      validSession.api_key.store_id = TEST_STORE_ID;
+
+      const inactiveGame = createTestLotteryGame({
+        game_code: "0033",
+        status: "INACTIVE",
+      });
+
+      mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(inactiveGame);
+
+      // Act
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/sync/lottery/packs/receive",
+        payload: validPayload,
+        headers: { "content-type": "application/json" },
+      });
+
+      // Assert: MUST be 400, NOT 404
+      expect(response.statusCode).toBe(400);
+
+      const body = JSON.parse(response.payload);
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe("FAILED_PRECONDITION");
+      expect(body.error.reason).toBe("GAME_INACTIVE");
+      expect(body.error.message).toContain("inactive");
+      expect(body.error.details.domain).toBe("lottery.api.nuvana.com");
+    });
+
+    it("should return 404 NOT_FOUND for non-existent game", async () => {
+      // Arrange: Valid session, no game
+      const validSession = createTestSyncSession({
+        sync_session_id: VALID_SESSION_ID,
+        api_key_id: TEST_API_KEY_ID,
+      });
+      validSession.api_key.store_id = TEST_STORE_ID;
+
+      mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+      mockPrisma.lotteryGame.findFirst
+        .mockResolvedValueOnce(null) // No state game
+        .mockResolvedValueOnce(null); // No store game
+
+      // Act
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/sync/lottery/packs/receive",
+        payload: validPayload,
+        headers: { "content-type": "application/json" },
+      });
+
+      // Assert: 404 is correct for truly non-existent game
+      expect(response.statusCode).toBe(404);
+
+      const body = JSON.parse(response.payload);
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe("GAME_NOT_FOUND");
+    });
+
+    it("should return 201 for active game", async () => {
+      // Arrange: Valid session, active game
+      const validSession = createTestSyncSession({
+        sync_session_id: VALID_SESSION_ID,
+        api_key_id: TEST_API_KEY_ID,
+      });
+      validSession.api_key.store_id = TEST_STORE_ID;
+
+      const activeGame = createTestLotteryGame({
+        game_code: "0033",
+        status: "ACTIVE",
+      });
+      const createdPack = createTestLotteryPack({
+        game_id: activeGame.game_id,
+        status: "RECEIVED",
+      });
+
+      mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(activeGame);
+      mockPrisma.lotteryPack.findUnique.mockResolvedValue(null);
+      mockPrisma.lotteryPack.create.mockResolvedValue(createdPack);
+
+      // Act
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/sync/lottery/packs/receive",
+        payload: validPayload,
+        headers: { "content-type": "application/json" },
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(201);
+      const body = JSON.parse(response.payload);
+      expect(body.success).toBe(true);
+    });
+
+    /**
+     * Test: Error response includes machine-readable metadata
+     *
+     * Enterprise requirement: Errors should include structured metadata
+     * for programmatic handling by client applications.
+     */
+    it("should include game_code in error metadata", async () => {
+      const validSession = createTestSyncSession({
+        sync_session_id: VALID_SESSION_ID,
+        api_key_id: TEST_API_KEY_ID,
+      });
+      validSession.api_key.store_id = TEST_STORE_ID;
+
+      const inactiveGame = createTestLotteryGame({
+        game_code: "0033",
+        status: "INACTIVE",
+      });
+
+      mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(inactiveGame);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/sync/lottery/packs/receive",
+        payload: validPayload,
+        headers: { "content-type": "application/json" },
+      });
+
+      const body = JSON.parse(response.payload);
+      expect(body.error.details.metadata.game_code).toBe("0033");
+    });
+  });
+
+  describe("POST /api/v1/sync/lottery/packs/activate", () => {
+    // Valid UUIDs for test data
+    const TEST_PACK_UUID = "550e8400-e29b-41d4-a716-446655440001";
+    const TEST_BIN_UUID = "550e8400-e29b-41d4-a716-446655440002";
+
+    const validPayload = {
+      session_id: VALID_SESSION_ID,
+      pack_id: TEST_PACK_UUID,
+      bin_id: TEST_BIN_UUID,
+      game_code: "0033",
+      pack_number: "123456",
+      serial_start: "000000001",
+      serial_end: "000000300",
+      opening_serial: "000000001",
+      activated_at: new Date().toISOString(),
+      received_at: new Date().toISOString(),
+    };
+
+    it("should return 400 FAILED_PRECONDITION for inactive game", async () => {
+      const validSession = createTestSyncSession({
+        sync_session_id: VALID_SESSION_ID,
+        api_key_id: TEST_API_KEY_ID,
+      });
+      validSession.api_key.store_id = TEST_STORE_ID;
+
+      const validBin = {
+        bin_id: TEST_BIN_UUID,
+        store_id: TEST_STORE_ID,
+        is_active: true,
+        name: "Test Bin",
+      };
+
+      const inactiveGame = createTestLotteryGame({
+        game_code: "0033",
+        status: "INACTIVE",
+      });
+
+      mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+      mockPrisma.lotteryBin.findFirst.mockResolvedValue(validBin);
+      mockPrisma.lotteryPack.findFirst.mockResolvedValue(null); // No existing pack
+      mockPrisma.lotteryPack.findUnique.mockResolvedValue(null);
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(inactiveGame);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/sync/lottery/packs/activate",
+        payload: validPayload,
+        headers: { "content-type": "application/json" },
+      });
+
+      expect(response.statusCode).toBe(400);
+      const body = JSON.parse(response.payload);
+      expect(body.error.code).toBe("FAILED_PRECONDITION");
+      expect(body.error.reason).toBe("GAME_INACTIVE");
+    });
+  });
+});

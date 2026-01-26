@@ -315,7 +315,7 @@ describe("Terminal Management Component", () => {
             name: "New Terminal",
             device_id: "DEV-NEW",
             connection_type: "MANUAL",
-            vendor_type: "GENERIC",
+            pos_type: "MANUAL_ENTRY",
             connection_config: undefined,
           },
         });
@@ -521,7 +521,7 @@ describe("Terminal Management Component", () => {
             name: "Updated Terminal",
             device_id: "DEV-001",
             connection_type: "MANUAL",
-            vendor_type: "GENERIC",
+            pos_type: "MANUAL_ENTRY",
             connection_config: undefined,
           },
         });
@@ -847,8 +847,8 @@ describe("Terminal Management Component", () => {
     });
   });
 
-  describe("Terminal Form - Connection Type and Vendor Fields (AC #2)", () => {
-    it("[P0] Should display Connection Type dropdown with all options", async () => {
+  describe("Terminal Form - POS Type Selection (AC #2)", () => {
+    it("[P0] Should display POS Type dropdown with grouped options", async () => {
       // GIVEN: Form is rendered and create dialog is open
       const user = userEvent.setup();
       renderWithProviders(
@@ -864,70 +864,19 @@ describe("Terminal Management Component", () => {
         ).toBeInTheDocument();
       });
 
-      // WHEN: User opens Connection Type dropdown
-      const connectionTypeSelect = screen.getByLabelText(/Connection Type/i);
-      await user.click(connectionTypeSelect);
-
-      // THEN: All connection type options should be available
-      await waitFor(() => {
-        expect(
-          screen.getByRole("option", { name: /Network/i }),
-        ).toBeInTheDocument();
-        expect(
-          screen.getByRole("option", { name: /API/i }),
-        ).toBeInTheDocument();
-        expect(
-          screen.getByRole("option", { name: /Webhook/i }),
-        ).toBeInTheDocument();
-        expect(
-          screen.getByRole("option", { name: /File/i }),
-        ).toBeInTheDocument();
-        expect(
-          screen.getByRole("option", { name: /Manual/i }),
-        ).toBeInTheDocument();
-      });
-    });
-
-    it("[P0] Should display POS Vendor dropdown with all options", async () => {
-      // GIVEN: Form is rendered and create dialog is open
-      const user = userEvent.setup();
-      renderWithProviders(
-        <StoreForm companyId={companyId} store={mockStore} />,
+      // WHEN: User opens POS Type dropdown (create dialog uses specific test ID)
+      const posTypeSelector = screen.getByTestId(
+        "create-terminal-pos-type-selector",
       );
+      await user.click(posTypeSelector);
 
-      const addButton = screen.getByRole("button", { name: /Add Terminal/i });
-      await user.click(addButton);
-
+      // THEN: POS type groups should be visible (enterprise 15-type enum)
       await waitFor(() => {
-        expect(
-          screen.getByRole("heading", { name: "Add Terminal" }),
-        ).toBeInTheDocument();
-      });
-
-      // WHEN: User opens POS Vendor dropdown
-      const vendorSelect = screen.getByLabelText(/POS Vendor/i);
-      await user.click(vendorSelect);
-
-      // THEN: All vendor options should be available
-      await waitFor(() => {
-        expect(
-          screen.getByRole("option", { name: /Generic/i }),
-        ).toBeInTheDocument();
-        expect(
-          screen.getByRole("option", { name: /Square/i }),
-        ).toBeInTheDocument();
-        expect(
-          screen.getByRole("option", { name: /Clover/i }),
-        ).toBeInTheDocument();
-        expect(
-          screen.getByRole("option", { name: /Toast/i }),
-        ).toBeInTheDocument();
-        expect(
-          screen.getByRole("option", { name: /Lightspeed/i }),
-        ).toBeInTheDocument();
-        expect(
-          screen.getByRole("option", { name: /Custom/i }),
-        ).toBeInTheDocument();
+        // Check for group labels
+        expect(screen.getByText("Verifone")).toBeInTheDocument();
+        expect(screen.getByText("Gilbarco")).toBeInTheDocument();
+        expect(screen.getByText("Cloud POS")).toBeInTheDocument();
+        expect(screen.getByText("Other")).toBeInTheDocument();
       });
     });
 
@@ -938,7 +887,7 @@ describe("Terminal Management Component", () => {
         {
           ...mockTerminals[0],
           connection_type: "API",
-          vendor_type: "SQUARE",
+          pos_type: "SQUARE_REST",
           terminal_status: "ACTIVE",
           sync_status: "SUCCESS",
           last_sync_at: new Date().toISOString(),
@@ -968,17 +917,17 @@ describe("Terminal Management Component", () => {
         ).toBeInTheDocument();
       });
 
-      // THEN: Connection type and vendor should be pre-filled
-      const connectionTypeSelect = screen.getByLabelText(/Connection Type/i);
-      expect(connectionTypeSelect).toHaveTextContent(/API/i);
-
-      const vendorSelect = screen.getByLabelText(/POS Vendor/i);
-      expect(vendorSelect).toHaveTextContent(/Square/i);
+      // THEN: POS type should be pre-filled
+      // Check that POS type selector shows Square (from SQUARE_REST)
+      const posTypeSelector = screen.getByTestId(
+        "edit-terminal-pos-type-selector",
+      );
+      expect(posTypeSelector).toHaveTextContent(/Square/i);
     });
   });
 
   describe("Terminal Form - Connection Config Form Validation (AC #3)", () => {
-    it("[P1] Should show NETWORK config fields when NETWORK is selected", async () => {
+    it("[P1] Should show NETWORK config fields when network-based POS is selected", async () => {
       // GIVEN: Form is rendered and create dialog is open
       const user = userEvent.setup();
       renderWithProviders(
@@ -994,12 +943,20 @@ describe("Terminal Management Component", () => {
         ).toBeInTheDocument();
       });
 
-      // WHEN: User selects NETWORK connection type
-      const connectionTypeSelect = screen.getByLabelText(/Connection Type/i);
-      await user.click(connectionTypeSelect);
-      await user.click(screen.getByRole("option", { name: /Network/i }));
+      // WHEN: User selects a network-based POS type (GILBARCO_PASSPORT -> NETWORK)
+      const posTypeSelector = screen.getByTestId(
+        "create-terminal-pos-type-selector",
+      );
+      await user.click(posTypeSelector);
+      // Wait for dropdown to open and select Gilbarco Passport
+      await waitFor(() => {
+        expect(screen.getByText("Gilbarco")).toBeInTheDocument();
+      });
+      await user.click(
+        screen.getByRole("option", { name: /Gilbarco Passport \(Network\)/i }),
+      );
 
-      // THEN: NETWORK config fields should be displayed
+      // THEN: NETWORK config fields should be displayed (connection type is auto-derived internally)
       await waitFor(() => {
         expect(screen.getByLabelText(/Host/i)).toBeInTheDocument();
         expect(screen.getByLabelText(/Port/i)).toBeInTheDocument();
@@ -1007,7 +964,7 @@ describe("Terminal Management Component", () => {
       });
     });
 
-    it("[P1] Should show API config fields when API is selected", async () => {
+    it("[P1] Should show API config fields when cloud-based POS is selected", async () => {
       // GIVEN: Form is rendered and create dialog is open
       const user = userEvent.setup();
       renderWithProviders(
@@ -1023,47 +980,34 @@ describe("Terminal Management Component", () => {
         ).toBeInTheDocument();
       });
 
-      // WHEN: User selects API connection type
-      const connectionTypeSelect = screen.getByLabelText(/Connection Type/i);
-      await user.click(connectionTypeSelect);
-      await user.click(screen.getByRole("option", { name: /API/i }));
+      // WHEN: User selects a cloud-based POS type (SQUARE_REST -> API)
+      const posTypeSelector = screen.getByTestId(
+        "create-terminal-pos-type-selector",
+      );
+      await user.click(posTypeSelector);
+      // Wait for dropdown to open and select Square
+      await waitFor(() => {
+        expect(screen.getByText("Cloud POS")).toBeInTheDocument();
+      });
+      await user.click(
+        screen.getByRole("option", { name: /Square \(Cloud API\)/i }),
+      );
 
-      // THEN: API config fields should be displayed
+      // THEN: API config fields should be displayed (connection type is auto-derived internally)
       await waitFor(() => {
         expect(screen.getByLabelText(/Base URL/i)).toBeInTheDocument();
         expect(screen.getByLabelText(/API Key/i)).toBeInTheDocument();
       });
     });
 
-    it("[P1] Should show WEBHOOK config fields when WEBHOOK is selected", async () => {
-      // GIVEN: Form is rendered and create dialog is open
-      const user = userEvent.setup();
-      renderWithProviders(
-        <StoreForm companyId={companyId} store={mockStore} />,
-      );
-
-      const addButton = screen.getByRole("button", { name: /Add Terminal/i });
-      await user.click(addButton);
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole("heading", { name: "Add Terminal" }),
-        ).toBeInTheDocument();
-      });
-
-      // WHEN: User selects WEBHOOK connection type
-      const connectionTypeSelect = screen.getByLabelText(/Connection Type/i);
-      await user.click(connectionTypeSelect);
-      await user.click(screen.getByRole("option", { name: /Webhook/i }));
-
-      // THEN: WEBHOOK config fields should be displayed
-      await waitFor(() => {
-        expect(screen.getByLabelText(/Webhook URL/i)).toBeInTheDocument();
-        expect(screen.getByLabelText(/Secret/i)).toBeInTheDocument();
-      });
+    // WEBHOOK connection type is not automatically selected by any POS type
+    // It would require manual backend configuration. Skipping this test.
+    it.skip("[P1] Should show WEBHOOK config fields when WEBHOOK is selected", async () => {
+      // Note: No POS type currently maps to WEBHOOK connection type.
+      // WEBHOOK would need to be manually configured on the backend.
     });
 
-    it("[P1] Should show FILE config fields when FILE is selected", async () => {
+    it("[P1] Should show FILE config fields when file-based POS is selected", async () => {
       // GIVEN: Form is rendered and create dialog is open
       const user = userEvent.setup();
       renderWithProviders(
@@ -1079,19 +1023,27 @@ describe("Terminal Management Component", () => {
         ).toBeInTheDocument();
       });
 
-      // WHEN: User selects FILE connection type
-      const connectionTypeSelect = screen.getByLabelText(/Connection Type/i);
-      await user.click(connectionTypeSelect);
-      await user.click(screen.getByRole("option", { name: /File/i }));
+      // WHEN: User selects a file-based POS type (VERIFONE_COMMANDER -> FILE)
+      const posTypeSelector = screen.getByTestId(
+        "create-terminal-pos-type-selector",
+      );
+      await user.click(posTypeSelector);
+      // Wait for dropdown to open and select Verifone Commander
+      await waitFor(() => {
+        expect(screen.getByText("Verifone")).toBeInTheDocument();
+      });
+      await user.click(
+        screen.getByRole("option", { name: /Verifone Commander \(NAXML\)/i }),
+      );
 
-      // THEN: FILE config fields should be displayed
+      // THEN: FILE config fields should be displayed (connection type is auto-derived internally)
       await waitFor(() => {
         expect(screen.getByLabelText(/Import Path/i)).toBeInTheDocument();
       });
     });
 
-    it("[P1] Should hide config fields when MANUAL is selected", async () => {
-      // GIVEN: Form is rendered and create dialog is open with NETWORK selected
+    it("[P1] Should hide config fields when manual POS is selected", async () => {
+      // GIVEN: Form is rendered and create dialog is open with a non-manual POS type selected
       const user = userEvent.setup();
       renderWithProviders(
         <StoreForm companyId={companyId} store={mockStore} />,
@@ -1106,17 +1058,28 @@ describe("Terminal Management Component", () => {
         ).toBeInTheDocument();
       });
 
-      // WHEN: User selects NETWORK then switches to MANUAL
-      const connectionTypeSelect = screen.getByLabelText(/Connection Type/i);
-      await user.click(connectionTypeSelect);
-      await user.click(screen.getByRole("option", { name: /Network/i }));
+      // First select a network-based POS to show config fields
+      const posTypeSelector = screen.getByTestId(
+        "create-terminal-pos-type-selector",
+      );
+      await user.click(posTypeSelector);
+      await waitFor(() => {
+        expect(screen.getByText("Gilbarco")).toBeInTheDocument();
+      });
+      await user.click(
+        screen.getByRole("option", { name: /Gilbarco Passport \(Network\)/i }),
+      );
 
       await waitFor(() => {
         expect(screen.getByLabelText(/Host/i)).toBeInTheDocument();
       });
 
-      await user.click(connectionTypeSelect);
-      await user.click(screen.getByRole("option", { name: /Manual/i }));
+      // WHEN: User switches to Manual Entry POS type
+      await user.click(posTypeSelector);
+      await waitFor(() => {
+        expect(screen.getByText("Other")).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole("option", { name: /Manual Entry/i }));
 
       // THEN: Config fields should be hidden
       await waitFor(() => {
@@ -1147,13 +1110,17 @@ describe("Terminal Management Component", () => {
       await user.type(screen.getByLabelText(/Terminal Name/i), "API Terminal");
       await user.type(screen.getByLabelText(/Device ID/i), "DEV-API-001");
 
-      // Wait for Connection Type field to be available
+      // Select a cloud-based POS type to auto-select API connection type
+      const posTypeSelector = screen.getByTestId(
+        "create-terminal-pos-type-selector",
+      );
+      await user.click(posTypeSelector);
       await waitFor(() => {
-        expect(screen.getByLabelText(/Connection Type/i)).toBeInTheDocument();
+        expect(screen.getByText("Cloud POS")).toBeInTheDocument();
       });
-      const connectionTypeSelect = screen.getByLabelText(/Connection Type/i);
-      await user.click(connectionTypeSelect);
-      await user.click(screen.getByRole("option", { name: /API/i }));
+      await user.click(
+        screen.getByRole("option", { name: /Square \(Cloud API\)/i }),
+      );
 
       await waitFor(() => {
         expect(screen.getByLabelText(/Base URL/i)).toBeInTheDocument();
@@ -1188,9 +1155,10 @@ describe("Terminal Management Component", () => {
             name: "API Terminal",
             device_id: "DEV-API-001",
             connection_type: "API",
+            pos_type: "SQUARE_REST",
             connection_config: expect.objectContaining({
-              baseUrl: "https://api.example.com",
-              apiKey: "secret-api-key-123",
+              base_url: "https://api.example.com",
+              api_key: "secret-api-key-123",
             }),
           }),
         });
@@ -1204,7 +1172,7 @@ describe("Terminal Management Component", () => {
         {
           ...mockTerminals[0],
           connection_type: "API",
-          vendor_type: "GENERIC",
+          pos_type: "MANUAL_ENTRY",
         },
       ];
 
@@ -1230,14 +1198,17 @@ describe("Terminal Management Component", () => {
         ).toBeInTheDocument();
       });
 
-      // WHEN: User changes connection type to NETWORK and fills config
-      // Wait for Connection Type field to be available
+      // WHEN: User changes POS type to a network-based one (auto-selects NETWORK connection)
+      const posTypeSelector = screen.getByTestId(
+        "edit-terminal-pos-type-selector",
+      );
+      await user.click(posTypeSelector);
       await waitFor(() => {
-        expect(screen.getByLabelText(/Connection Type/i)).toBeInTheDocument();
+        expect(screen.getByText("Gilbarco")).toBeInTheDocument();
       });
-      const connectionTypeSelect = screen.getByLabelText(/Connection Type/i);
-      await user.click(connectionTypeSelect);
-      await user.click(screen.getByRole("option", { name: /Network/i }));
+      await user.click(
+        screen.getByRole("option", { name: /Gilbarco Passport \(Network\)/i }),
+      );
 
       await waitFor(() => {
         expect(screen.getByLabelText(/Host/i)).toBeInTheDocument();
@@ -1258,6 +1229,7 @@ describe("Terminal Management Component", () => {
           terminalId: mockTerminals[0].pos_terminal_id,
           data: expect.objectContaining({
             connection_type: "NETWORK",
+            pos_type: "GILBARCO_PASSPORT",
             connection_config: expect.objectContaining({
               host: "192.168.1.100",
               port: 8080,
@@ -1330,13 +1302,17 @@ describe("Terminal Management Component", () => {
       // WHEN: User creates terminal with connection config
       await user.type(screen.getByLabelText(/Terminal Name/i), "Test Terminal");
 
-      // Wait for Connection Type field to be available
+      // Select a cloud-based POS type to auto-select API connection type
+      const posTypeSelector = screen.getByTestId(
+        "create-terminal-pos-type-selector",
+      );
+      await user.click(posTypeSelector);
       await waitFor(() => {
-        expect(screen.getByLabelText(/Connection Type/i)).toBeInTheDocument();
+        expect(screen.getByText("Cloud POS")).toBeInTheDocument();
       });
-      const connectionTypeSelect = screen.getByLabelText(/Connection Type/i);
-      await user.click(connectionTypeSelect);
-      await user.click(screen.getByRole("option", { name: /API/i }));
+      await user.click(
+        screen.getByRole("option", { name: /Square \(Cloud API\)/i }),
+      );
 
       await waitFor(() => {
         expect(screen.getByLabelText(/Base URL/i)).toBeInTheDocument();
@@ -1372,9 +1348,10 @@ describe("Terminal Management Component", () => {
           data: expect.objectContaining({
             name: "Test Terminal",
             connection_type: "API",
+            pos_type: "SQUARE_REST",
             connection_config: expect.objectContaining({
-              baseUrl: "https://api.test.com",
-              apiKey: "test-key",
+              base_url: "https://api.test.com",
+              api_key: "test-key",
             }),
           }),
         });
@@ -1506,15 +1483,20 @@ describe("Terminal Management Component", () => {
         ).toBeInTheDocument();
       });
 
-      // WHEN: User selects API connection type
+      // WHEN: User selects a cloud-based POS type to auto-select API connection
       await user.type(screen.getByLabelText(/Terminal Name/i), "Test Terminal");
-      // Wait for Connection Type field to be available
+
+      // Select a cloud-based POS type (SQUARE_REST -> API)
+      const posTypeSelector = screen.getByTestId(
+        "create-terminal-pos-type-selector",
+      );
+      await user.click(posTypeSelector);
       await waitFor(() => {
-        expect(screen.getByLabelText(/Connection Type/i)).toBeInTheDocument();
+        expect(screen.getByText("Cloud POS")).toBeInTheDocument();
       });
-      const connectionTypeSelect = screen.getByLabelText(/Connection Type/i);
-      await user.click(connectionTypeSelect);
-      await user.click(screen.getByRole("option", { name: /API/i }));
+      await user.click(
+        screen.getByRole("option", { name: /Square \(Cloud API\)/i }),
+      );
 
       await waitFor(() => {
         expect(screen.getByLabelText(/Base URL/i)).toBeInTheDocument();
@@ -1528,9 +1510,9 @@ describe("Terminal Management Component", () => {
 
       // THEN: Validation error should be displayed inline
       await waitFor(() => {
-        // The component shows inline validation error "baseUrl must be a valid URL"
+        // The component shows inline validation error "base_url must be a valid URL"
         expect(
-          screen.getByText(/baseUrl must be a valid URL/i),
+          screen.getByText(/base_url must be a valid URL/i),
         ).toBeInTheDocument();
       });
     });

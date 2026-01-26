@@ -77,7 +77,7 @@ test.describe("Terminal Connection Configuration API", () => {
         device_id: terminalData.device_id,
         connection_type: terminalData.connection_type,
         connection_config: terminalData.connection_config,
-        vendor_type: terminalData.vendor_type,
+        pos_type: terminalData.pos_type,
       },
     );
 
@@ -120,7 +120,7 @@ test.describe("Terminal Connection Configuration API", () => {
         device_id: terminalData.device_id,
         connection_type: terminalData.connection_type,
         connection_config: terminalData.connection_config,
-        vendor_type: terminalData.vendor_type,
+        pos_type: terminalData.pos_type,
       },
     );
 
@@ -162,7 +162,7 @@ test.describe("Terminal Connection Configuration API", () => {
         device_id: terminalData.device_id,
         connection_type: terminalData.connection_type,
         connection_config: terminalData.connection_config,
-        vendor_type: terminalData.vendor_type,
+        pos_type: terminalData.pos_type,
       },
     );
 
@@ -203,7 +203,7 @@ test.describe("Terminal Connection Configuration API", () => {
         device_id: terminalData.device_id,
         connection_type: terminalData.connection_type,
         connection_config: terminalData.connection_config,
-        vendor_type: terminalData.vendor_type,
+        pos_type: terminalData.pos_type,
       },
     );
 
@@ -413,7 +413,7 @@ test.describe("Terminal Connection Configuration API", () => {
       device_id: terminalData.device_id,
       connection_type: terminalData.connection_type,
       connection_config: terminalData.connection_config,
-      vendor_type: terminalData.vendor_type,
+      pos_type: terminalData.pos_type,
     });
 
     // WHEN: Fetching terminal list
@@ -428,7 +428,7 @@ test.describe("Terminal Connection Configuration API", () => {
     const terminal = terminals[0];
     expect(terminal).toHaveProperty("connection_type");
     expect(terminal).toHaveProperty("connection_config");
-    expect(terminal).toHaveProperty("vendor_type");
+    expect(terminal).toHaveProperty("pos_type");
     expect(terminal).toHaveProperty("terminal_status");
     expect(terminal).toHaveProperty("sync_status");
     expect(terminal).toHaveProperty("last_sync_at");

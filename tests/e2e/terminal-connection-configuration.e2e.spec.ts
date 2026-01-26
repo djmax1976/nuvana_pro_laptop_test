@@ -7,6 +7,7 @@
  * @justification E2E tests for critical user journey: viewing terminals, creating terminal with connection config, editing connection
  * @feature Terminal Connection Configuration
  * @created 2025-01-27
+ * @updated 2026-01-25 - Aligned with actual implementation (POSTypeSelector pattern)
  * @priority P0 (Critical)
  *
  * CRITICAL USER JOURNEY:
@@ -17,7 +18,16 @@
  * Implementation Notes:
  * - UI uses StoreForm component at /stores/:storeId/edit
  * - TerminalManagementSection handles terminal CRUD operations
- * - Connection type fields are dynamically rendered based on selection
+ * - Connection type is auto-derived from POS type selection:
+ *   - Cloud POS (Square, Clover, etc.) -> API connection
+ *   - Network POS (Verifone Sapphire, Gilbarco Passport) -> NETWORK connection
+ *   - File POS (Verifone Commander, Ruby2) -> FILE connection
+ *   - Manual Entry -> MANUAL (no connection config)
+ *
+ * @enterprise-standards
+ * - SEC-014: Input validation tests
+ * - SEC-001: Authentication bypass prevention
+ * - FE-002: Form validation alignment
  */
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
@@ -63,7 +73,7 @@ test.describe("Terminal Connection Configuration E2E", () => {
         device_id: terminalData.device_id,
         connection_type: terminalData.connection_type,
         connection_config: terminalData.connection_config,
-        vendor_type: terminalData.vendor_type,
+        pos_type: terminalData.pos_type,
         terminal_status: terminalData.terminal_status,
         sync_status: terminalData.sync_status,
       },
@@ -106,6 +116,9 @@ test.describe("Terminal Connection Configuration E2E", () => {
    * WHY: This is the primary workflow for store managers
    * RISK: High - affects terminal operations
    * VALIDATES: Full user flow from UI to API to database
+   *
+   * Implementation: POS type selection auto-derives connection type
+   * - SQUARE_REST -> API connection type
    */
   test("[P0] Store Manager can create terminal with API connection configuration", async ({
     superadminPage,
@@ -139,26 +152,23 @@ test.describe("Terminal Connection Configuration E2E", () => {
       page.getByRole("heading", { name: /Add Terminal/i }),
     ).toBeVisible();
 
-    // WHEN: Store Manager fills terminal name using the input id
+    // WHEN: Store Manager fills terminal name
     await page.locator("#terminal-name").fill("API Terminal");
 
-    // WHEN: Store Manager selects API connection type
-    // Click the connection type select trigger
-    await page.locator("#connection-type").click();
-    await page.getByRole("option", { name: /^API$/i }).click();
+    // WHEN: Store Manager selects a Cloud POS type (which auto-sets API connection)
+    // The POSTypeSelector has data-testid="create-terminal-pos-type-selector"
+    await page.getByTestId("create-terminal-pos-type-selector").click();
+    // Select "Square (Cloud API)" from the Cloud POS group
+    await page.getByRole("option", { name: /Square \(Cloud API\)/i }).click();
 
-    // THEN: API connection config fields are displayed (check for the inputs)
-    // The API connection type shows Base URL and API Key fields
+    // THEN: API connection config fields are displayed (auto-derived from Cloud POS type)
+    // Connection type is automatically set to API for Cloud POS
     await expect(page.locator("#api-base-url")).toBeVisible();
     await expect(page.locator("#api-key")).toBeVisible();
 
     // WHEN: Store Manager fills API connection config
     await page.locator("#api-base-url").fill("https://api.example.com");
     await page.locator("#api-key").fill("secret-api-key-123");
-
-    // WHEN: Store Manager selects POS Vendor
-    await page.locator("#vendor-type").click();
-    await page.getByRole("option", { name: /Square/i }).click();
 
     // WHEN: Store Manager submits form
     await page.getByRole("button", { name: /Create Terminal/i }).click();
@@ -180,6 +190,9 @@ test.describe("Terminal Connection Configuration E2E", () => {
    * WHY: Store managers need to update connection settings
    * RISK: High - affects terminal operations
    * VALIDATES: Full user flow for editing connection config
+   *
+   * Implementation: Changing POS type changes connection type
+   * - VERIFONE_SAPPHIRE -> NETWORK connection type
    */
   test("[P0] Store Manager can edit terminal connection configuration", async ({
     superadminPage,
@@ -210,7 +223,7 @@ test.describe("Terminal Connection Configuration E2E", () => {
         device_id: terminalData.device_id,
         connection_type: terminalData.connection_type,
         connection_config: terminalData.connection_config,
-        vendor_type: terminalData.vendor_type,
+        pos_type: terminalData.pos_type,
       },
     );
 
@@ -237,9 +250,12 @@ test.describe("Terminal Connection Configuration E2E", () => {
       page.getByRole("heading", { name: /Edit Terminal/i }),
     ).toBeVisible();
 
-    // WHEN: Store Manager changes connection type to NETWORK
-    await page.locator("#edit-connection-type").click();
-    await page.getByRole("option", { name: /Network/i }).click();
+    // WHEN: Store Manager changes POS type to Network-based (which changes connection to NETWORK)
+    await page.getByTestId("edit-terminal-pos-type-selector").click();
+    // Select "Verifone Sapphire (Network)" which auto-sets NETWORK connection type
+    await page
+      .getByRole("option", { name: /Verifone Sapphire \(Network\)/i })
+      .click();
 
     // THEN: NETWORK connection config fields are displayed
     await expect(page.locator("#network-host")).toBeVisible();
@@ -261,7 +277,6 @@ test.describe("Terminal Connection Configuration E2E", () => {
     ).toBeVisible({ timeout: 10000 });
 
     // THEN: Terminal list updates to show NETWORK connection badge
-    // Use the badge locator to avoid strict mode violation (connection type badge vs select option)
     const terminalCard = page
       .locator(".border.rounded-lg")
       .filter({ hasText: "Existing Terminal" });
@@ -271,13 +286,19 @@ test.describe("Terminal Connection Configuration E2E", () => {
   });
 
   /**
-   * Form Validation: Connection config fields appear/disappear based on connection type
+   * Form Validation: Connection config fields appear/disappear based on POS type selection
    *
-   * WHY: Users need clear visual feedback when selecting connection types
+   * WHY: Users need clear visual feedback when selecting POS types
    * RISK: Medium - affects user experience
-   * VALIDATES: Dynamic form field rendering
+   * VALIDATES: Dynamic form field rendering based on POS type -> connection type mapping
+   *
+   * POS Type -> Connection Type mapping:
+   * - VERIFONE_SAPPHIRE (Network POS) -> NETWORK
+   * - SQUARE_REST (Cloud POS) -> API
+   * - VERIFONE_COMMANDER (File POS) -> FILE
+   * - MANUAL_ENTRY -> MANUAL (no config fields)
    */
-  test("[P1] Connection config fields appear/disappear based on connection type selection", async ({
+  test("[P1] Connection config fields appear/disappear based on POS type selection", async ({
     superadminPage,
     prismaClient,
   }) => {
@@ -306,9 +327,11 @@ test.describe("Terminal Connection Configuration E2E", () => {
       page.getByRole("heading", { name: /Add Terminal/i }),
     ).toBeVisible();
 
-    // WHEN: Store Manager selects NETWORK connection type
-    await page.locator("#connection-type").click();
-    await page.getByRole("option", { name: /Network/i }).click();
+    // WHEN: Store Manager selects Network POS type (Verifone Sapphire)
+    await page.getByTestId("create-terminal-pos-type-selector").click();
+    await page
+      .getByRole("option", { name: /Verifone Sapphire \(Network\)/i })
+      .click();
 
     // THEN: NETWORK fields are visible, other fields are not
     await expect(page.locator("#network-host")).toBeVisible();
@@ -317,9 +340,9 @@ test.describe("Terminal Connection Configuration E2E", () => {
     await expect(page.locator("#api-base-url")).not.toBeVisible();
     await expect(page.locator("#file-import-path")).not.toBeVisible();
 
-    // WHEN: Store Manager changes to API connection type
-    await page.locator("#connection-type").click();
-    await page.getByRole("option", { name: /^API$/i }).click();
+    // WHEN: Store Manager changes to Cloud POS type (Square)
+    await page.getByTestId("create-terminal-pos-type-selector").click();
+    await page.getByRole("option", { name: /Square \(Cloud API\)/i }).click();
 
     // THEN: API fields are visible, NETWORK fields are hidden
     await expect(page.locator("#api-base-url")).toBeVisible();
@@ -327,18 +350,20 @@ test.describe("Terminal Connection Configuration E2E", () => {
     await expect(page.locator("#network-host")).not.toBeVisible();
     await expect(page.locator("#network-port")).not.toBeVisible();
 
-    // WHEN: Store Manager changes to FILE connection type
-    await page.locator("#connection-type").click();
-    await page.getByRole("option", { name: /File/i }).click();
+    // WHEN: Store Manager changes to File POS type (Verifone Commander)
+    await page.getByTestId("create-terminal-pos-type-selector").click();
+    await page
+      .getByRole("option", { name: /Verifone Commander \(NAXML\)/i })
+      .click();
 
     // THEN: FILE fields are visible, API fields are hidden
     await expect(page.locator("#file-import-path")).toBeVisible();
     await expect(page.locator("#api-base-url")).not.toBeVisible();
     await expect(page.locator("#api-key")).not.toBeVisible();
 
-    // WHEN: Store Manager changes to MANUAL connection type
-    await page.locator("#connection-type").click();
-    await page.getByRole("option", { name: /Manual/i }).click();
+    // WHEN: Store Manager changes to Manual Entry
+    await page.getByTestId("create-terminal-pos-type-selector").click();
+    await page.getByRole("option", { name: /Manual Entry/i }).click();
 
     // THEN: No connection config fields are visible
     await expect(page.locator("#network-host")).not.toBeVisible();
@@ -352,6 +377,8 @@ test.describe("Terminal Connection Configuration E2E", () => {
    * WHY: Invalid configs should be caught before submission
    * RISK: Medium - prevents invalid data from reaching backend
    * VALIDATES: Client-side validation for connection config
+   *
+   * Implementation note: Validation uses snake_case field names (base_url)
    */
   test("[P1] Form validation rejects invalid connection config structures", async ({
     superadminPage,
@@ -385,9 +412,9 @@ test.describe("Terminal Connection Configuration E2E", () => {
     // WHEN: Store Manager fills terminal name
     await page.locator("#terminal-name").fill("Invalid Terminal");
 
-    // WHEN: Store Manager selects API connection type
-    await page.locator("#connection-type").click();
-    await page.getByRole("option", { name: /^API$/i }).click();
+    // WHEN: Store Manager selects Cloud POS (API connection)
+    await page.getByTestId("create-terminal-pos-type-selector").click();
+    await page.getByRole("option", { name: /Square \(Cloud API\)/i }).click();
 
     await expect(page.locator("#api-base-url")).toBeVisible();
 
@@ -398,7 +425,7 @@ test.describe("Terminal Connection Configuration E2E", () => {
     await page.locator("#api-base-url").blur();
 
     // THEN: Validation error should be displayed
-    // The ConnectionConfigForm shows an error message for invalid URLs
+    // ConnectionConfigForm uses camelCase: "baseUrl must be a valid URL"
     await expect(page.getByText(/baseUrl must be a valid URL/i)).toBeVisible({
       timeout: 5000,
     });
@@ -406,6 +433,8 @@ test.describe("Terminal Connection Configuration E2E", () => {
 
   /**
    * Security: Authentication Bypass Prevention
+   *
+   * @enterprise-standards SEC-001
    */
   test("[P0] Should reject access without authentication", async ({
     page,
@@ -452,6 +481,8 @@ test.describe("Terminal Connection Configuration E2E", () => {
 
   /**
    * Security: Input Validation - XSS Prevention
+   *
+   * @enterprise-standards SEC-014
    */
   test("[P0] Should prevent XSS in terminal name field", async ({
     superadminPage,
@@ -493,6 +524,10 @@ test.describe("Terminal Connection Configuration E2E", () => {
 
     // Value should be stored as literal text (React escapes by default)
     expect(value).toBe(xssPayload);
+
+    // Select Manual Entry POS type (no connection config needed for this test)
+    await page.getByTestId("create-terminal-pos-type-selector").click();
+    await page.getByRole("option", { name: /Manual Entry/i }).click();
 
     // Try to submit and verify XSS is not executed
     await page.getByRole("button", { name: /Create Terminal/i }).click();

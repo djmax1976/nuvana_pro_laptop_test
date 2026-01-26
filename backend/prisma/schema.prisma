@@ -210,6 +210,49 @@ model Store {
   // Valid range: 0-200 (null means not configured yet)
   lottery_bin_count Int? @db.Integer
 
+  // === POS CONNECTION CONFIGURATION ===
+  // Store-level POS connection settings for desktop app integration
+  // These fields define HOW the desktop app connects to the external POS system
+  // Terminals are discovered DYNAMICALLY after connection is established
+  //
+  // Workflow:
+  // 1. Admin configures pos_type and pos_connection_config here
+  // 2. Desktop app activates API key and receives this config
+  // 3. Desktop app connects to POS using this config
+  // 4. Desktop app discovers registers/terminals from POS data
+  // 5. Desktop app creates/updates POSTerminal records for each discovered register
+
+  // POS System Type - Which POS vendor/protocol to use
+  // Examples: GILBARCO_NAXML (file-based), SQUARE_REST (API), CLOVER_REST (API)
+  pos_type POSSystemType @default(MANUAL_ENTRY)
+
+  // Connection Type - How to connect to the POS system
+  // FILE: Read files from shared folder (e.g., NAXML)
+  // API: Make HTTP requests (e.g., Square, Clover)
+  // NETWORK: TCP/IP socket connection
+  // WEBHOOK: Listen for incoming webhooks
+  // MANUAL: No automated connection
+  pos_connection_type POSConnectionType @default(MANUAL)
+
+  // Connection-specific configuration (JSON)
+  // Structure depends on pos_connection_type:
+  //
+  // FILE (NAXML):
+  //   { "import_path": "\\\\server\\naxml", "file_pattern": "*.xml", "poll_interval_seconds": 60 }
+  //
+  // API (Square/Clover):
+  //   { "base_url": "https://connect.squareup.com", "api_key": "EAAl...", "location_id": "L123" }
+  //
+  // NETWORK:
+  //   { "host": "192.168.1.100", "port": 5000, "timeout_ms": 30000 }
+  //
+  // WEBHOOK:
+  //   { "webhook_secret": "whsec_...", "expected_source_ips": ["10.0.0.0/8"] }
+  //
+  // MANUAL:
+  //   null (no configuration needed)
+  pos_connection_config Json? @db.JsonB
+
   // === EXISTING FIELDS ===
   timezone            String   @default("America/New_York") @db.VarChar(50)
   status              String   @default("ACTIVE") @db.VarChar(50)
@@ -273,6 +316,8 @@ model Store {
   @@index([zip_code])
   // Composite index for lottery game filtering by state
   @@index([state_id, status])
+  // Index for POS type filtering (find all stores using a specific POS)
+  @@index([pos_type])
   @@map("stores")
 }
 
@@ -1355,7 +1400,9 @@ model POSTerminal {
   device_id         String?           @db.VarChar(255)
   connection_type   POSConnectionType @default(MANUAL)
   connection_config Json?
-  vendor_type       POSVendorType     @default(GENERIC)
+  /// POS System Type - Enterprise-grade 15-type enum for consistent identification
+  /// Replaces deprecated vendor_type (POSVendorType) for full POS system coverage
+  pos_type          POSSystemType     @default(MANUAL_ENTRY)
   terminal_status   POSTerminalStatus @default(ACTIVE)
   last_sync_at      DateTime?         @db.Timestamptz(6)
   sync_status       SyncStatus        @default(NEVER)
@@ -1368,10 +1415,13 @@ model POSTerminal {
   cashier_sessions  CashierSession[]
   // Scanned Documents (OCR Feature)
   scanned_documents ScannedDocument[]
+  // API keys bound to this terminal
+  api_keys          ApiKey[]          @relation("TerminalApiKeys")
 
   @@unique([device_id]) // Global uniqueness (device_id can be null, but if set, must be unique across all stores)
   @@index([store_id])
   @@index([deleted_at])
+  @@index([pos_type])
   @@map("pos_terminals")
 }
 
@@ -3898,6 +3948,11 @@ model ApiKey {
   // SHA-256 of device identifiers for device locking
   device_fingerprint String? @db.VarChar(64)
 
+  // === TERMINAL BINDING (Optional) ===
+  // API key can be optionally bound to a specific terminal
+  // When bound, the desktop app can fetch terminal configuration via the sync API
+  pos_terminal_id String? @db.Uuid
+
   // === REVOCATION ===
 
   revoked_at        DateTime?              @db.Timestamptz(6)
@@ -3931,6 +3986,7 @@ model ApiKey {
   rotated_to   ApiKey[]            @relation("ApiKeyRotation")
   audit_events ApiKeyAuditEvent[]
   sync_sessions ApiKeySyncSession[]
+  terminal     POSTerminal?        @relation("TerminalApiKeys", fields: [pos_terminal_id], references: [pos_terminal_id], onDelete: SetNull)
 
   // === INDEXES ===
   @@index([store_id])
@@ -3942,6 +3998,7 @@ model ApiKey {
   @@index([last_used_at])
   @@index([created_by])
   @@index([created_at])
+  @@index([pos_terminal_id])
   @@map("api_keys")
 }
 

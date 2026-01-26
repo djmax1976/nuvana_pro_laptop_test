@@ -1,7 +1,8 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { promises as fs } from "fs";
+import { promises as fs, constants as fsConstants } from "fs";
 import * as path from "path";
 import * as os from "os";
+import * as crypto from "crypto";
 
 /**
  * @test-level Unit
@@ -53,11 +54,67 @@ import * as os from "os";
 // TEST CONFIGURATION
 // =============================================================================
 
+// Test context - using test-scoped variables to avoid race conditions
+interface TestContext {
+  testDir: string;
+  boInboxPath: string;
+  boOutboxPath: string;
+  processedPath: string;
+  errorPath: string;
+}
+
+let testContext: TestContext;
+
+// Helper aliases for backward compatibility
 let testDir: string;
 let boInboxPath: string;
 let boOutboxPath: string;
 let processedPath: string;
 let errorPath: string;
+
+/**
+ * Generates a cryptographically random unique ID for test directories.
+ * More reliable than Date.now() which can collide.
+ */
+function generateUniqueId(): string {
+  return crypto.randomBytes(8).toString("hex");
+}
+
+/**
+ * Writes a file and ensures it's properly synced to disk.
+ * Critical for Windows where file writes may not be immediately visible.
+ */
+async function writeFileSync(filePath: string, content: string): Promise<void> {
+  const fileHandle = await fs.open(filePath, "w");
+  try {
+    await fileHandle.writeFile(content, "utf-8");
+    await fileHandle.sync(); // Force flush to disk
+  } finally {
+    await fileHandle.close();
+  }
+}
+
+/**
+ * Waits for a file to exist with retries.
+ * Handles Windows file system timing issues.
+ */
+async function waitForFile(
+  filePath: string,
+  maxRetries: number = 10,
+  delayMs: number = 50,
+): Promise<boolean> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await fs.access(filePath, fsConstants.F_OK);
+      return true;
+    } catch {
+      if (i < maxRetries - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  return false;
+}
 
 // Sample NAXML documents for testing - Using Gilbarco Passport file formats
 // MCM = MerchandiseCodeMovement (departments), MSM = MiscellaneousSummaryMovement (tenders)
@@ -160,26 +217,53 @@ const INVALID_XML = `<?xml version="1.0" encoding="UTF-8"?>
 // =============================================================================
 
 test.beforeEach(async () => {
-  // Create a temporary test directory structure
-  testDir = path.join(os.tmpdir(), `gilbarco-naxml-test-${Date.now()}`);
+  // Create a temporary test directory structure with cryptographically random suffix
+  // This ensures uniqueness even if tests start within the same millisecond
+  const uniqueId = generateUniqueId();
+  testDir = path.join(os.tmpdir(), `gilbarco-naxml-test-${uniqueId}`);
   boInboxPath = path.join(testDir, "BOInbox");
   boOutboxPath = path.join(testDir, "BOOutbox");
   processedPath = path.join(boOutboxPath, "Processed");
   errorPath = path.join(boOutboxPath, "Error");
 
+  // Store in context for proper scoping
+  testContext = {
+    testDir,
+    boInboxPath,
+    boOutboxPath,
+    processedPath,
+    errorPath,
+  };
+
+  // Create directories with proper error handling
   await fs.mkdir(testDir, { recursive: true });
   await fs.mkdir(boInboxPath, { recursive: true });
   await fs.mkdir(boOutboxPath, { recursive: true });
   await fs.mkdir(processedPath, { recursive: true });
   await fs.mkdir(errorPath, { recursive: true });
+
+  // Verify directories exist (Windows file system timing)
+  await waitForFile(testDir);
+  await waitForFile(boOutboxPath);
 });
 
 test.afterEach(async () => {
-  // Clean up test directory
-  try {
-    await fs.rm(testDir, { recursive: true, force: true });
-  } catch {
-    // Ignore cleanup errors
+  // Clean up test directory with retry logic for Windows file locks
+  const dirToClean = testContext?.testDir || testDir;
+  if (!dirToClean) return;
+
+  const maxRetries = 3;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await fs.rm(dirToClean, { recursive: true, force: true });
+      break;
+    } catch (error) {
+      if (i < maxRetries - 1) {
+        // Wait briefly for any file handles to be released
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      // Ignore final cleanup errors - OS will clean temp dir eventually
+    }
   }
 });
 
@@ -358,10 +442,9 @@ test.describe("Phase2-Unit: GNAXML Entity Sync from Files", () => {
       await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
-    await fs.writeFile(
-      path.join(boOutboxPath, "MCM_20251219.xml"),
-      SAMPLE_DEPARTMENT_XML,
-    );
+    const testFile = path.join(boOutboxPath, "MCM_20251219.xml");
+    await writeFileSync(testFile, SAMPLE_DEPARTMENT_XML);
+    await waitForFile(testFile);
 
     const config = {
       xmlGatewayPath: testDir,
@@ -395,10 +478,9 @@ test.describe("Phase2-Unit: GNAXML Entity Sync from Files", () => {
       await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
-    await fs.writeFile(
-      path.join(boOutboxPath, "MSM_20251219.xml"),
-      SAMPLE_TENDER_XML,
-    );
+    const testFile = path.join(boOutboxPath, "MSM_20251219.xml");
+    await writeFileSync(testFile, SAMPLE_TENDER_XML);
+    await waitForFile(testFile);
 
     const config = {
       xmlGatewayPath: testDir,
@@ -433,10 +515,9 @@ test.describe("Phase2-Unit: GNAXML Entity Sync from Files", () => {
       await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
-    await fs.writeFile(
-      path.join(boOutboxPath, "TLM_20251219.xml"),
-      SAMPLE_TAX_RATE_XML,
-    );
+    const testFile = path.join(boOutboxPath, "TLM_20251219.xml");
+    await writeFileSync(testFile, SAMPLE_TAX_RATE_XML);
+    await waitForFile(testFile);
 
     const config = {
       xmlGatewayPath: testDir,
@@ -510,10 +591,12 @@ test.describe("Phase2-Unit: GNAXML Transaction Import", () => {
       await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
-    await fs.writeFile(
-      path.join(boOutboxPath, "PJR_20251219_001.xml"),
-      SAMPLE_TRANSACTION_XML,
-    );
+    const testFile = path.join(boOutboxPath, "PJR_20251219_001.xml");
+    // Use sync write to ensure file is fully written before test proceeds
+    await writeFileSync(testFile, SAMPLE_TRANSACTION_XML);
+    // Verify file exists before proceeding (Windows file system timing)
+    const fileReady = await waitForFile(testFile);
+    expect(fileReady).toBe(true);
 
     const config = {
       xmlGatewayPath: testDir,
@@ -572,18 +655,18 @@ test.describe("Phase2-Unit: GNAXML Transaction Import", () => {
       await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
     const adapter = new GilbarcoNAXMLAdapter();
 
-    await fs.writeFile(
-      path.join(boOutboxPath, "PJR_20251219_001.xml"),
-      SAMPLE_TRANSACTION_XML,
-    );
-    await fs.writeFile(
-      path.join(boOutboxPath, "PJR_20251219_002.xml"),
-      SAMPLE_TRANSACTION_XML,
-    );
-    await fs.writeFile(
-      path.join(boOutboxPath, "PJR_Morning.xml"),
-      SAMPLE_TRANSACTION_XML,
-    );
+    const testFile1 = path.join(boOutboxPath, "PJR_20251219_001.xml");
+    const testFile2 = path.join(boOutboxPath, "PJR_20251219_002.xml");
+    const testFile3 = path.join(boOutboxPath, "PJR_Morning.xml");
+    await writeFileSync(testFile1, SAMPLE_TRANSACTION_XML);
+    await writeFileSync(testFile2, SAMPLE_TRANSACTION_XML);
+    await writeFileSync(testFile3, SAMPLE_TRANSACTION_XML);
+    // Wait for all files to be visible (Windows file system timing)
+    await Promise.all([
+      waitForFile(testFile1),
+      waitForFile(testFile2),
+      waitForFile(testFile3),
+    ]);
 
     const config = {
       xmlGatewayPath: testDir,
@@ -813,7 +896,11 @@ test.describe("Phase2-Unit: GNAXML File Archiving", () => {
     const adapter = new GilbarcoNAXMLAdapter();
 
     const originalFile = path.join(boOutboxPath, "PJR_Archive_Test.xml");
-    await fs.writeFile(originalFile, SAMPLE_TRANSACTION_XML);
+    // Use sync write to ensure file is fully written before test proceeds
+    await writeFileSync(originalFile, SAMPLE_TRANSACTION_XML);
+    // Verify file exists before proceeding (Windows file system timing)
+    const fileReady = await waitForFile(originalFile);
+    expect(fileReady).toBe(true);
 
     const config = {
       xmlGatewayPath: testDir,
@@ -840,18 +927,12 @@ test.describe("Phase2-Unit: GNAXML File Archiving", () => {
     expect(results[0].archived).toBe(true);
     expect(results[0].archivePath).toContain("Processed");
 
-    // Original file should no longer exist
-    const originalExists = await fs
-      .access(originalFile)
-      .then(() => true)
-      .catch(() => false);
+    // Original file should no longer exist (moved to archive)
+    const originalExists = await waitForFile(originalFile, 3, 20);
     expect(originalExists).toBe(false);
 
     // Archived file should exist
-    const archivedExists = await fs
-      .access(results[0].archivePath!)
-      .then(() => true)
-      .catch(() => false);
+    const archivedExists = await waitForFile(results[0].archivePath!, 10, 50);
     expect(archivedExists).toBe(true);
   });
 
@@ -862,7 +943,11 @@ test.describe("Phase2-Unit: GNAXML File Archiving", () => {
     const adapter = new GilbarcoNAXMLAdapter();
 
     const originalFile = path.join(boOutboxPath, "PJR_NoArchive_Test.xml");
-    await fs.writeFile(originalFile, SAMPLE_TRANSACTION_XML);
+    // Use sync write to ensure file is fully written before test proceeds
+    await writeFileSync(originalFile, SAMPLE_TRANSACTION_XML);
+    // Verify file exists before proceeding (Windows file system timing)
+    const fileReady = await waitForFile(originalFile);
+    expect(fileReady).toBe(true);
 
     const config = {
       xmlGatewayPath: testDir,
@@ -887,11 +972,8 @@ test.describe("Phase2-Unit: GNAXML File Archiving", () => {
     expect(results[0].archived).toBe(false);
     expect(results[0].archivePath).toBeUndefined();
 
-    // Original file should still exist
-    const originalExists = await fs
-      .access(originalFile)
-      .then(() => true)
-      .catch(() => false);
+    // Original file should still exist (not moved since archiveProcessedFiles=false)
+    const originalExists = await waitForFile(originalFile, 5, 50);
     expect(originalExists).toBe(true);
   });
 });
@@ -982,10 +1064,9 @@ test.describe("Phase2-Unit: GNAXML Error Handling", () => {
     const adapter = new GilbarcoNAXMLAdapter();
 
     // Create file then make it inaccessible (on Windows, we'll just test empty handling)
-    await fs.writeFile(
-      path.join(boOutboxPath, "PJR_Error.xml"),
-      "", // Empty file which may cause parse error
-    );
+    const testFile = path.join(boOutboxPath, "PJR_Error.xml");
+    await writeFileSync(testFile, ""); // Empty file which may cause parse error
+    await waitForFile(testFile);
 
     const config = {
       xmlGatewayPath: testDir,

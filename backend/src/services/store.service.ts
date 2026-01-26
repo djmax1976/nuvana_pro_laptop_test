@@ -1,10 +1,44 @@
 import {
   Prisma,
   POSConnectionType,
-  POSVendorType,
+  POSSystemType,
   POSTerminalStatus,
   SyncStatus,
 } from "@prisma/client";
+
+/**
+ * Valid POS System Types for store-level configuration
+ * SEC-014: INPUT_VALIDATION - Allowlist for POS system type validation
+ */
+const VALID_POS_SYSTEM_TYPES: POSSystemType[] = [
+  "GILBARCO_PASSPORT",
+  "GILBARCO_NAXML",
+  "GILBARCO_COMMANDER",
+  "VERIFONE_RUBY2",
+  "VERIFONE_COMMANDER",
+  "VERIFONE_SAPPHIRE",
+  "CLOVER_REST",
+  "ORACLE_SIMPHONY",
+  "NCR_ALOHA",
+  "LIGHTSPEED_REST",
+  "SQUARE_REST",
+  "TOAST_REST",
+  "GENERIC_XML",
+  "GENERIC_REST",
+  "MANUAL_ENTRY",
+];
+
+/**
+ * Valid POS Connection Types for store-level configuration
+ * SEC-014: INPUT_VALIDATION - Allowlist for connection type validation
+ */
+const VALID_POS_CONNECTION_TYPES: POSConnectionType[] = [
+  "NETWORK",
+  "API",
+  "WEBHOOK",
+  "FILE",
+  "MANUAL",
+];
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 import { rbacService } from "./rbac.service";
 import { prisma } from "../utils/db";
@@ -45,6 +79,13 @@ export interface CreateStoreInput {
   county_id?: string | null;
   /** ZIP code (5-digit or ZIP+4 format) */
   zip_code?: string;
+  // === POS Connection Configuration ===
+  /** POS System Type - Which POS vendor/protocol to use (e.g., GILBARCO_NAXML, SQUARE_REST) */
+  pos_type?: POSSystemType;
+  /** POS Connection Type - How to connect (FILE, API, NETWORK, WEBHOOK, MANUAL) */
+  pos_connection_type?: POSConnectionType;
+  /** Connection-specific configuration (JSON) - structure depends on connection type */
+  pos_connection_config?: Record<string, unknown> | null;
 }
 
 /**
@@ -76,6 +117,13 @@ export interface UpdateStoreInput {
   county_id?: string | null;
   /** ZIP code (5-digit or ZIP+4 format) */
   zip_code?: string;
+  // === POS Connection Configuration ===
+  /** POS System Type - Which POS vendor/protocol to use (e.g., GILBARCO_NAXML, SQUARE_REST) */
+  pos_type?: POSSystemType;
+  /** POS Connection Type - How to connect (FILE, API, NETWORK, WEBHOOK, MANUAL) */
+  pos_connection_type?: POSConnectionType;
+  /** Connection-specific configuration (JSON) - structure depends on connection type */
+  pos_connection_config?: Record<string, unknown> | null;
 }
 
 /**
@@ -280,6 +328,50 @@ export class StoreService {
       }
     }
 
+    // === Validate POS Connection Configuration ===
+    // SEC-014: INPUT_VALIDATION - Validate against allowlists
+
+    // Validate pos_type against allowlist
+    if (data.pos_type !== undefined) {
+      if (!VALID_POS_SYSTEM_TYPES.includes(data.pos_type)) {
+        throw new Error(
+          `Invalid pos_type. Must be one of: ${VALID_POS_SYSTEM_TYPES.join(", ")}`,
+        );
+      }
+    }
+
+    // Validate pos_connection_type against allowlist
+    if (data.pos_connection_type !== undefined) {
+      if (!VALID_POS_CONNECTION_TYPES.includes(data.pos_connection_type)) {
+        throw new Error(
+          `Invalid pos_connection_type. Must be one of: ${VALID_POS_CONNECTION_TYPES.join(", ")}`,
+        );
+      }
+    }
+
+    // Validate pos_connection_config structure if provided
+    if (
+      data.pos_connection_config !== undefined &&
+      data.pos_connection_config !== null
+    ) {
+      if (
+        typeof data.pos_connection_config !== "object" ||
+        Array.isArray(data.pos_connection_config)
+      ) {
+        throw new Error("pos_connection_config must be a JSON object");
+      }
+      // SEC-004: XSS - Validate config values don't contain dangerous content
+      const configString = JSON.stringify(data.pos_connection_config);
+      const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+      if (xssPattern.test(configString)) {
+        throw new Error("pos_connection_config contains invalid content");
+      }
+      // Limit config size to prevent abuse (max 10KB)
+      if (configString.length > 10240) {
+        throw new Error("pos_connection_config exceeds maximum size of 10KB");
+      }
+    }
+
     try {
       const store = await client.store.create({
         data: {
@@ -299,6 +391,14 @@ export class StoreService {
           state_id: data.state_id || null,
           county_id: data.county_id || null,
           zip_code: data.zip_code || null,
+          // === POS Connection Configuration ===
+          pos_type: data.pos_type || "MANUAL_ENTRY",
+          pos_connection_type: data.pos_connection_type || "MANUAL",
+          pos_connection_config:
+            data.pos_connection_config === null ||
+            data.pos_connection_config === undefined
+              ? Prisma.DbNull
+              : (data.pos_connection_config as Prisma.InputJsonValue),
         },
         include: {
           state: {
@@ -510,6 +610,50 @@ export class StoreService {
       throw new Error("Invalid status. Must be ACTIVE, INACTIVE, or CLOSED");
     }
 
+    // === Validate POS Connection Configuration ===
+    // SEC-014: INPUT_VALIDATION - Validate against allowlists
+
+    // Validate pos_type against allowlist
+    if (data.pos_type !== undefined) {
+      if (!VALID_POS_SYSTEM_TYPES.includes(data.pos_type)) {
+        throw new Error(
+          `Invalid pos_type. Must be one of: ${VALID_POS_SYSTEM_TYPES.join(", ")}`,
+        );
+      }
+    }
+
+    // Validate pos_connection_type against allowlist
+    if (data.pos_connection_type !== undefined) {
+      if (!VALID_POS_CONNECTION_TYPES.includes(data.pos_connection_type)) {
+        throw new Error(
+          `Invalid pos_connection_type. Must be one of: ${VALID_POS_CONNECTION_TYPES.join(", ")}`,
+        );
+      }
+    }
+
+    // Validate pos_connection_config structure if provided
+    if (
+      data.pos_connection_config !== undefined &&
+      data.pos_connection_config !== null
+    ) {
+      if (
+        typeof data.pos_connection_config !== "object" ||
+        Array.isArray(data.pos_connection_config)
+      ) {
+        throw new Error("pos_connection_config must be a JSON object");
+      }
+      // SEC-004: XSS - Validate config values don't contain dangerous content
+      const configString = JSON.stringify(data.pos_connection_config);
+      const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+      if (xssPattern.test(configString)) {
+        throw new Error("pos_connection_config contains invalid content");
+      }
+      // Limit config size to prevent abuse (max 10KB)
+      if (configString.length > 10240) {
+        throw new Error("pos_connection_config exceeds maximum size of 10KB");
+      }
+    }
+
     try {
       // Check if store exists and get company info for validation
       const existingStore = await prisma.store.findUnique({
@@ -584,6 +728,17 @@ export class StoreService {
       }
       if (data.zip_code !== undefined) {
         updateData.zip_code = data.zip_code;
+      }
+
+      // === POS Connection Configuration ===
+      if (data.pos_type !== undefined) {
+        updateData.pos_type = data.pos_type;
+      }
+      if (data.pos_connection_type !== undefined) {
+        updateData.pos_connection_type = data.pos_connection_type;
+      }
+      if (data.pos_connection_config !== undefined) {
+        updateData.pos_connection_config = data.pos_connection_config;
       }
 
       const store = await prisma.store.update({
@@ -1108,7 +1263,7 @@ export class StoreService {
           device_id: terminal.device_id,
           connection_type: terminal.connection_type,
           connection_config: terminal.connection_config,
-          vendor_type: terminal.vendor_type,
+          pos_type: terminal.pos_type,
           terminal_status: terminal.terminal_status,
           last_sync_at: terminal.last_sync_at,
           sync_status: terminal.sync_status,
@@ -1148,7 +1303,7 @@ export class StoreService {
       device_id?: string;
       connection_type?: POSConnectionType;
       connection_config?: any;
-      vendor_type?: POSVendorType;
+      pos_type?: POSSystemType;
       terminal_status?: POSTerminalStatus;
       sync_status?: SyncStatus;
     },
@@ -1229,7 +1384,7 @@ export class StoreService {
           device_id: data.device_id || null,
           connection_type: data.connection_type,
           connection_config: data.connection_config ?? null,
-          vendor_type: data.vendor_type,
+          pos_type: data.pos_type,
           terminal_status: data.terminal_status,
           sync_status: data.sync_status,
         },
@@ -1275,7 +1430,7 @@ export class StoreService {
       device_id?: string;
       connection_type?: POSConnectionType;
       connection_config?: any;
-      vendor_type?: POSVendorType;
+      pos_type?: POSSystemType;
       terminal_status?: POSTerminalStatus;
       sync_status?: SyncStatus;
     },
@@ -1369,8 +1524,8 @@ export class StoreService {
       if (data.connection_config !== undefined) {
         updateData.connection_config = data.connection_config || null;
       }
-      if (data.vendor_type !== undefined) {
-        updateData.vendor_type = data.vendor_type;
+      if (data.pos_type !== undefined) {
+        updateData.pos_type = data.pos_type;
       }
       if (data.terminal_status !== undefined) {
         updateData.terminal_status = data.terminal_status;

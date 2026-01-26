@@ -1100,7 +1100,7 @@ test.describe("Terminal Management API", () => {
         baseUrl: "https://api.example.com",
         apiKey: "test-api-key",
       },
-      vendor_type: "SQUARE",
+      pos_type: "SQUARE_REST",
       terminal_status: "ACTIVE",
       sync_status: "NEVER",
     };
@@ -1117,7 +1117,7 @@ test.describe("Terminal Management API", () => {
     expect(createdTerminal.connection_config).toEqual(
       terminalData.connection_config,
     );
-    expect(createdTerminal.vendor_type).toBe("SQUARE");
+    expect(createdTerminal.pos_type).toBe("SQUARE_REST");
     expect(createdTerminal.terminal_status).toBe("ACTIVE");
     expect(createdTerminal.sync_status).toBe("NEVER");
   });
@@ -1149,7 +1149,7 @@ test.describe("Terminal Management API", () => {
     expect(response.status()).toBe(201);
     const createdTerminal = await response.json();
     expect(createdTerminal.connection_type).toBe("MANUAL");
-    expect(createdTerminal.vendor_type).toBe("GENERIC");
+    expect(createdTerminal.pos_type).toBe("MANUAL_ENTRY");
     expect(createdTerminal.terminal_status).toBe("ACTIVE");
     expect(createdTerminal.sync_status).toBe("NEVER");
   });
@@ -1184,7 +1184,7 @@ test.describe("Terminal Management API", () => {
         port: 8080,
         protocol: "TCP",
       },
-      vendor_type: "CLOVER",
+      pos_type: "CLOVER_REST",
     };
 
     const response = await superadminApiRequest.put(
@@ -1199,7 +1199,7 @@ test.describe("Terminal Management API", () => {
     expect(updatedTerminal.connection_config).toEqual(
       updateData.connection_config,
     );
-    expect(updatedTerminal.vendor_type).toBe("CLOVER");
+    expect(updatedTerminal.pos_type).toBe("CLOVER_REST");
   });
 
   test("[P0-AC3] Get terminals returns new fields", async ({
@@ -1223,7 +1223,7 @@ test.describe("Terminal Management API", () => {
           webhookUrl: "https://webhook.example.com",
           secret: "webhook-secret",
         },
-        vendor_type: "TOAST",
+        pos_type: "TOAST_REST",
         terminal_status: "PENDING",
         sync_status: "SUCCESS",
       },
@@ -1242,7 +1242,7 @@ test.describe("Terminal Management API", () => {
     expect(terminal).toBeDefined();
     expect(terminal.connection_type).toBe("WEBHOOK");
     expect(terminal.connection_config).toBeDefined();
-    expect(terminal.vendor_type).toBe("TOAST");
+    expect(terminal.pos_type).toBe("TOAST_REST");
     expect(terminal.terminal_status).toBe("PENDING");
     expect(terminal.sync_status).toBe("SUCCESS");
   });

@@ -2541,6 +2541,14 @@ export const test = base.extend<RBACFixture>({
     // This is proper E2E testing - no mocking of auth endpoints
     // The cookie contains a valid JWT that the backend will verify
 
+    // CRITICAL: Clear any existing cookies/storage before authentication
+    // This prevents stale tokens from previous tests causing refresh failures
+    await page.context().clearCookies();
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+
     // Add authentication cookie (real JWT token)
     await page.context().addCookies([
       {
@@ -2757,6 +2765,14 @@ export const test = base.extend<RBACFixture>({
     // Setup: Use real authentication with JWT cookie
     // This is proper E2E testing - no mocking of auth endpoints
 
+    // CRITICAL: Clear any existing cookies/storage before authentication
+    // This prevents stale tokens from previous tests causing refresh failures
+    await page.context().clearCookies();
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+
     // Add authentication cookie (real JWT token)
     await page.context().addCookies([
       {
@@ -2807,6 +2823,14 @@ export const test = base.extend<RBACFixture>({
     // Setup: Use real authentication with JWT cookie
     // This is proper E2E testing - no mocking of auth endpoints
 
+    // CRITICAL: Clear any existing cookies/storage before authentication
+    // This prevents stale tokens from previous tests causing refresh failures
+    await page.context().clearCookies();
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+
     // Add authentication cookie (real JWT token)
     await page.context().addCookies([
       {
@@ -2856,6 +2880,14 @@ export const test = base.extend<RBACFixture>({
   clientOwnerPage: async ({ page, clientUser }, use) => {
     // Setup: Use real authentication with JWT cookie for CLIENT_OWNER user
     // CLIENT_OWNER role is required to access /client-dashboard routes
+
+    // CRITICAL: Clear any existing cookies/storage before authentication
+    // This prevents stale tokens from previous tests causing refresh failures
+    await page.context().clearCookies();
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
 
     // Add authentication cookie (real JWT token)
     await page.context().addCookies([

@@ -63,6 +63,8 @@ export function ConnectionConfigForm({
   }
 
   // Allowed config keys for safe access (prevents prototype pollution)
+  // Using camelCase to match backend validation schema
+  // @see backend/src/schemas/terminal.schema.ts
   const ALLOWED_CONFIG_KEYS = [
     "host",
     "port",
