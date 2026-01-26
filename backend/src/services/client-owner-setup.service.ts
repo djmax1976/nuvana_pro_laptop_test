@@ -328,7 +328,7 @@ class ClientOwnerSetupService {
    */
   private async validateEmailUniquenessInTransaction(
     email: string,
-    entityType: "user" | "storeLogin",
+    entityType: "user" | "storeLogin" | "storeManager",
     tx: Prisma.TransactionClient,
   ): Promise<void> {
     const existing = await tx.user.findUnique({

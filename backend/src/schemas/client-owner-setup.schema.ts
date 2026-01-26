@@ -354,11 +354,6 @@ export const ClientOwnerSetupRequestSchema = z
   .superRefine((data, ctx) => {
     // Cross-field validation: All emails must be different
     // This ensures proper separation of owner, store login, and store manager accounts
-    const emails = [
-      { email: data.user.email, field: "user" },
-      { email: data.storeLogin.email, field: "storeLogin" },
-      { email: data.storeManager.email, field: "storeManager" },
-    ];
 
     // Check user email vs store login email
     if (data.user.email === data.storeLogin.email) {
