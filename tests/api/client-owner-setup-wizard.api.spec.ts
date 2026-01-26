@@ -91,7 +91,7 @@ test.describe("Client Owner Setup Wizard API", () => {
           address_line2: "Suite 100",
           city: "Test City",
           state_id: "", // Will be populated in test
-          county_id: "", // Will be populated in test
+          county_id: null, // Optional - use null not empty string (UUID validation)
           zip_code: "12345",
         },
       },
@@ -103,7 +103,7 @@ test.describe("Client Owner Setup Wizard API", () => {
         address_line2: null,
         city: "Store City",
         state_id: "", // Will be populated in test
-        county_id: null,
+        county_id: null, // Optional - use null not empty string (UUID validation)
         zip_code: "67890",
       },
       storeLogin: {
