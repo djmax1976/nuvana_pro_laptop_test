@@ -534,7 +534,8 @@ class LotterySyncService {
       depletion_reason:
         pack.depletion_reason as LotteryPackSyncRecord["depletion_reason"],
       returned_by: pack.returned_by,
-      return_reason: pack.return_reason as LotteryPackSyncRecord["return_reason"],
+      return_reason:
+        pack.return_reason as LotteryPackSyncRecord["return_reason"],
       return_notes: pack.return_notes,
       last_sold_serial: pack.last_sold_serial,
       tickets_sold_on_return: pack.tickets_sold_on_return,
@@ -1054,12 +1055,8 @@ class LotterySyncService {
     auditContext: LotterySyncAuditContext,
   ): Promise<LotteryPackReceiveResponse> {
     // Lookup game by code (state-scoped first, then store-scoped)
+    // Method throws GAME_NOT_FOUND or GAME_INACTIVE - no null check needed
     const game = await this.lookupGameByCode(input.game_code, storeId, stateId);
-    if (!game) {
-      throw new Error(
-        `GAME_NOT_FOUND: Game with code ${input.game_code} not found`,
-      );
-    }
 
     // Check for duplicate pack number
     const existing = await prisma.lotteryPack.findUnique({
@@ -1226,7 +1223,11 @@ class LotterySyncService {
     }
 
     // Idempotent: pack already ACTIVE in same bin - return success
-    if (pack && pack.status === "ACTIVE" && pack.current_bin_id === input.bin_id) {
+    if (
+      pack &&
+      pack.status === "ACTIVE" &&
+      pack.current_bin_id === input.bin_id
+    ) {
       const existingPack = await prisma.lotteryPack.findFirst({
         where: { pack_id: pack.pack_id },
         include: {
@@ -1253,12 +1254,12 @@ class LotterySyncService {
     // Pack doesn't exist - create it
     if (!pack) {
       // Lookup game by code
-      const game = await this.lookupGameByCode(input.game_code, storeId, stateId);
-      if (!game) {
-        throw new Error(
-          `GAME_NOT_FOUND: Game with code ${input.game_code} not found`,
-        );
-      }
+      // Method throws GAME_NOT_FOUND or GAME_INACTIVE - no null check needed
+      const game = await this.lookupGameByCode(
+        input.game_code,
+        storeId,
+        stateId,
+      );
 
       // Create the pack with provided pack_id
       pack = await prisma.lotteryPack.create({
@@ -2239,38 +2240,65 @@ class LotterySyncService {
   // ===========================================================================
 
   /**
-   * Lookup game by code with proper scoping
+   * Lookup game by code with proper scoping and status validation
+   *
    * Priority: state-scoped > store-scoped
+   *
+   * DB-006: TENANT_ISOLATION - Queries are scoped by state_id or store_id
+   * SEC-006: SQL_INJECTION - Uses Prisma ORM query builder (no string interpolation)
+   * API-003: ERROR_HANDLING - Returns specific error codes for different failure modes
+   *
+   * @throws GAME_NOT_FOUND if game code doesn't exist in scope
+   * @throws GAME_INACTIVE if game exists but status is INACTIVE
    */
   private async lookupGameByCode(
     gameCode: string,
     storeId: string,
     stateId: string | null,
-  ): Promise<{ game_id: string } | null> {
-    // First try state-scoped game
+  ): Promise<{ game_id: string }> {
+    // First try state-scoped game (no status filter - find ANY matching game)
     if (stateId) {
       const stateGame = await prisma.lotteryGame.findFirst({
         where: {
           game_code: gameCode,
           state_id: stateId,
-          status: "ACTIVE",
         },
-        select: { game_id: true },
+        select: { game_id: true, status: true, game_code: true },
       });
-      if (stateGame) return stateGame;
+
+      if (stateGame) {
+        // Check if game is inactive - throw specific error per AIP-193
+        if (stateGame.status === "INACTIVE") {
+          throw new Error(
+            `GAME_INACTIVE: Game ${gameCode} is inactive and cannot accept new packs`,
+          );
+        }
+        return { game_id: stateGame.game_id };
+      }
     }
 
-    // Then try store-scoped game
+    // Then try store-scoped game (custom games)
     const storeGame = await prisma.lotteryGame.findFirst({
       where: {
         game_code: gameCode,
         store_id: storeId,
-        status: "ACTIVE",
       },
-      select: { game_id: true },
+      select: { game_id: true, status: true, game_code: true },
     });
 
-    return storeGame;
+    // Game doesn't exist in any scope
+    if (!storeGame) {
+      throw new Error(`GAME_NOT_FOUND: Game with code ${gameCode} not found`);
+    }
+
+    // Check if store-scoped game is inactive
+    if (storeGame.status === "INACTIVE") {
+      throw new Error(
+        `GAME_INACTIVE: Game ${gameCode} is inactive and cannot accept new packs`,
+      );
+    }
+
+    return { game_id: storeGame.game_id };
   }
 
   /**

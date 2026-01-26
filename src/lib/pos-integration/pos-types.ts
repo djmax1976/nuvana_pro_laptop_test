@@ -29,7 +29,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   VERIFONE_COMMANDER: {
     key: "VERIFONE_COMMANDER",
     type: "file",
-    name: "Verifone Commander",
+    name: "Verifone Commander (NAXML)",
     description: "File-based NAXML data exchange",
     icon: "cash-register",
     group: "Verifone",
@@ -39,7 +39,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   VERIFONE_RUBY2: {
     key: "VERIFONE_RUBY2",
     type: "file",
-    name: "Verifone Ruby2",
+    name: "Verifone Ruby2 (NAXML)",
     description: "File-based NAXML data exchange",
     icon: "cash-register",
     group: "Verifone",
@@ -49,7 +49,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   VERIFONE_SAPPHIRE: {
     key: "VERIFONE_SAPPHIRE",
     type: "network",
-    name: "Verifone Sapphire",
+    name: "Verifone Sapphire (Network)",
     description: "Network API connection",
     icon: "cash-register",
     group: "Verifone",
@@ -60,7 +60,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   GILBARCO_PASSPORT: {
     key: "GILBARCO_PASSPORT",
     type: "network",
-    name: "Gilbarco Passport",
+    name: "Gilbarco Passport (Network)",
     description: "Network XML protocol",
     icon: "gas-pump",
     group: "Gilbarco",
@@ -69,7 +69,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   GILBARCO_NAXML: {
     key: "GILBARCO_NAXML",
     type: "file",
-    name: "Gilbarco NAXML",
+    name: "Gilbarco Passport (NAXML)",
     description: "File-based NAXML exchange",
     icon: "gas-pump",
     group: "Gilbarco",
@@ -79,7 +79,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   GILBARCO_COMMANDER: {
     key: "GILBARCO_COMMANDER",
     type: "network",
-    name: "Gilbarco Commander",
+    name: "Gilbarco Commander (Network)",
     description: "Network connection",
     icon: "gas-pump",
     group: "Gilbarco",
@@ -90,7 +90,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   SQUARE_REST: {
     key: "SQUARE_REST",
     type: "cloud",
-    name: "Square",
+    name: "Square (Cloud API)",
     description: "Cloud REST API",
     icon: "square",
     group: "Cloud POS",
@@ -99,7 +99,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   CLOVER_REST: {
     key: "CLOVER_REST",
     type: "cloud",
-    name: "Clover",
+    name: "Clover (Cloud API)",
     description: "Cloud REST API",
     icon: "clover",
     group: "Cloud POS",
@@ -108,7 +108,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   TOAST_REST: {
     key: "TOAST_REST",
     type: "cloud",
-    name: "Toast",
+    name: "Toast (Cloud API)",
     description: "Cloud REST API",
     icon: "utensils",
     group: "Cloud POS",
@@ -117,7 +117,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   LIGHTSPEED_REST: {
     key: "LIGHTSPEED_REST",
     type: "cloud",
-    name: "Lightspeed",
+    name: "Lightspeed (Cloud API)",
     description: "Cloud REST API",
     icon: "bolt",
     group: "Cloud POS",
@@ -128,7 +128,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   NCR_ALOHA: {
     key: "NCR_ALOHA",
     type: "network",
-    name: "NCR Aloha",
+    name: "NCR Aloha (Network)",
     description: "Network connection",
     icon: "server",
     group: "Other",
@@ -137,7 +137,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   ORACLE_SIMPHONY: {
     key: "ORACLE_SIMPHONY",
     type: "network",
-    name: "Oracle Simphony",
+    name: "Oracle Simphony (Network)",
     description: "Network connection",
     icon: "database",
     group: "Other",
@@ -146,7 +146,7 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   GENERIC_REST: {
     key: "GENERIC_REST",
     type: "network",
-    name: "Generic REST API",
+    name: "Generic REST API (Network)",
     description: "Custom REST endpoint",
     icon: "code",
     group: "Other",
@@ -154,12 +154,13 @@ export const POS_TYPE_CONFIGS: Record<POSSystemType, POSTypeConfig> = {
   },
   GENERIC_XML: {
     key: "GENERIC_XML",
-    type: "network",
-    name: "Generic XML",
-    description: "Custom XML protocol",
+    type: "file",
+    name: "Generic XML (NAXML)",
+    description: "File-based XML exchange",
     icon: "code",
     group: "Other",
-    defaultPort: 8080,
+    exportPath: "C:\\POS\\Export",
+    importPath: "C:\\POS\\Import",
   },
   MANUAL_ENTRY: {
     key: "MANUAL_ENTRY",
@@ -190,7 +191,7 @@ export const POS_TYPE_GROUPS: Array<{
   },
   {
     label: "Gilbarco",
-    options: ["GILBARCO_PASSPORT", "GILBARCO_NAXML"],
+    options: ["GILBARCO_PASSPORT", "GILBARCO_NAXML", "GILBARCO_COMMANDER"],
   },
   {
     label: "Cloud POS",
@@ -198,7 +199,13 @@ export const POS_TYPE_GROUPS: Array<{
   },
   {
     label: "Other",
-    options: ["NCR_ALOHA", "ORACLE_SIMPHONY", "GENERIC_REST", "MANUAL_ENTRY"],
+    options: [
+      "NCR_ALOHA",
+      "ORACLE_SIMPHONY",
+      "GENERIC_REST",
+      "GENERIC_XML",
+      "MANUAL_ENTRY",
+    ],
   },
 ];
 
@@ -295,6 +302,40 @@ export function getConnectionCategory(
 ): POSConnectionCategory {
   // eslint-disable-next-line security/detect-object-injection
   return POS_TYPE_CONFIGS[posType].type;
+}
+
+/**
+ * Connection Type enum values (matches backend POSConnectionType)
+ */
+export type POSConnectionType =
+  | "NETWORK"
+  | "API"
+  | "WEBHOOK"
+  | "FILE"
+  | "MANUAL";
+
+/**
+ * Map POS type to its corresponding Connection Type
+ * Used for auto-selecting Connection Type when user selects a POS type
+ * @param posType - The POS system type
+ * @returns The connection type enum value
+ */
+export function getConnectionTypeForPOS(
+  posType: POSSystemType,
+): POSConnectionType {
+  const category = getConnectionCategory(posType);
+  switch (category) {
+    case "file":
+      return "FILE";
+    case "network":
+      return "NETWORK";
+    case "cloud":
+      return "API";
+    case "manual":
+      return "MANUAL";
+    default:
+      return "MANUAL";
+  }
 }
 
 /**

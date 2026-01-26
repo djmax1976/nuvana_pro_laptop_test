@@ -12,7 +12,7 @@ import { Prisma } from "@prisma/client";
  * @enhanced-by workflow-9 on 2025-01-27
  *
  * ACCEPTANCE CRITERIA TESTED:
- * - AC #1: connection_type enum, connection_config, vendor_type, terminal_status, last_sync_at, sync_status
+ * - AC #1: connection_type enum, connection_config, pos_type, terminal_status, last_sync_at, sync_status
  * - AC #2: external_shift_id, external_data, synced_at fields in Shift model
  */
 
@@ -36,14 +36,14 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
         ).store_id,
         name: "Test Terminal",
         connection_type: "MANUAL",
-        vendor_type: "GENERIC",
+        pos_type: "MANUAL_ENTRY",
         terminal_status: "ACTIVE",
         sync_status: "NEVER",
       },
     });
 
     expect(terminal.connection_type).toBe("MANUAL");
-    expect(terminal.vendor_type).toBe("GENERIC");
+    expect(terminal.pos_type).toBe("MANUAL_ENTRY");
     expect(terminal.terminal_status).toBe("ACTIVE");
     expect(terminal.sync_status).toBe("NEVER");
   });
@@ -53,7 +53,7 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
   }) => {
     // GIVEN: Migration has been applied
     // WHEN: Creating a new terminal without specifying the new fields
-    // THEN: Default values should be applied (connection_type=MANUAL, vendor_type=GENERIC, terminal_status=ACTIVE, sync_status=NEVER)
+    // THEN: Default values should be applied (connection_type=MANUAL, pos_type=MANUAL_ENTRY, terminal_status=ACTIVE, sync_status=NEVER)
     const owner = await createUser(prismaClient);
     const company = await createCompany(prismaClient, {
       owner_user_id: owner.user_id,
@@ -73,7 +73,7 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
 
     // Verify defaults are applied
     expect(terminal.connection_type).toBe("MANUAL");
-    expect(terminal.vendor_type).toBe("GENERIC");
+    expect(terminal.pos_type).toBe("MANUAL_ENTRY");
     expect(terminal.terminal_status).toBe("ACTIVE");
     expect(terminal.sync_status).toBe("NEVER");
   });
@@ -123,14 +123,14 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
         store_id: store.store_id,
         name: "Network Terminal",
         connection_type: "NETWORK",
-        vendor_type: "SQUARE",
+        pos_type: "SQUARE_REST",
         terminal_status: "PENDING",
         sync_status: "IN_PROGRESS",
       },
     });
 
     expect(networkTerminal.connection_type).toBe("NETWORK");
-    expect(networkTerminal.vendor_type).toBe("SQUARE");
+    expect(networkTerminal.pos_type).toBe("SQUARE_REST");
     expect(networkTerminal.terminal_status).toBe("PENDING");
     expect(networkTerminal.sync_status).toBe("IN_PROGRESS");
   });
@@ -381,7 +381,7 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
     }
   });
 
-  test("4.81-API-045: All vendor_type enum values are valid", async ({
+  test("4.81-API-045: All pos_type enum values are valid", async ({
     prismaClient,
   }) => {
     // GIVEN: A store exists
@@ -393,27 +393,27 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
       company_id: company.company_id,
     });
 
-    // WHEN: Creating terminals with all vendor_type enum values
-    const vendorTypes = [
-      "GENERIC",
-      "SQUARE",
-      "CLOVER",
-      "TOAST",
-      "LIGHTSPEED",
-      "CUSTOM",
+    // WHEN: Creating terminals with all pos_type enum values
+    const posTypes = [
+      "MANUAL_ENTRY",
+      "SQUARE_REST",
+      "CLOVER_REST",
+      "TOAST_REST",
+      "LIGHTSPEED_REST",
+      "GENERIC_REST",
     ] as const;
 
-    for (const vendorType of vendorTypes) {
+    for (const posType of posTypes) {
       const terminal = await prismaClient.pOSTerminal.create({
         data: {
           store_id: store.store_id,
-          name: `${vendorType} Terminal`,
-          vendor_type: vendorType,
+          name: `${posType} Terminal`,
+          pos_type: posType,
         },
       });
 
       // THEN: Terminal is created with correct enum value
-      expect(terminal.vendor_type).toBe(vendorType);
+      expect(terminal.pos_type).toBe(posType);
     }
   });
 

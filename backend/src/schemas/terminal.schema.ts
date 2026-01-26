@@ -19,15 +19,26 @@ export const POSConnectionTypeEnum = z.enum([
 ]);
 
 /**
- * Vendor Type Enum
+ * POS System Type Enum
+ * Enterprise-grade 15-type enum for consistent POS identification
+ * Replaces deprecated POSVendorType (6 types)
  */
-export const POSVendorTypeEnum = z.enum([
-  "GENERIC",
-  "SQUARE",
-  "CLOVER",
-  "TOAST",
-  "LIGHTSPEED",
-  "CUSTOM",
+export const POSSystemTypeEnum = z.enum([
+  "GILBARCO_PASSPORT",
+  "GILBARCO_NAXML",
+  "GILBARCO_COMMANDER",
+  "VERIFONE_RUBY2",
+  "VERIFONE_COMMANDER",
+  "VERIFONE_SAPPHIRE",
+  "CLOVER_REST",
+  "ORACLE_SIMPHONY",
+  "NCR_ALOHA",
+  "LIGHTSPEED_REST",
+  "SQUARE_REST",
+  "TOAST_REST",
+  "GENERIC_XML",
+  "GENERIC_REST",
+  "MANUAL_ENTRY",
 ]);
 
 /**
@@ -133,7 +144,7 @@ export const CreateTerminalSchema = z
       .optional(),
     connection_type: POSConnectionTypeEnum.optional(),
     connection_config: z.any().optional(),
-    vendor_type: POSVendorTypeEnum.optional(),
+    pos_type: POSSystemTypeEnum.optional(),
     terminal_status: POSTerminalStatusEnum.optional(),
     sync_status: SyncStatusEnum.optional(),
   })
@@ -199,7 +210,7 @@ export const UpdateTerminalSchema = z
       .optional(),
     connection_type: POSConnectionTypeEnum.optional(),
     connection_config: z.any().optional(),
-    vendor_type: POSVendorTypeEnum.optional(),
+    pos_type: POSSystemTypeEnum.optional(),
     terminal_status: POSTerminalStatusEnum.optional(),
     sync_status: SyncStatusEnum.optional(),
   })

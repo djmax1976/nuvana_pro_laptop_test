@@ -47,6 +47,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ConnectionConfigForm } from "@/components/stores/ConnectionConfigForm";
 import { AddressFields, type AddressFieldsValue } from "@/components/address";
+import { POSTypeSelector } from "@/components/pos-integration/POSTypeSelector";
+import type { POSSystemType } from "@/types/pos-integration";
+import { getConnectionTypeForPOS } from "@/lib/pos-integration/pos-types";
 
 /**
  * Validate IANA timezone format (safer implementation to avoid ReDoS)
@@ -150,6 +153,52 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
   const [addressErrors, setAddressErrors] = useState<
     Partial<Record<keyof AddressFieldsValue, string>>
   >({});
+
+  // === Store-level POS Configuration ===
+  // Enterprise-grade POS config at Store level (not Terminal)
+  const [storePosType, setStorePosType] = useState<POSSystemType>(() => {
+    if (store) {
+      const storeData = store as Store & { pos_type?: POSSystemType };
+      return storeData.pos_type || "MANUAL_ENTRY";
+    }
+    return "MANUAL_ENTRY";
+  });
+  const [storeConnectionType, setStoreConnectionType] = useState<
+    "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL"
+  >(() => {
+    if (store) {
+      const storeData = store as Store & {
+        pos_connection_type?: "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL";
+      };
+      return storeData.pos_connection_type || "MANUAL";
+    }
+    return "MANUAL";
+  });
+  const [storeConnectionConfig, setStoreConnectionConfig] = useState<Record<
+    string,
+    unknown
+  > | null>(() => {
+    if (store) {
+      const storeData = store as Store & {
+        pos_connection_config?: Record<string, unknown> | null;
+      };
+      return storeData.pos_connection_config || null;
+    }
+    return null;
+  });
+
+  /**
+   * Handle Store-level POS type selection
+   * Auto-sets connection type based on POS configuration
+   */
+  const handleStorePosTypeChange = (newPosType: POSSystemType) => {
+    setStorePosType(newPosType);
+    const autoConnectionType = getConnectionTypeForPOS(newPosType);
+    setStoreConnectionType(autoConnectionType);
+    if (autoConnectionType === "MANUAL") {
+      setStoreConnectionConfig(null);
+    }
+  };
 
   const form = useForm<StoreFormValues>({
     resolver: zodResolver(storeFormSchema),
@@ -256,6 +305,11 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
         state_id: storeAddress.state_id,
         county_id: storeAddress.county_id || null,
         zip_code: storeAddress.zip_code?.trim(),
+        // Store-level POS configuration
+        pos_type: storePosType,
+        pos_connection_type: storeConnectionType,
+        pos_connection_config:
+          storeConnectionType !== "MANUAL" ? storeConnectionConfig : null,
         // Keep legacy location_json for backward compatibility
         location_json: {
           address: [
@@ -375,6 +429,33 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
           sectionLabel="Store Address"
           errors={addressErrors}
         />
+
+        {/* POS Configuration Section - Store Level */}
+        <Card className="mt-4">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">POS Configuration</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <POSTypeSelector
+                id="store-pos-type"
+                label="POS System"
+                value={storePosType}
+                onChange={handleStorePosTypeChange}
+                placeholder="Select POS system..."
+                testId="store-pos-type-selector"
+                disabled={isSubmitting}
+              />
+            </div>
+            {storeConnectionType !== "MANUAL" && (
+              <ConnectionConfigForm
+                connectionType={storeConnectionType}
+                connectionConfig={storeConnectionConfig}
+                onConfigChange={setStoreConnectionConfig}
+              />
+            )}
+          </CardContent>
+        </Card>
 
         <FormField
           control={form.control}
@@ -524,8 +605,8 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
   const [terminalDeviceId, setTerminalDeviceId] = useState("");
   const [connectionType, setConnectionType] =
     useState<TerminalWithStatus["connection_type"]>("MANUAL");
-  const [vendorType, setVendorType] =
-    useState<TerminalWithStatus["vendor_type"]>("GENERIC");
+  // Enterprise-grade POS type using POSSystemType (15 types)
+  const [posType, setPosType] = useState<POSSystemType>("MANUAL_ENTRY");
   const [connectionConfig, setConnectionConfig] =
     useState<TerminalWithStatus["connection_config"]>(null);
 
@@ -551,7 +632,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
           name: terminalName.trim(),
           device_id: terminalDeviceId.trim() || undefined,
           connection_type: connectionType,
-          vendor_type: vendorType,
+          pos_type: posType,
           connection_config:
             connectionType && connectionType !== "MANUAL"
               ? connectionConfig
@@ -566,7 +647,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
       setTerminalName("");
       setTerminalDeviceId("");
       setConnectionType("MANUAL");
-      setVendorType("GENERIC");
+      setPosType("MANUAL_ENTRY");
       setConnectionConfig(null);
     } catch (error) {
       toast({
@@ -599,7 +680,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
           name: terminalName.trim(),
           device_id: terminalDeviceId.trim() || undefined,
           connection_type: connectionType,
-          vendor_type: vendorType,
+          pos_type: posType,
           connection_config:
             connectionType && connectionType !== "MANUAL"
               ? connectionConfig
@@ -660,7 +741,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
     setTerminalName(terminal.name);
     setTerminalDeviceId(terminal.device_id || "");
     setConnectionType(terminal.connection_type || "MANUAL");
-    setVendorType(terminal.vendor_type || "GENERIC");
+    setPosType(terminal.pos_type || "MANUAL_ENTRY");
     setConnectionConfig(terminal.connection_config || null);
   };
 
@@ -669,8 +750,23 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
     setTerminalName("");
     setTerminalDeviceId("");
     setConnectionType("MANUAL");
-    setVendorType("GENERIC");
+    setPosType("MANUAL_ENTRY");
     setConnectionConfig(null);
+  };
+
+  /**
+   * Handle POS type selection - auto-sets connection type based on POS configuration
+   * This ensures connection type is always consistent with the selected POS system
+   */
+  const handlePosTypeChange = (newPosType: POSSystemType) => {
+    setPosType(newPosType);
+    // Auto-select connection type based on POS type's connection category
+    const autoConnectionType = getConnectionTypeForPOS(newPosType);
+    setConnectionType(autoConnectionType);
+    // Reset connection config when connection type changes
+    if (autoConnectionType === "MANUAL") {
+      setConnectionConfig(null);
+    }
   };
 
   return (
@@ -803,7 +899,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
             setTerminalName("");
             setTerminalDeviceId("");
             setConnectionType("MANUAL");
-            setVendorType("GENERIC");
+            setPosType("MANUAL_ENTRY");
             setConnectionConfig(null);
           }
         }}
@@ -844,51 +940,14 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
               />
             </div>
             <div>
-              <label htmlFor="connection-type" className="text-sm font-medium">
-                Connection Type
-              </label>
-              <Select
-                value={connectionType || "MANUAL"}
-                onValueChange={(value) =>
-                  setConnectionType(
-                    value as TerminalWithStatus["connection_type"],
-                  )
-                }
-              >
-                <SelectTrigger className="mt-1" id="connection-type">
-                  <SelectValue placeholder="Select connection type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="NETWORK">Network</SelectItem>
-                  <SelectItem value="API">API</SelectItem>
-                  <SelectItem value="WEBHOOK">Webhook</SelectItem>
-                  <SelectItem value="FILE">File</SelectItem>
-                  <SelectItem value="MANUAL">Manual</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label htmlFor="vendor-type" className="text-sm font-medium">
-                POS Vendor
-              </label>
-              <Select
-                value={vendorType || "GENERIC"}
-                onValueChange={(value) =>
-                  setVendorType(value as TerminalWithStatus["vendor_type"])
-                }
-              >
-                <SelectTrigger className="mt-1" id="vendor-type">
-                  <SelectValue placeholder="Select POS vendor" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="GENERIC">Generic</SelectItem>
-                  <SelectItem value="SQUARE">Square</SelectItem>
-                  <SelectItem value="CLOVER">Clover</SelectItem>
-                  <SelectItem value="TOAST">Toast</SelectItem>
-                  <SelectItem value="LIGHTSPEED">Lightspeed</SelectItem>
-                  <SelectItem value="CUSTOM">Custom</SelectItem>
-                </SelectContent>
-              </Select>
+              <POSTypeSelector
+                id="create-pos-type"
+                label="POS System"
+                value={posType}
+                onChange={handlePosTypeChange}
+                placeholder="Select POS system..."
+                testId="create-terminal-pos-type-selector"
+              />
             </div>
             {connectionType && connectionType !== "MANUAL" && (
               <div className="pt-2 border-t">
@@ -911,7 +970,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
                   setTerminalName("");
                   setTerminalDeviceId("");
                   setConnectionType("MANUAL");
-                  setVendorType("GENERIC");
+                  setPosType("MANUAL_ENTRY");
                   setConnectionConfig(null);
                 }}
               >
@@ -970,54 +1029,14 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
               />
             </div>
             <div>
-              <label
-                htmlFor="edit-connection-type"
-                className="text-sm font-medium"
-              >
-                Connection Type
-              </label>
-              <Select
-                value={connectionType || "MANUAL"}
-                onValueChange={(value) =>
-                  setConnectionType(
-                    value as TerminalWithStatus["connection_type"],
-                  )
-                }
-              >
-                <SelectTrigger className="mt-1" id="edit-connection-type">
-                  <SelectValue placeholder="Select connection type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="NETWORK">Network</SelectItem>
-                  <SelectItem value="API">API</SelectItem>
-                  <SelectItem value="WEBHOOK">Webhook</SelectItem>
-                  <SelectItem value="FILE">File</SelectItem>
-                  <SelectItem value="MANUAL">Manual</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label htmlFor="edit-vendor-type" className="text-sm font-medium">
-                POS Vendor
-              </label>
-              <Select
-                value={vendorType || "GENERIC"}
-                onValueChange={(value) =>
-                  setVendorType(value as TerminalWithStatus["vendor_type"])
-                }
-              >
-                <SelectTrigger className="mt-1" id="edit-vendor-type">
-                  <SelectValue placeholder="Select POS vendor" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="GENERIC">Generic</SelectItem>
-                  <SelectItem value="SQUARE">Square</SelectItem>
-                  <SelectItem value="CLOVER">Clover</SelectItem>
-                  <SelectItem value="TOAST">Toast</SelectItem>
-                  <SelectItem value="LIGHTSPEED">Lightspeed</SelectItem>
-                  <SelectItem value="CUSTOM">Custom</SelectItem>
-                </SelectContent>
-              </Select>
+              <POSTypeSelector
+                id="edit-pos-type"
+                label="POS System"
+                value={posType}
+                onChange={handlePosTypeChange}
+                placeholder="Select POS system..."
+                testId="edit-terminal-pos-type-selector"
+              />
             </div>
             {connectionType && connectionType !== "MANUAL" && (
               <div className="pt-2 border-t">

@@ -164,6 +164,30 @@ function handleKnownError(
     });
   }
 
+  // FAILED_PRECONDITION: Game exists but is inactive (AIP-193 compliant)
+  // Returns HTTP 400 because:
+  // - 404 is incorrect: game EXISTS in database
+  // - 410 is incorrect: game could be reactivated
+  // - 400 (FAILED_PRECONDITION) is correct: valid request, invalid system state
+  if (message.startsWith("GAME_INACTIVE:")) {
+    // Extract game_code from message for metadata
+    const gameCodeMatch = message.match(/Game (\S+)/);
+    const gameCode = gameCodeMatch ? gameCodeMatch[1] : undefined;
+
+    return reply.code(400).send({
+      success: false,
+      error: {
+        code: "FAILED_PRECONDITION",
+        reason: "GAME_INACTIVE",
+        message: message.replace("GAME_INACTIVE: ", ""),
+        details: {
+          domain: "lottery.api.nuvana.com",
+          metadata: gameCode ? { game_code: gameCode } : undefined,
+        },
+      },
+    });
+  }
+
   if (message.startsWith("PACK_NOT_FOUND:")) {
     return reply.code(404).send({
       success: false,

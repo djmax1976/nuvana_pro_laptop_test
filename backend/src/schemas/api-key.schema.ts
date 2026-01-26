@@ -119,6 +119,9 @@ export const createApiKeySchema = z.object({
   daily_sync_quota: quotaSchema,
 
   monthly_data_quota_mb: quotaSchema,
+
+  /** Optional terminal ID to bind to this API key */
+  pos_terminal_id: uuidSchema.optional(),
 });
 
 /**
@@ -152,6 +155,9 @@ export const updateApiKeySchema = z
         },
         { message: "Expiration date must be in the future" },
       ),
+
+    /** Terminal ID to bind (null to unbind) */
+    pos_terminal_id: uuidSchema.nullable().optional(),
   })
   .refine(
     (data) => {

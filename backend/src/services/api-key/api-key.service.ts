@@ -183,7 +183,42 @@ class ApiKeyService {
       );
     }
 
-    // Generate the key
+    // Validate terminal if provided
+    let terminal: { pos_terminal_id: string; name: string } | null = null;
+    if (input.posTerminalId) {
+      const foundTerminal = await prisma.pOSTerminal.findFirst({
+        where: {
+          pos_terminal_id: input.posTerminalId,
+          store_id: input.storeId,
+          deleted_at: null,
+        },
+        select: { pos_terminal_id: true, name: true },
+      });
+
+      if (!foundTerminal) {
+        throw new Error(
+          `Terminal not found or does not belong to this store: ${input.posTerminalId}`,
+        );
+      }
+
+      // Check if terminal is already bound to another active API key
+      const existingTerminalBinding = await prisma.apiKey.findFirst({
+        where: {
+          pos_terminal_id: input.posTerminalId,
+          status: "ACTIVE",
+        },
+      });
+
+      if (existingTerminalBinding) {
+        throw new Error(
+          `Terminal ${foundTerminal.name} is already bound to another active API key`,
+        );
+      }
+
+      terminal = foundTerminal;
+    }
+
+    // Generate the key with terminal info if bound
     const generatedKey = this.generateKey(store.public_id, {
       store_id: store.store_id,
       store_name: store.name,
@@ -193,6 +228,8 @@ class ApiKeyService {
       timezone: store.timezone,
       state_id: store.state_id || undefined,
       state_code: store.state?.code,
+      pos_terminal_id: terminal?.pos_terminal_id,
+      pos_terminal_name: terminal?.name,
       metadata: input.metadata || {},
     });
 
@@ -217,6 +254,7 @@ class ApiKeyService {
         activated_at: new Date(),
         expires_at: input.expiresAt,
         created_by: createdBy,
+        pos_terminal_id: terminal?.pos_terminal_id,
       },
     });
 
@@ -230,6 +268,8 @@ class ApiKeyService {
         store_id: input.storeId,
         store_public_id: store.public_id,
         label: input.label,
+        pos_terminal_id: terminal?.pos_terminal_id,
+        pos_terminal_name: terminal?.name,
       },
     });
 
@@ -283,6 +323,8 @@ class ApiKeyService {
       timezone: identityData.timezone,
       state_id: identityData.state_id,
       state_code: identityData.state_code,
+      pos_terminal_id: identityData.pos_terminal_id,
+      pos_terminal_name: identityData.pos_terminal_name,
       offline_permissions: DEFAULT_OFFLINE_PERMISSIONS,
       metadata: identityData.metadata,
       iss: "nuvana-backend",
@@ -461,6 +503,8 @@ class ApiKeyService {
       offlinePermissions: payload.offline_permissions,
       metadata: payload.metadata,
       isElevated: false,
+      posTerminalId: payload.pos_terminal_id,
+      posTerminalName: payload.pos_terminal_name,
     };
 
     return {

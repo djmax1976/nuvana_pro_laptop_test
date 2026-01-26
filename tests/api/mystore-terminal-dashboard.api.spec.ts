@@ -95,7 +95,7 @@ test.describe("4.9-API: MyStore Terminal Dashboard API", () => {
       expect(terminal1Response).toHaveProperty("updated_at");
       // Story 4.82: Connection configuration fields (optional)
       expect(terminal1Response).toHaveProperty("connection_config");
-      expect(terminal1Response).toHaveProperty("vendor_type");
+      expect(terminal1Response).toHaveProperty("pos_type");
       expect(terminal1Response).toHaveProperty("sync_status");
       expect(terminal1Response).toHaveProperty("last_sync_at");
 

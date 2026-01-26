@@ -154,7 +154,7 @@ test.describe("Store Creation with Login and Terminals", () => {
     expect(body.terminals[0].name).toBe("Terminal 1");
     expect(body.terminals[0].device_id).toBe(`DEV-${uniqueId}-001`);
     expect(body.terminals[0].connection_type).toBe("MANUAL");
-    expect(body.terminals[0].vendor_type).toBe("GENERIC"); // Default value
+    expect(body.terminals[0].pos_type).toBe("MANUAL_ENTRY"); // Default value
 
     expect(body.terminals[1].pos_terminal_id).toBeDefined();
     expect(body.terminals[1].name).toBe("Terminal 2");
@@ -510,7 +510,7 @@ test.describe("Store Creation with Login and Terminals", () => {
       {
         name: "API Terminal",
         connection_type: "API",
-        vendor_type: "SQUARE",
+        pos_type: "SQUARE_REST",
         connection_config: {
           baseUrl: "https://api.square.com",
           apiKey: "test-api-key",
@@ -540,7 +540,7 @@ test.describe("Store Creation with Login and Terminals", () => {
     expect(body.terminals.length).toBe(1);
     expect(body.terminals[0].pos_terminal_id).toBeDefined();
     expect(body.terminals[0].connection_type).toBe("API");
-    expect(body.terminals[0].vendor_type).toBe("SQUARE");
+    expect(body.terminals[0].pos_type).toBe("SQUARE_REST");
 
     // Verify terminal was persisted in database with config
     const terminal = await prismaClient.pOSTerminal.findUnique({
@@ -548,7 +548,7 @@ test.describe("Store Creation with Login and Terminals", () => {
     });
     expect(terminal).toBeDefined();
     expect(terminal?.connection_type).toBe("API");
-    expect(terminal?.vendor_type).toBe("SQUARE");
+    expect(terminal?.pos_type).toBe("SQUARE_REST");
     expect(terminal?.connection_config).toMatchObject({
       baseUrl: "https://api.square.com",
       apiKey: "test-api-key",
@@ -667,14 +667,14 @@ test.describe("Store Creation with Login and Terminals", () => {
       {
         name: "Manual Terminal",
         connection_type: "MANUAL",
-        vendor_type: "GENERIC",
+        pos_type: "MANUAL_ENTRY",
       },
       {
         name: "Network Terminal",
         connection_type: "NETWORK",
-        vendor_type: "CLOVER",
+        pos_type: "CLOVER_REST",
       },
-      { name: "API Terminal", connection_type: "API", vendor_type: "SQUARE" },
+      { name: "API Terminal", connection_type: "API", pos_type: "SQUARE_REST" },
     ];
 
     // WHEN: Creating store with multiple terminals

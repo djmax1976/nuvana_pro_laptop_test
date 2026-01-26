@@ -12,3 +12,4 @@ export { cashierSyncService } from "./cashier-sync.service";
 export { storeManagerSyncService } from "./store-manager-sync.service";
 export { employeeSyncService } from "./employee-sync.service";
 export { lotterySyncService } from "./lottery-sync.service";
+export { terminalSyncService } from "./terminal-sync.service";

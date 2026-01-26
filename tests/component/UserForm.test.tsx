@@ -190,6 +190,10 @@ describe("2.8-COMPONENT: UserForm Component", () => {
     expect(screen.getByTestId("user-email-input")).toBeInTheDocument();
     expect(screen.getByTestId("user-name-input")).toBeInTheDocument();
     expect(screen.getByTestId("user-password-input")).toBeInTheDocument();
+    // FE-002: Confirm password field for validation
+    expect(
+      screen.getByTestId("user-confirm-password-input"),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("user-role-select")).toBeInTheDocument();
     expect(screen.getByTestId("user-form-submit")).toBeInTheDocument();
   });
@@ -503,9 +507,324 @@ describe("2.8-COMPONENT: UserForm Component", () => {
     // THEN: Password requirements should be displayed
     expect(
       screen.getByText(
-        /Password must be at least 8 characters with uppercase, lowercase, number, and special character/i,
+        /Must be at least 8 characters with uppercase, lowercase, number/i,
       ),
     ).toBeInTheDocument();
+  });
+
+  it("[P0] 2.8-COMPONENT-016: should render confirm password field", () => {
+    // GIVEN: UserForm component
+    // WHEN: Component is rendered
+    renderWithProviders(<UserForm />);
+
+    // THEN: Confirm password field should be visible
+    expect(screen.getByTestId("user-password-input")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("user-confirm-password-input"),
+    ).toBeInTheDocument();
+  });
+
+  it("[P0] 2.8-COMPONENT-017: should prevent form submission when passwords do not match", async () => {
+    // GIVEN: UserForm component with mismatched passwords
+    // FE-002: FORM_VALIDATION - Password confirmation prevents submission with mismatched passwords
+    const mockCreateUser = vi.fn();
+    vi.mocked(adminUsersApi.useCreateUser).mockReturnValue({
+      mutateAsync: mockCreateUser,
+      isPending: false,
+      isError: false,
+      error: null,
+    } as any);
+
+    const user = userEvent.setup();
+    renderWithProviders(<UserForm />);
+
+    // Fill in valid user info with mismatched passwords
+    await user.type(screen.getByTestId("user-email-input"), "test@test.com");
+    await user.type(screen.getByTestId("user-name-input"), "Test User");
+    await user.type(
+      screen.getByTestId("user-password-input"),
+      "StrongPassword123!",
+    );
+    await user.type(
+      screen.getByTestId("user-confirm-password-input"),
+      "DifferentPassword123!",
+    );
+
+    // Select a role
+    await user.click(screen.getByTestId("user-role-select"));
+    await waitFor(() => {
+      expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+    });
+    await user.click(screen.getByRole("option", { name: /SUPERADMIN/i }));
+
+    // WHEN: Form is submitted with mismatched passwords
+    await user.click(screen.getByTestId("user-form-submit"));
+
+    // THEN: Form should NOT submit (mutation should NOT be called)
+    // Zod refine validation blocks submission when passwords don't match
+    await waitFor(
+      () => {
+        expect(mockCreateUser).not.toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("[P1] 2.8-COMPONENT-018: should toggle password visibility", async () => {
+    // GIVEN: UserForm component
+    const user = userEvent.setup();
+    renderWithProviders(<UserForm />);
+
+    const passwordInput = screen.getByTestId("user-password-input");
+
+    // THEN: Password should be hidden by default
+    expect(passwordInput).toHaveAttribute("type", "password");
+
+    // WHEN: Toggle button is clicked
+    const toggleButtons = screen.getAllByRole("button", {
+      name: /show password|hide password/i,
+    });
+    await user.click(toggleButtons[0]);
+
+    // THEN: Password should be visible
+    expect(passwordInput).toHaveAttribute("type", "text");
+
+    // WHEN: Toggle button is clicked again
+    await user.click(toggleButtons[0]);
+
+    // THEN: Password should be hidden again
+    expect(passwordInput).toHaveAttribute("type", "password");
+  });
+
+  it("[P1] 2.8-COMPONENT-019: should toggle confirm password visibility independently", async () => {
+    // GIVEN: UserForm component
+    const user = userEvent.setup();
+    renderWithProviders(<UserForm />);
+
+    const passwordInput = screen.getByTestId("user-password-input");
+    const confirmPasswordInput = screen.getByTestId(
+      "user-confirm-password-input",
+    );
+
+    // Get toggle buttons (password toggle is first, confirm is second)
+    const toggleButtons = screen.getAllByRole("button", {
+      name: /show password|hide password/i,
+    });
+
+    // THEN: Both should be hidden by default
+    expect(passwordInput).toHaveAttribute("type", "password");
+    expect(confirmPasswordInput).toHaveAttribute("type", "password");
+
+    // WHEN: Only confirm password toggle is clicked (second button)
+    await user.click(toggleButtons[1]);
+
+    // THEN: Only confirm password should be visible
+    expect(passwordInput).toHaveAttribute("type", "password");
+    expect(confirmPasswordInput).toHaveAttribute("type", "text");
+  });
+
+  it("[P0] 2.8-COMPONENT-020A: should prevent form submission when password contains whitespace", async () => {
+    // GIVEN: UserForm component
+    // SEC-014: INPUT_VALIDATION - Password whitespace validation prevents submission
+    const mockCreateUser = vi.fn();
+    vi.mocked(adminUsersApi.useCreateUser).mockReturnValue({
+      mutateAsync: mockCreateUser,
+      isPending: false,
+      isError: false,
+      error: null,
+    } as any);
+
+    const user = userEvent.setup();
+    renderWithProviders(<UserForm />);
+
+    // Fill in user info with password containing whitespace
+    await user.type(screen.getByTestId("user-email-input"), "test@test.com");
+    await user.type(screen.getByTestId("user-name-input"), "Test User");
+    await user.type(
+      screen.getByTestId("user-password-input"),
+      "Strong Password123!",
+    );
+    await user.type(
+      screen.getByTestId("user-confirm-password-input"),
+      "Strong Password123!",
+    );
+
+    // Select a role
+    await user.click(screen.getByTestId("user-role-select"));
+    await waitFor(() => {
+      expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+    });
+    await user.click(screen.getByRole("option", { name: /SUPERADMIN/i }));
+
+    // WHEN: Form is submitted with password containing whitespace
+    await user.click(screen.getByTestId("user-form-submit"));
+
+    // THEN: Form should NOT submit (mutation should NOT be called)
+    // Zod refine validation blocks submission when password has whitespace
+    await waitFor(
+      () => {
+        expect(mockCreateUser).not.toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  // =========================================================================
+  // ENTERPRISE EDGE CASES - Password Validation Boundary Tests
+  // SEC-014: INPUT_VALIDATION - Boundary condition testing
+  // =========================================================================
+
+  it("[P0] 2.8-COMPONENT-020B: should prevent submission when confirm password is empty", async () => {
+    // GIVEN: Password filled but confirm password empty (boundary case)
+    // SEC-014: Confirm password is required - empty confirmation must fail
+    const mockCreateUser = vi.fn();
+    vi.mocked(adminUsersApi.useCreateUser).mockReturnValue({
+      mutateAsync: mockCreateUser,
+      isPending: false,
+      isError: false,
+      error: null,
+    } as any);
+
+    const user = userEvent.setup();
+    renderWithProviders(<UserForm />);
+
+    await user.type(screen.getByTestId("user-email-input"), "test@test.com");
+    await user.type(screen.getByTestId("user-name-input"), "Test User");
+    await user.type(
+      screen.getByTestId("user-password-input"),
+      "StrongPassword123!",
+    );
+    // Deliberately leave confirm password empty
+
+    await user.click(screen.getByTestId("user-role-select"));
+    await waitFor(() => {
+      expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+    });
+    await user.click(screen.getByRole("option", { name: /SUPERADMIN/i }));
+
+    // WHEN: Form is submitted
+    await user.click(screen.getByTestId("user-form-submit"));
+
+    // THEN: Form should NOT submit - confirm password required
+    await waitFor(
+      () => {
+        expect(mockCreateUser).not.toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("[P1] 2.8-COMPONENT-020C: should enforce case-sensitive password matching", async () => {
+    // GIVEN: Passwords differ only by case (security - exact match required)
+    // SEC-014: Password matching must be case-sensitive for security
+    const mockCreateUser = vi.fn();
+    vi.mocked(adminUsersApi.useCreateUser).mockReturnValue({
+      mutateAsync: mockCreateUser,
+      isPending: false,
+      isError: false,
+      error: null,
+    } as any);
+
+    const user = userEvent.setup();
+    renderWithProviders(<UserForm />);
+
+    await user.type(screen.getByTestId("user-email-input"), "test@test.com");
+    await user.type(screen.getByTestId("user-name-input"), "Test User");
+    await user.type(
+      screen.getByTestId("user-password-input"),
+      "StrongPassword123!",
+    );
+    // Same password but different case
+    await user.type(
+      screen.getByTestId("user-confirm-password-input"),
+      "strongpassword123!",
+    );
+
+    await user.click(screen.getByTestId("user-role-select"));
+    await waitFor(() => {
+      expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+    });
+    await user.click(screen.getByRole("option", { name: /SUPERADMIN/i }));
+
+    // WHEN: Form is submitted
+    await user.click(screen.getByTestId("user-form-submit"));
+
+    // THEN: Form should NOT submit - case mismatch is a failure
+    await waitFor(
+      () => {
+        expect(mockCreateUser).not.toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("[P1] 2.8-COMPONENT-020D: should have accessible toggle buttons with ARIA labels", () => {
+    // GIVEN: UserForm component rendered
+    // A11Y: Verify toggle buttons have proper accessibility attributes
+    renderWithProviders(<UserForm />);
+
+    // THEN: Toggle buttons should have aria-labels for screen readers
+    const toggleButtons = screen.getAllByRole("button", {
+      name: /show password|hide password/i,
+    });
+
+    expect(toggleButtons).toHaveLength(2);
+    toggleButtons.forEach((button) => {
+      expect(button).toHaveAttribute("aria-label");
+      expect(button).toHaveAttribute("type", "button");
+      // tabIndex -1 removes from tab order (toggle via keyboard would be on input)
+      expect(button).toHaveAttribute("tabindex", "-1");
+    });
+  });
+
+  it("[P1] 2.8-COMPONENT-020E: should allow successful submission with matching valid passwords", async () => {
+    // GIVEN: Valid matching passwords (happy path verification)
+    // FE-002: Verify form submits successfully when passwords match
+    const mockCreateUser = vi.fn().mockResolvedValue({ success: true });
+    vi.mocked(adminUsersApi.useCreateUser).mockReturnValue({
+      mutateAsync: mockCreateUser,
+      isPending: false,
+      isError: false,
+      error: null,
+    } as any);
+
+    const user = userEvent.setup();
+    renderWithProviders(<UserForm />);
+
+    await user.type(screen.getByTestId("user-email-input"), "test@test.com");
+    await user.type(screen.getByTestId("user-name-input"), "Test User");
+    await user.type(
+      screen.getByTestId("user-password-input"),
+      "StrongPassword123!",
+    );
+    await user.type(
+      screen.getByTestId("user-confirm-password-input"),
+      "StrongPassword123!",
+    );
+
+    await user.click(screen.getByTestId("user-role-select"));
+    await waitFor(() => {
+      expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+    });
+    await user.click(screen.getByRole("option", { name: /SUPERADMIN/i }));
+
+    // WHEN: Form is submitted with matching passwords
+    await user.click(screen.getByTestId("user-form-submit"));
+
+    // THEN: Form should submit successfully
+    await waitFor(
+      () => {
+        expect(mockCreateUser).toHaveBeenCalledTimes(1);
+        expect(mockCreateUser).toHaveBeenCalledWith(
+          expect.objectContaining({
+            email: "test@test.com",
+            name: "Test User",
+            password: "StrongPassword123!",
+          }),
+        );
+      },
+      { timeout: 5000 },
+    );
   });
 });
 
@@ -567,11 +886,15 @@ describe("2.8-COMPONENT: UserForm - Company Fields for CLIENT_OWNER", () => {
     const user = userEvent.setup();
     renderWithProviders(<UserForm />);
 
-    // Fill in user info
+    // Fill in user info (including confirm password for FE-002 compliance)
     await user.type(screen.getByTestId("user-email-input"), "owner@test.com");
     await user.type(screen.getByTestId("user-name-input"), "Test Owner");
     await user.type(
       screen.getByTestId("user-password-input"),
+      "StrongPassword123!",
+    );
+    await user.type(
+      screen.getByTestId("user-confirm-password-input"),
       "StrongPassword123!",
     );
 
@@ -623,11 +946,15 @@ describe("2.8-COMPONENT: UserForm - Company Fields for CLIENT_OWNER", () => {
     const user = userEvent.setup();
     renderWithProviders(<UserForm />);
 
-    // Fill in user info
+    // Fill in user info (including confirm password for FE-002 compliance)
     await user.type(screen.getByTestId("user-email-input"), "admin@test.com");
     await user.type(screen.getByTestId("user-name-input"), "Test Admin");
     await user.type(
       screen.getByTestId("user-password-input"),
+      "StrongPassword123!",
+    );
+    await user.type(
+      screen.getByTestId("user-confirm-password-input"),
       "StrongPassword123!",
     );
 
@@ -948,11 +1275,15 @@ describe("2.8-COMPONENT: UserForm - Store Assignment for STORE-Scoped Roles", ()
     const user = userEvent.setup();
     renderWithProviders(<UserForm />);
 
-    // Fill in user info
+    // Fill in user info (including confirm password for FE-002 compliance)
     await user.type(screen.getByTestId("user-email-input"), "manager@test.com");
     await user.type(screen.getByTestId("user-name-input"), "Store Manager");
     await user.type(
       screen.getByTestId("user-password-input"),
+      "StrongPassword123!",
+    );
+    await user.type(
+      screen.getByTestId("user-confirm-password-input"),
       "StrongPassword123!",
     );
 
@@ -988,6 +1319,12 @@ describe("2.8-COMPONENT: UserForm - Store Assignment for STORE-Scoped Roles", ()
       expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
     });
     await user.click(screen.getByRole("option", { name: /Store One/i }));
+
+    // Fill PIN (required for STORE_MANAGER role)
+    await waitFor(() => {
+      expect(screen.getByTestId("user-pin-input")).toBeInTheDocument();
+    });
+    await user.type(screen.getByTestId("user-pin-input"), "1234");
 
     // WHEN: Form is submitted
     await user.click(screen.getByTestId("user-form-submit"));
@@ -1234,10 +1571,14 @@ describe("ADDR-UI: Structured Address Fields for CLIENT_OWNER", () => {
       { timeout: 3000 },
     );
     expect(
-      screen.getByTestId("company-state-option-550e8400-e29b-41d4-a716-446655440001"),
+      screen.getByTestId(
+        "company-state-option-550e8400-e29b-41d4-a716-446655440001",
+      ),
     ).toBeInTheDocument();
     expect(
-      screen.getByTestId("company-state-option-550e8400-e29b-41d4-a716-446655440002"),
+      screen.getByTestId(
+        "company-state-option-550e8400-e29b-41d4-a716-446655440002",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -1365,10 +1706,7 @@ describe("ADDR-UI: Structured Address Fields for CLIENT_OWNER", () => {
     );
 
     // Fill in address line 2 (always enabled)
-    await user.type(
-      screen.getByTestId("company-address-line2"),
-      "Suite 100",
-    );
+    await user.type(screen.getByTestId("company-address-line2"), "Suite 100");
     expect(screen.getByTestId("company-address-line2")).toHaveValue(
       "Suite 100",
     );

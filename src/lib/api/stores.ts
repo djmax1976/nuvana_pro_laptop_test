@@ -12,6 +12,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "./client";
+import type { POSSystemType } from "@/types/pos-integration";
 
 /**
  * Store status values
@@ -74,6 +75,14 @@ export interface Store {
   county_id?: string | null;
   /** ZIP code (5-digit or ZIP+4 format) */
   zip_code?: string | null;
+  // === POS CONNECTION CONFIGURATION ===
+  // Store-level POS connection settings for desktop app integration
+  /** POS System Type - Which POS vendor/protocol to use (e.g., GILBARCO_NAXML, SQUARE_REST) */
+  pos_type?: POSSystemType;
+  /** POS Connection Type - How to connect (FILE, API, NETWORK, WEBHOOK, MANUAL) */
+  pos_connection_type?: "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL";
+  /** Connection-specific configuration (JSON) */
+  pos_connection_config?: Record<string, unknown> | null;
 }
 
 /**
@@ -95,18 +104,14 @@ export type StoreManager = StoreLogin;
 
 /**
  * Terminal creation input (for wizard)
+ * Updated to use POSSystemType for enterprise-grade POS identification
  */
 export interface TerminalInput {
   name: string;
   device_id?: string;
   connection_type?: "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL";
-  vendor_type?:
-    | "GENERIC"
-    | "SQUARE"
-    | "CLOVER"
-    | "TOAST"
-    | "LIGHTSPEED"
-    | "CUSTOM";
+  /** POS System Type - enterprise 15-type enum for consistent identification */
+  pos_type?: POSSystemType;
   connection_config?: Record<string, unknown>;
 }
 
@@ -133,6 +138,13 @@ export interface CreateStoreInput {
   county_id?: string | null;
   /** ZIP code (required, 5-digit or ZIP+4 format) */
   zip_code?: string;
+  // === POS CONNECTION CONFIGURATION ===
+  /** POS System Type - Which POS vendor/protocol to use */
+  pos_type?: POSSystemType;
+  /** POS Connection Type - How to connect (FILE, API, NETWORK, WEBHOOK, MANUAL) */
+  pos_connection_type?: "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL";
+  /** Connection-specific configuration (JSON) */
+  pos_connection_config?: Record<string, unknown> | null;
 }
 
 /**
@@ -161,7 +173,8 @@ export interface CreateStoreWithLoginResponse extends Store {
     name: string;
     device_id: string | null;
     connection_type: string;
-    vendor_type: string;
+    /** POS System Type - enterprise 15-type enum */
+    pos_type: POSSystemType;
   }>;
 }
 
@@ -193,6 +206,13 @@ export interface UpdateStoreInput {
   county_id?: string | null;
   /** ZIP code (5-digit or ZIP+4 format) */
   zip_code?: string;
+  // === POS CONNECTION CONFIGURATION ===
+  /** POS System Type - Which POS vendor/protocol to use */
+  pos_type?: POSSystemType;
+  /** POS Connection Type - How to connect (FILE, API, NETWORK, WEBHOOK, MANUAL) */
+  pos_connection_type?: "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL";
+  /** Connection-specific configuration (JSON) */
+  pos_connection_config?: Record<string, unknown> | null;
 }
 
 /**
@@ -692,13 +712,8 @@ export interface TerminalWithStatus {
   // Connection fields (Story 4.82)
   connection_type?: "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL";
   connection_config?: Record<string, unknown> | null;
-  vendor_type?:
-    | "GENERIC"
-    | "SQUARE"
-    | "CLOVER"
-    | "TOAST"
-    | "LIGHTSPEED"
-    | "CUSTOM";
+  /** POS System Type - enterprise 15-type enum for consistent identification */
+  pos_type?: POSSystemType;
   terminal_status?: "ACTIVE" | "INACTIVE" | "PENDING" | "ERROR";
   last_sync_at?: string | null;
   sync_status?: "NEVER" | "SUCCESS" | "FAILED" | "IN_PROGRESS";
@@ -759,37 +774,29 @@ export interface Terminal {
 /**
  * Create terminal input
  * Story 4.82: Terminal Connection Configuration UI
+ * Updated to use POSSystemType for enterprise-grade POS identification
  */
 export interface CreateTerminalInput {
   name: string;
   device_id?: string;
   connection_type?: "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL";
   connection_config?: Record<string, unknown> | null;
-  vendor_type?:
-    | "GENERIC"
-    | "SQUARE"
-    | "CLOVER"
-    | "TOAST"
-    | "LIGHTSPEED"
-    | "CUSTOM";
+  /** POS System Type - enterprise 15-type enum for consistent identification */
+  pos_type?: POSSystemType;
 }
 
 /**
  * Update terminal input
  * Story 4.82: Terminal Connection Configuration UI
+ * Updated to use POSSystemType for enterprise-grade POS identification
  */
 export interface UpdateTerminalInput {
   name?: string;
   device_id?: string;
   connection_type?: "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL";
   connection_config?: Record<string, unknown> | null;
-  vendor_type?:
-    | "GENERIC"
-    | "SQUARE"
-    | "CLOVER"
-    | "TOAST"
-    | "LIGHTSPEED"
-    | "CUSTOM";
+  /** POS System Type - enterprise 15-type enum for consistent identification */
+  pos_type?: POSSystemType;
 }
 
 /**

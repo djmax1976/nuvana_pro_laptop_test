@@ -13,6 +13,10 @@ import type {
   ApiKeyStatus,
   ApiKeyRevocationReason,
   ApiKeyAuditEventType,
+  POSConnectionType,
+  POSSystemType,
+  POSTerminalStatus,
+  SyncStatus,
 } from "@prisma/client";
 
 // ============================================================================
@@ -60,6 +64,10 @@ export interface ApiKeyIdentityPayload {
   // State info for lottery operations
   state_id?: string;
   state_code?: string;
+
+  // Terminal binding (optional)
+  pos_terminal_id?: string;
+  pos_terminal_name?: string;
 
   // Curated list of permissions for offline operations
   offline_permissions: string[];
@@ -133,6 +141,12 @@ export interface ApiKeyIdentity {
 
   /** API keys never have elevated access */
   isElevated: false;
+
+  /** Terminal ID if bound */
+  posTerminalId?: string;
+
+  /** Terminal name if bound */
+  posTerminalName?: string;
 }
 
 // ============================================================================
@@ -190,6 +204,9 @@ export interface CreateApiKeyInput {
 
   /** Monthly data quota in MB */
   monthlyDataQuotaMb?: number;
+
+  /** Optional terminal ID to bind to this API key */
+  posTerminalId?: string;
 }
 
 /**
@@ -219,6 +236,9 @@ export interface UpdateApiKeyInput {
 
   /** Update expiration */
   expiresAt?: Date | null;
+
+  /** Update terminal binding (null to unbind) */
+  posTerminalId?: string | null;
 }
 
 /**
@@ -371,6 +391,22 @@ export interface ActivateApiKeyResponse {
 
   /** Store manager data for offline authentication (null if no store login configured) */
   storeManager: StoreManagerSyncRecord | null;
+
+  /**
+   * Store-level POS connection configuration.
+   * Contains pos_type, pos_connection_type, and pos_connection_config.
+   * Desktop app uses this to connect to the external POS system,
+   * then discovers terminals/registers dynamically.
+   */
+  posConnectionConfig: StorePOSConnectionConfig;
+
+  /**
+   * @deprecated Use posConnectionConfig instead.
+   * Terminal info for POS configuration (null if no terminal bound to key).
+   * This represents a DISCOVERED terminal, not the connection config.
+   * Kept for backward compatibility during transition.
+   */
+  terminal: TerminalSyncRecord | null;
 }
 
 /**
@@ -865,6 +901,137 @@ export interface StoreManagerSyncRecord {
 
   /** Sync sequence number for ordering */
   syncSequence: number;
+}
+
+// ============================================================================
+// Store POS Connection Types (Store-Level Configuration)
+// ============================================================================
+
+/**
+ * POS connection configuration at the STORE level.
+ * This is the primary way desktop apps get POS connection settings.
+ *
+ * Workflow:
+ * 1. Admin configures pos_type and pos_connection_config on the Store
+ * 2. Desktop app activates API key and receives this config
+ * 3. Desktop app connects to POS using this config
+ * 4. Desktop app discovers registers/terminals dynamically
+ * 5. Desktop app creates/updates POSTerminal records for discovered registers
+ *
+ * This replaces the old terminal-binding approach where terminals had to
+ * exist before the desktop app could get connection info.
+ */
+export interface StorePOSConnectionConfig {
+  /** POS system type (GILBARCO_NAXML, SQUARE_REST, CLOVER_REST, etc.) */
+  pos_type: POSSystemType;
+
+  /** Connection method (FILE, API, NETWORK, WEBHOOK, MANUAL) */
+  pos_connection_type: POSConnectionType;
+
+  /**
+   * Connection-specific configuration.
+   * Structure depends on pos_connection_type:
+   *
+   * FILE (NAXML):
+   *   { import_path: string, file_pattern?: string, poll_interval_seconds?: number }
+   *
+   * API (Square/Clover):
+   *   { base_url: string, api_key: string, location_id?: string, merchant_id?: string }
+   *
+   * NETWORK:
+   *   { host: string, port: number, timeout_ms?: number }
+   *
+   * WEBHOOK:
+   *   { webhook_secret: string, expected_source_ips?: string[] }
+   *
+   * MANUAL:
+   *   null (no automated connection)
+   */
+  pos_connection_config: Record<string, unknown> | null;
+}
+
+/**
+ * Response from the POS connection config endpoint.
+ * Returns store-level POS settings for desktop app initialization.
+ */
+export interface POSConnectionConfigResponse {
+  /** Store-level POS configuration */
+  config: StorePOSConnectionConfig;
+
+  /** Store identifier */
+  store_id: string;
+
+  /** Store name for display */
+  store_name: string;
+
+  /** Whether POS is configured (pos_type !== MANUAL_ENTRY) */
+  is_configured: boolean;
+
+  /** Server timestamp */
+  server_time: string;
+}
+
+// ============================================================================
+// Terminal Sync Types (Discovered Terminals)
+// ============================================================================
+
+/**
+ * Terminal information returned by the sync endpoint.
+ * These represent DISCOVERED registers after connecting to the POS.
+ *
+ * NOTE: Terminals are created DYNAMICALLY by the desktop app after:
+ * 1. Getting Store POS connection config
+ * 2. Connecting to the external POS system
+ * 3. Discovering available registers/devices
+ *
+ * For NAXML: Registers are discovered from file data (RegisterID field)
+ * For Square: Registers are discovered via GET /v2/devices API
+ * For Clover: Registers are discovered via GET /merchants/{mId}/devices API
+ */
+export interface TerminalSyncRecord {
+  /** Terminal UUID */
+  pos_terminal_id: string;
+
+  /** Terminal display name */
+  name: string;
+
+  /** Device identifier (hardware ID) */
+  device_id: string | null;
+
+  /** Connection type (NETWORK, API, WEBHOOK, FILE, MANUAL) */
+  connection_type: POSConnectionType;
+
+  /** Connection configuration (host, port, apiKey, etc.) */
+  connection_config: Record<string, unknown> | null;
+
+  /** POS system type (GILBARCO_PASSPORT, CLOVER_REST, etc.) */
+  pos_type: POSSystemType;
+
+  /** Terminal operational status */
+  terminal_status: POSTerminalStatus;
+
+  /** Last sync timestamp */
+  last_sync_at: string | null;
+
+  /** Current sync status */
+  sync_status: SyncStatus;
+
+  /** Last modified for delta sync */
+  updated_at: string;
+}
+
+/**
+ * Response from terminal info endpoint
+ */
+export interface TerminalInfoResponse {
+  /** Terminal details (null if no terminal bound to key) */
+  terminal: TerminalSyncRecord | null;
+
+  /** Whether terminal is bound to this API key */
+  is_bound: boolean;
+
+  /** Server timestamp */
+  server_time: string;
 }
 
 /**

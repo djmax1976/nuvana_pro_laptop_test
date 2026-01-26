@@ -63,7 +63,7 @@ test.describe("Terminal Connection Configuration E2E", () => {
         device_id: terminalData.device_id,
         connection_type: terminalData.connection_type,
         connection_config: terminalData.connection_config,
-        vendor_type: terminalData.vendor_type,
+        pos_type: terminalData.pos_type,
         terminal_status: terminalData.terminal_status,
         sync_status: terminalData.sync_status,
       },
@@ -210,7 +210,7 @@ test.describe("Terminal Connection Configuration E2E", () => {
         device_id: terminalData.device_id,
         connection_type: terminalData.connection_type,
         connection_config: terminalData.connection_config,
-        vendor_type: terminalData.vendor_type,
+        pos_type: terminalData.pos_type,
       },
     );
 

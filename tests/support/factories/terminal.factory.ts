@@ -19,13 +19,13 @@ export type POSConnectionType =
   | "FILE"
   | "MANUAL";
 
-export type POSVendorType =
-  | "GENERIC"
-  | "SQUARE"
-  | "CLOVER"
-  | "TOAST"
-  | "LIGHTSPEED"
-  | "CUSTOM";
+export type POSSystemType =
+  | "MANUAL_ENTRY"
+  | "SQUARE_REST"
+  | "CLOVER_REST"
+  | "TOAST_REST"
+  | "LIGHTSPEED_REST"
+  | "GENERIC_REST";
 
 export type POSTerminalStatus = "ACTIVE" | "INACTIVE" | "PENDING" | "ERROR";
 
@@ -68,7 +68,7 @@ export type TerminalData = {
   // Connection fields (Story 4.81)
   connection_type?: POSConnectionType;
   connection_config?: ConnectionConfig;
-  vendor_type?: POSVendorType;
+  pos_type?: POSSystemType;
   terminal_status?: POSTerminalStatus;
   last_sync_at?: Date | null;
   sync_status?: SyncStatus;
@@ -90,7 +90,7 @@ export const createTerminal = (
   // Default connection fields (matching migration defaults)
   connection_type: "MANUAL",
   connection_config: Prisma.JsonNull,
-  vendor_type: "GENERIC",
+  pos_type: "MANUAL_ENTRY",
   terminal_status: "ACTIVE",
   sync_status: "NEVER",
   last_sync_at: null,

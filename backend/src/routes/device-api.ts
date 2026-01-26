@@ -14,6 +14,8 @@
  * - POST /api/v1/sync/complete        - Complete sync session
  * - GET  /api/v1/sync/cashiers        - Sync cashier data for offline auth
  * - GET  /api/v1/sync/employees       - Sync all employee types for offline auth
+ * - GET  /api/v1/sync/pos/config      - Get Store-level POS connection config (PRIMARY)
+ * - GET  /api/v1/sync/terminal/info   - Get terminal info (DEPRECATED - use pos/config)
  * - POST /api/v1/store/reset          - Authorize store data reset
  *
  * @module routes/device-api
@@ -31,6 +33,7 @@ import {
   cashierSyncService,
   storeManagerSyncService,
   employeeSyncService,
+  terminalSyncService,
 } from "../services/api-key";
 import { prisma } from "../utils/db";
 import jwt from "jsonwebtoken";
@@ -55,6 +58,9 @@ import type {
   ApiKeyIdentityPayload,
   StoreResetResponse,
   StoreResetType,
+  TerminalInfoResponse,
+  StorePOSConnectionConfig,
+  POSConnectionConfigResponse,
 } from "../types/api-key.types";
 
 // ============================================================================
@@ -172,15 +178,42 @@ export async function deviceApiRoutes(fastify: FastifyInstance): Promise<void> {
 
         const body = parseResult.data;
 
-        // Get the API key record
+        // Get the API key record with store POS config and terminal info
+        // Store-level POS config is the PRIMARY way to get connection settings
+        // Terminal info is included for backward compatibility but deprecated
         const keyRecord = await prisma.apiKey.findUnique({
           where: { api_key_id: identity.apiKeyId },
           include: {
             store: {
-              select: { name: true, timezone: true, public_id: true },
+              select: {
+                name: true,
+                timezone: true,
+                public_id: true,
+                // Store-level POS connection config (NEW - primary approach)
+                pos_type: true,
+                pos_connection_type: true,
+                pos_connection_config: true,
+              },
             },
             company: {
               select: { name: true },
+            },
+            // Terminal info kept for backward compatibility
+            // Will be deprecated - terminals are discovered dynamically
+            terminal: {
+              select: {
+                pos_terminal_id: true,
+                name: true,
+                device_id: true,
+                connection_type: true,
+                connection_config: true,
+                pos_type: true,
+                terminal_status: true,
+                sync_status: true,
+                last_sync_at: true,
+                updated_at: true,
+                deleted_at: true,
+              },
             },
           },
         });
@@ -225,6 +258,39 @@ export async function deviceApiRoutes(fastify: FastifyInstance): Promise<void> {
             eventType: "ACTIVATION",
           });
 
+        // Build Store-level POS connection config (PRIMARY - new approach)
+        // This is how desktop apps should get POS connection settings
+        // Terminals are discovered dynamically after connecting to POS
+        const posConnectionConfig: StorePOSConnectionConfig = {
+          pos_type: keyRecord.store.pos_type,
+          pos_connection_type: keyRecord.store.pos_connection_type,
+          pos_connection_config: keyRecord.store
+            .pos_connection_config as Record<string, unknown> | null,
+        };
+
+        // Build terminal info if bound and not soft-deleted
+        // DEPRECATED: Terminal binding approach is deprecated
+        // Terminals should be discovered dynamically from POS data
+        let terminalInfo = null;
+        if (keyRecord.terminal && !keyRecord.terminal.deleted_at) {
+          terminalInfo = {
+            pos_terminal_id: keyRecord.terminal.pos_terminal_id,
+            name: keyRecord.terminal.name,
+            device_id: keyRecord.terminal.device_id,
+            connection_type: keyRecord.terminal.connection_type,
+            connection_config: keyRecord.terminal.connection_config as Record<
+              string,
+              unknown
+            > | null,
+            pos_type: keyRecord.terminal.pos_type,
+            terminal_status: keyRecord.terminal.terminal_status,
+            sync_status: keyRecord.terminal.sync_status,
+            last_sync_at:
+              keyRecord.terminal.last_sync_at?.toISOString() || null,
+            updated_at: keyRecord.terminal.updated_at.toISOString(),
+          };
+        }
+
         const response: ActivateApiKeyResponse = {
           identity: {
             storeId: identityPayload.store_id,
@@ -243,6 +309,10 @@ export async function deviceApiRoutes(fastify: FastifyInstance): Promise<void> {
           serverTime: new Date().toISOString(),
           revocationCheckInterval: DEFAULT_REVOCATION_CHECK_INTERVAL,
           storeManager,
+          // Store-level POS connection config (PRIMARY - use this)
+          posConnectionConfig,
+          // Terminal info (DEPRECATED - kept for backward compatibility)
+          terminal: terminalInfo,
         };
 
         return reply.code(200).send({
@@ -292,6 +362,8 @@ export async function deviceApiRoutes(fastify: FastifyInstance): Promise<void> {
             timezone: identity.timezone,
             state_id: identity.stateId,
             state_code: identity.stateCode,
+            pos_terminal_id: identity.posTerminalId,
+            pos_terminal_name: identity.posTerminalName,
             offline_permissions: identity.offlinePermissions,
             metadata: identity.metadata,
             server_time: new Date().toISOString(),
@@ -1143,6 +1215,140 @@ export async function deviceApiRoutes(fastify: FastifyInstance): Promise<void> {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to authorize store reset",
+          },
+        });
+      }
+    },
+  );
+
+  // ==========================================================================
+  // TERMINAL INFO
+  // ==========================================================================
+
+  // ==========================================================================
+  // POS CONNECTION CONFIG (PRIMARY - NEW ARCHITECTURE)
+  // ==========================================================================
+
+  /**
+   * GET /api/v1/sync/pos/config
+   * Get Store-level POS connection configuration (PRIMARY)
+   *
+   * This is the RECOMMENDED way for desktop apps to get POS settings.
+   * Returns the Store's pos_type, pos_connection_type, and pos_connection_config.
+   *
+   * Workflow:
+   * 1. Desktop app calls this endpoint to get POS connection config
+   * 2. Desktop app connects to external POS using this config
+   * 3. Desktop app discovers registers/terminals dynamically from POS data
+   * 4. Desktop app creates/updates POSTerminal records for discovered registers
+   *
+   * Examples:
+   * - NAXML: Returns { import_path: "\\\\server\\naxml", poll_interval_seconds: 60 }
+   * - Square: Returns { base_url: "https://...", api_key: "EAAl...", location_id: "L123" }
+   */
+  fastify.get(
+    "/api/v1/sync/pos/config",
+    {
+      preHandler: [apiKeyMiddleware],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const identity = requireApiKeyIdentity(request);
+        const clientIp = getClientIp(request);
+
+        const response: POSConnectionConfigResponse =
+          await terminalSyncService.getPOSConnectionConfig(identity, {
+            apiKeyId: identity.apiKeyId,
+            ipAddress: clientIp,
+          });
+
+        return reply.code(200).send({
+          success: true,
+          data: response,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+
+        if (message.startsWith("STORE_NOT_FOUND:")) {
+          return reply.code(404).send({
+            success: false,
+            error: { code: "NOT_FOUND", message: "Store not found" },
+          });
+        }
+
+        console.error("[DeviceApi] POS config error:", message);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to get POS connection config",
+          },
+        });
+      }
+    },
+  );
+
+  // ==========================================================================
+  // TERMINAL INFO (DEPRECATED - Use /sync/pos/config instead)
+  // ==========================================================================
+
+  /**
+   * GET /api/v1/sync/terminal/info
+   * @deprecated Use GET /api/v1/sync/pos/config instead
+   *
+   * Get terminal information bound to this API key.
+   * This approach is DEPRECATED because it assumes terminals are pre-bound.
+   *
+   * NEW APPROACH: Get Store POS config → Connect to POS → Discover terminals
+   *
+   * Returns terminal configuration including POS type, connection settings,
+   * and status. Used by desktop apps to configure POS integration.
+   */
+  fastify.get(
+    "/api/v1/sync/terminal/info",
+    {
+      preHandler: [apiKeyMiddleware],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const identity = requireApiKeyIdentity(request);
+        const clientIp = getClientIp(request);
+
+        const response: TerminalInfoResponse =
+          await terminalSyncService.getTerminalInfo(identity, {
+            apiKeyId: identity.apiKeyId,
+            ipAddress: clientIp,
+          });
+
+        return reply.code(200).send({
+          success: true,
+          data: response,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+
+        if (message.startsWith("API_KEY_NOT_FOUND:")) {
+          return reply.code(404).send({
+            success: false,
+            error: { code: "NOT_FOUND", message: "API key not found" },
+          });
+        }
+
+        if (message.startsWith("STORE_MISMATCH:")) {
+          return reply.code(403).send({
+            success: false,
+            error: { code: "FORBIDDEN", message: "Access denied" },
+          });
+        }
+
+        console.error("[DeviceApi] Terminal info error:", message);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to get terminal info",
           },
         });
       }

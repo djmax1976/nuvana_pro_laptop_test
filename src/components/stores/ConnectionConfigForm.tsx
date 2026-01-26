@@ -63,15 +63,16 @@ export function ConnectionConfigForm({
   }
 
   // Allowed config keys for safe access (prevents prototype pollution)
+  // Using snake_case to match desktop app validation schema
   const ALLOWED_CONFIG_KEYS = [
     "host",
     "port",
     "protocol",
-    "baseUrl",
-    "apiKey",
-    "webhookUrl",
+    "base_url",
+    "api_key",
+    "webhook_url",
     "secret",
-    "importPath",
+    "import_path",
   ] as const;
   type ConfigKey = (typeof ALLOWED_CONFIG_KEYS)[number];
 
@@ -94,7 +95,7 @@ export function ConnectionConfigForm({
   const updateLocalValue = (key: ConfigKey, value: string | number) => {
     setLocalValues((prev) => ({ ...prev, [key]: value }));
 
-    // Validate immediately for port and baseUrl
+    // Validate immediately for port and base_url
     if (key === "port") {
       const portValue = String(value).trim();
       if (portValue !== "") {
@@ -114,20 +115,20 @@ export function ConnectionConfigForm({
       }
     }
 
-    if (key === "baseUrl") {
+    if (key === "base_url") {
       const urlValue = String(value).trim();
       if (urlValue !== "") {
         try {
           new URL(urlValue);
           setValidationErrors((prev) => {
             const newErrors = { ...prev };
-            delete newErrors.baseUrl;
+            delete newErrors.base_url;
             return newErrors;
           });
         } catch {
           setValidationErrors((prev) => ({
             ...prev,
-            baseUrl: "baseUrl must be a valid URL",
+            base_url: "base_url must be a valid URL",
           }));
         }
       }
@@ -170,8 +171,8 @@ export function ConnectionConfigForm({
       }
     }
 
-    // Validate baseUrl
-    if (key === "baseUrl") {
+    // Validate base_url
+    if (key === "base_url") {
       const urlValue = String(value).trim();
       if (urlValue === "") {
         // Clear error if empty
@@ -194,7 +195,7 @@ export function ConnectionConfigForm({
         } catch {
           setValidationErrors((prev) => ({
             ...prev,
-            baseUrl: "baseUrl must be a valid URL",
+            base_url: "base_url must be a valid URL",
           }));
           return;
         }
@@ -202,7 +203,7 @@ export function ConnectionConfigForm({
     }
 
     // Clear validation error for other fields
-    if (key !== "port" && key !== "baseUrl") {
+    if (key !== "port" && key !== "base_url") {
       setValidationErrors((prev) => {
         const newErrors = { ...prev };
         // eslint-disable-next-line security/detect-object-injection
@@ -306,16 +307,16 @@ export function ConnectionConfigForm({
             type="url"
             value={
               // eslint-disable-next-line security/detect-object-injection
-              localValues.baseUrl ?? getConfigValue("baseUrl")
+              localValues.base_url ?? getConfigValue("base_url")
             }
-            onChange={(e) => updateLocalValue("baseUrl", e.target.value)}
-            onBlur={(e) => updateConfig("baseUrl", e.target.value)}
+            onChange={(e) => updateLocalValue("base_url", e.target.value)}
+            onBlur={(e) => updateConfig("base_url", e.target.value)}
             placeholder="e.g., https://api.example.com"
             className="mt-1"
           />
-          {validationErrors.baseUrl && (
+          {validationErrors.base_url && (
             <p className="text-xs text-red-500 mt-1">
-              {validationErrors.baseUrl}
+              {validationErrors.base_url}
             </p>
           )}
         </div>
@@ -329,10 +330,10 @@ export function ConnectionConfigForm({
             autoComplete="off"
             value={
               // eslint-disable-next-line security/detect-object-injection
-              localValues.apiKey ?? getConfigValue("apiKey")
+              localValues.api_key ?? getConfigValue("api_key")
             }
-            onChange={(e) => updateLocalValue("apiKey", e.target.value)}
-            onBlur={(e) => updateConfig("apiKey", e.target.value)}
+            onChange={(e) => updateLocalValue("api_key", e.target.value)}
+            onBlur={(e) => updateConfig("api_key", e.target.value)}
             placeholder="Enter API key"
             className="mt-1"
           />
@@ -344,10 +345,10 @@ export function ConnectionConfigForm({
   // WEBHOOK connection config
   if (connectionType === "WEBHOOK") {
     // Auto-generate webhook URL if storeId and terminalId are provided
-    const webhookUrl =
+    const webhook_url =
       storeId && terminalId
         ? `${window.location.origin}/api/webhooks/stores/${storeId}/terminals/${terminalId}`
-        : getConfigValue("webhookUrl") ||
+        : getConfigValue("webhook_url") ||
           "Webhook URL will be generated after saving";
 
     return (
@@ -359,7 +360,7 @@ export function ConnectionConfigForm({
           <Input
             id="webhook-url"
             type="url"
-            value={webhookUrl}
+            value={webhook_url}
             readOnly
             className="mt-1 bg-muted"
             placeholder="Auto-generated after saving"
@@ -403,10 +404,10 @@ export function ConnectionConfigForm({
             type="text"
             value={
               // eslint-disable-next-line security/detect-object-injection
-              localValues.importPath ?? getConfigValue("importPath")
+              localValues.import_path ?? getConfigValue("import_path")
             }
-            onChange={(e) => updateLocalValue("importPath", e.target.value)}
-            onBlur={(e) => updateConfig("importPath", e.target.value)}
+            onChange={(e) => updateLocalValue("import_path", e.target.value)}
+            onBlur={(e) => updateConfig("import_path", e.target.value)}
             placeholder="e.g., /path/to/import/files"
             className="mt-1"
           />

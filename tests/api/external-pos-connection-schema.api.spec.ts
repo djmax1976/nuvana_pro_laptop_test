@@ -15,7 +15,7 @@ import { createTerminal } from "../support/factories/terminal.factory";
  * so that the system can store configuration for connecting to 3rd party POS systems.
  *
  * ACCEPTANCE CRITERIA TESTED:
- * - AC #1: POSTerminal connection fields (connection_type, connection_config, vendor_type, terminal_status, last_sync_at, sync_status)
+ * - AC #1: POSTerminal connection fields (connection_type, connection_config, pos_type, terminal_status, last_sync_at, sync_status)
  * - AC #2: Shift external reference fields (external_shift_id, external_data, synced_at)
  * - AC #3: Service and API layer updates (createTerminal, updateTerminal, getStoreTerminals with new fields)
  *
@@ -23,7 +23,7 @@ import { createTerminal } from "../support/factories/terminal.factory";
  * - BR-CONN-001: connection_type enum values (NETWORK, API, WEBHOOK, FILE, MANUAL)
  * - BR-CONN-002: connection_config structure must match connection_type (discriminated union validation)
  * - BR-CONN-003: MANUAL connection type requires no config
- * - BR-CONN-004: vendor_type enum values (GENERIC, SQUARE, CLOVER, TOAST, LIGHTSPEED, CUSTOM)
+ * - BR-CONN-004: pos_type enum values (MANUAL_ENTRY, SQUARE_REST, CLOVER_REST, TOAST_REST, LIGHTSPEED_REST, GENERIC_REST)
  * - BR-CONN-005: terminal_status enum values (ACTIVE, INACTIVE, PENDING, ERROR)
  * - BR-CONN-006: sync_status enum values (NEVER, SUCCESS, FAILED, IN_PROGRESS)
  * - BR-CONN-007: All new fields are optional for backward compatibility
@@ -79,7 +79,7 @@ test.describe("External POS Connection Schema API", () => {
         port: 8080,
         protocol: "TCP",
       },
-      vendor_type: "GENERIC",
+      pos_type: "MANUAL_ENTRY",
       terminal_status: "ACTIVE",
       sync_status: "NEVER",
     };
@@ -122,8 +122,8 @@ test.describe("External POS Connection Schema API", () => {
     expect(typeof createdTerminal.connection_config.port).toBe("number");
     expect(typeof createdTerminal.connection_config.protocol).toBe("string");
 
-    expect(createdTerminal).toHaveProperty("vendor_type", "GENERIC");
-    expect(typeof createdTerminal.vendor_type).toBe("string");
+    expect(createdTerminal).toHaveProperty("pos_type", "MANUAL_ENTRY");
+    expect(typeof createdTerminal.pos_type).toBe("string");
 
     expect(createdTerminal).toHaveProperty("terminal_status", "ACTIVE");
     expect(typeof createdTerminal.terminal_status).toBe("string");
@@ -174,7 +174,7 @@ test.describe("External POS Connection Schema API", () => {
         baseUrl: "https://api.example.com",
         apiKey: "secret-api-key-123",
       },
-      vendor_type: "SQUARE",
+      pos_type: "SQUARE_REST",
       terminal_status: "PENDING",
       sync_status: "IN_PROGRESS",
     };
@@ -198,8 +198,8 @@ test.describe("External POS Connection Schema API", () => {
     expect(typeof createdTerminal.connection_config.baseUrl).toBe("string");
     expect(typeof createdTerminal.connection_config.apiKey).toBe("string");
 
-    expect(createdTerminal).toHaveProperty("vendor_type", "SQUARE");
-    expect(typeof createdTerminal.vendor_type).toBe("string");
+    expect(createdTerminal).toHaveProperty("pos_type", "SQUARE_REST");
+    expect(typeof createdTerminal.pos_type).toBe("string");
 
     expect(createdTerminal).toHaveProperty("terminal_status", "PENDING");
     expect(typeof createdTerminal.terminal_status).toBe("string");
@@ -238,7 +238,7 @@ test.describe("External POS Connection Schema API", () => {
         webhookUrl: "https://webhook.example.com/callback",
         secret: "webhook-secret-key",
       },
-      vendor_type: "CLOVER",
+      pos_type: "CLOVER_REST",
     };
 
     const response = await superadminApiRequest.post(
@@ -260,8 +260,8 @@ test.describe("External POS Connection Schema API", () => {
     expect(typeof createdTerminal.connection_config.webhookUrl).toBe("string");
     expect(typeof createdTerminal.connection_config.secret).toBe("string");
 
-    expect(createdTerminal).toHaveProperty("vendor_type", "CLOVER");
-    expect(typeof createdTerminal.vendor_type).toBe("string");
+    expect(createdTerminal).toHaveProperty("pos_type", "CLOVER_REST");
+    expect(typeof createdTerminal.pos_type).toBe("string");
   });
 
   /**
@@ -293,7 +293,7 @@ test.describe("External POS Connection Schema API", () => {
       connection_config: {
         importPath: "/path/to/import/files",
       },
-      vendor_type: "TOAST",
+      pos_type: "TOAST_REST",
     };
 
     const response = await superadminApiRequest.post(
@@ -313,8 +313,8 @@ test.describe("External POS Connection Schema API", () => {
     });
     expect(typeof createdTerminal.connection_config.importPath).toBe("string");
 
-    expect(createdTerminal).toHaveProperty("vendor_type", "TOAST");
-    expect(typeof createdTerminal.vendor_type).toBe("string");
+    expect(createdTerminal).toHaveProperty("pos_type", "TOAST_REST");
+    expect(typeof createdTerminal.pos_type).toBe("string");
   });
 
   /**
@@ -343,7 +343,7 @@ test.describe("External POS Connection Schema API", () => {
       name: "Manual Terminal",
       device_id: `DEV-MANUAL-${Date.now()}`,
       connection_type: "MANUAL",
-      vendor_type: "LIGHTSPEED",
+      pos_type: "LIGHTSPEED_REST",
     };
 
     const response = await superadminApiRequest.post(
@@ -360,8 +360,8 @@ test.describe("External POS Connection Schema API", () => {
 
     expect(createdTerminal.connection_config).toBeNull();
 
-    expect(createdTerminal).toHaveProperty("vendor_type", "LIGHTSPEED");
-    expect(typeof createdTerminal.vendor_type).toBe("string");
+    expect(createdTerminal).toHaveProperty("pos_type", "LIGHTSPEED_REST");
+    expect(typeof createdTerminal.pos_type).toBe("string");
   });
 
   /**
@@ -403,8 +403,8 @@ test.describe("External POS Connection Schema API", () => {
     expect(createdTerminal).toHaveProperty("connection_type", "MANUAL");
     expect(typeof createdTerminal.connection_type).toBe("string");
 
-    expect(createdTerminal).toHaveProperty("vendor_type", "GENERIC");
-    expect(typeof createdTerminal.vendor_type).toBe("string");
+    expect(createdTerminal).toHaveProperty("pos_type", "MANUAL_ENTRY");
+    expect(typeof createdTerminal.pos_type).toBe("string");
 
     expect(createdTerminal).toHaveProperty("terminal_status", "ACTIVE");
     expect(typeof createdTerminal.terminal_status).toBe("string");
@@ -451,7 +451,7 @@ test.describe("External POS Connection Schema API", () => {
         baseUrl: "https://updated-api.example.com",
         apiKey: "new-api-key-456",
       },
-      vendor_type: "SQUARE",
+      pos_type: "SQUARE_REST",
       terminal_status: "ACTIVE",
       sync_status: "SUCCESS",
     };
@@ -475,8 +475,8 @@ test.describe("External POS Connection Schema API", () => {
     expect(typeof updatedTerminal.connection_config.baseUrl).toBe("string");
     expect(typeof updatedTerminal.connection_config.apiKey).toBe("string");
 
-    expect(updatedTerminal).toHaveProperty("vendor_type", "SQUARE");
-    expect(typeof updatedTerminal.vendor_type).toBe("string");
+    expect(updatedTerminal).toHaveProperty("pos_type", "SQUARE_REST");
+    expect(typeof updatedTerminal.pos_type).toBe("string");
 
     expect(updatedTerminal).toHaveProperty("terminal_status", "ACTIVE");
     expect(typeof updatedTerminal.terminal_status).toBe("string");
@@ -514,7 +514,7 @@ test.describe("External POS Connection Schema API", () => {
         port: 9090,
         protocol: "HTTP",
       },
-      vendor_type: "CUSTOM",
+      pos_type: "GENERIC_REST",
       terminal_status: "ACTIVE",
       sync_status: "SUCCESS",
     });
@@ -549,8 +549,8 @@ test.describe("External POS Connection Schema API", () => {
     expect(typeof terminal.connection_config.port).toBe("number");
     expect(typeof terminal.connection_config.protocol).toBe("string");
 
-    expect(terminal).toHaveProperty("vendor_type", "CUSTOM");
-    expect(typeof terminal.vendor_type).toBe("string");
+    expect(terminal).toHaveProperty("pos_type", "GENERIC_REST");
+    expect(typeof terminal.pos_type).toBe("string");
 
     expect(terminal).toHaveProperty("terminal_status", "ACTIVE");
     expect(typeof terminal.terminal_status).toBe("string");
@@ -766,37 +766,37 @@ test.describe("External POS Connection Schema API", () => {
     const enumTests = [
       {
         connection_type: "NETWORK",
-        vendor_type: "GENERIC",
+        pos_type: "MANUAL_ENTRY",
         terminal_status: "ACTIVE",
         sync_status: "NEVER",
       },
       {
         connection_type: "API",
-        vendor_type: "SQUARE",
+        pos_type: "SQUARE_REST",
         terminal_status: "INACTIVE",
         sync_status: "SUCCESS",
       },
       {
         connection_type: "WEBHOOK",
-        vendor_type: "CLOVER",
+        pos_type: "CLOVER_REST",
         terminal_status: "PENDING",
         sync_status: "FAILED",
       },
       {
         connection_type: "FILE",
-        vendor_type: "TOAST",
+        pos_type: "TOAST_REST",
         terminal_status: "ERROR",
         sync_status: "IN_PROGRESS",
       },
       {
         connection_type: "MANUAL",
-        vendor_type: "LIGHTSPEED",
+        pos_type: "LIGHTSPEED_REST",
         terminal_status: "ACTIVE",
         sync_status: "NEVER",
       },
       {
         connection_type: "MANUAL",
-        vendor_type: "CUSTOM",
+        pos_type: "GENERIC_REST",
         terminal_status: "ACTIVE",
         sync_status: "SUCCESS",
       },
@@ -804,8 +804,8 @@ test.describe("External POS Connection Schema API", () => {
 
     for (const enumTest of enumTests) {
       const terminalData = {
-        name: `Terminal ${enumTest.connection_type}-${enumTest.vendor_type}`,
-        device_id: `DEV-${enumTest.connection_type}-${enumTest.vendor_type}-${Date.now()}`,
+        name: `Terminal ${enumTest.connection_type}-${enumTest.pos_type}`,
+        device_id: `DEV-${enumTest.connection_type}-${enumTest.pos_type}-${Date.now()}`,
         ...enumTest,
         ...(enumTest.connection_type !== "MANUAL" && {
           connection_config:
@@ -835,8 +835,8 @@ test.describe("External POS Connection Schema API", () => {
         enumTest.connection_type,
       );
       expect(typeof terminal.connection_type).toBe("string");
-      expect(terminal).toHaveProperty("vendor_type", enumTest.vendor_type);
-      expect(typeof terminal.vendor_type).toBe("string");
+      expect(terminal).toHaveProperty("pos_type", enumTest.pos_type);
+      expect(typeof terminal.pos_type).toBe("string");
       expect(terminal).toHaveProperty(
         "terminal_status",
         enumTest.terminal_status,

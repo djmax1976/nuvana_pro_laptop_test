@@ -45,7 +45,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 import { AssignRoleRequest, ScopeType } from "@/types/admin-user";
 import { useEffect, useState, useCallback } from "react";
 
@@ -84,6 +84,9 @@ const userFormSchema = z
       .string()
       .min(8, "Password must be at least 8 characters")
       .max(255, "Password cannot exceed 255 characters")
+      .refine((val) => !/\s/.test(val), {
+        message: "Password cannot contain whitespace",
+      })
       .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
       .regex(/[a-z]/, "Password must contain at least one lowercase letter")
       .regex(/[0-9]/, "Password must contain at least one number")
@@ -91,6 +94,7 @@ const userFormSchema = z
         /[^A-Za-z0-9]/,
         "Password must contain at least one special character",
       ),
+    confirmPassword: z.string().min(1, "Please confirm your password"),
     role_id: z.string().min(1, "Role is required"),
     // PIN for terminal/desktop authentication
     // Required for STORE_MANAGER, SHIFT_MANAGER
@@ -108,13 +112,12 @@ const userFormSchema = z
   })
   .refine(
     (data) => {
-      // Will be validated in onSubmit where we have access to the selected role
-      // and the structured companyAddress state
-      return true;
+      // Validate password confirmation matches password
+      return data.password === data.confirmPassword;
     },
     {
-      message: "Company name and address are required for Client Owner role",
-      path: ["companyName"],
+      message: "Passwords do not match",
+      path: ["confirmPassword"],
     },
   );
 
@@ -148,12 +151,18 @@ export function UserForm() {
     Partial<Record<keyof AddressFieldsValue, string>>
   >({});
 
+  // Password visibility toggle states
+  // SEC-014: Allows users to verify password entry to prevent typos
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const form = useForm<UserFormValues>({
     resolver: zodResolver(userFormSchema),
     defaultValues: {
       email: "",
       name: "",
       password: "",
+      confirmPassword: "",
       role_id: "",
       pin: "",
       companyName: "",
@@ -469,29 +478,94 @@ export function UserForm() {
           )}
         />
 
-        <FormField
-          control={form.control}
-          name="password"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Password</FormLabel>
-              <FormControl>
-                <Input
-                  type="password"
-                  placeholder="********"
-                  autoComplete="new-password"
-                  data-testid="user-password-input"
-                  {...field}
-                />
-              </FormControl>
-              <FormDescription>
-                Password must be at least 8 characters with uppercase,
-                lowercase, number, and special character
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        {/* Password Section with visibility toggles
+            FE-002: FORM_VALIDATION - Client-side validation with confirmation
+            SEC-014: INPUT_VALIDATION - Strict password requirements */}
+        <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
+          <div>
+            <h4 className="text-sm font-medium text-foreground">Password</h4>
+            <p className="text-xs text-muted-foreground mt-1">
+              Must be at least 8 characters with uppercase, lowercase, number,
+              and special character
+            </p>
+          </div>
+
+          <FormField
+            control={form.control}
+            name="password"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Password</FormLabel>
+                <FormControl>
+                  <div className="relative">
+                    <Input
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Enter password"
+                      autoComplete="new-password"
+                      data-testid="user-password-input"
+                      {...field}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      tabIndex={-1}
+                      aria-label={
+                        showPassword ? "Hide password" : "Show password"
+                      }
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="confirmPassword"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Confirm Password</FormLabel>
+                <FormControl>
+                  <div className="relative">
+                    <Input
+                      type={showConfirmPassword ? "text" : "password"}
+                      placeholder="Confirm password"
+                      autoComplete="new-password"
+                      data-testid="user-confirm-password-input"
+                      {...field}
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowConfirmPassword(!showConfirmPassword)
+                      }
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      tabIndex={-1}
+                      aria-label={
+                        showConfirmPassword ? "Hide password" : "Show password"
+                      }
+                    >
+                      {showConfirmPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
 
         <FormField
           control={form.control}

@@ -802,3 +802,267 @@ describe("Security: Input Boundaries", () => {
     });
   });
 });
+
+// =============================================================================
+// GAME_INACTIVE Security Tests
+// =============================================================================
+
+describe("Security: GAME_INACTIVE Error Code Security", () => {
+  let mockPrisma: MockPrismaClient;
+
+  beforeEach(() => {
+    mockPrisma = getMockPrisma();
+    vi.clearAllMocks();
+  });
+
+  describe("Information disclosure prevention", () => {
+    /**
+     * SECURITY DESIGN DECISION: Information disclosure analysis
+     *
+     * Both "game doesn't exist" and "game is inactive" DO reveal
+     * whether the game_code is valid. This is intentional because:
+     *
+     * 1. Desktop app is authenticated (has API key)
+     * 2. Games list is already synced to desktop (no information leak)
+     * 3. Proper UX requires knowing why operation failed
+     * 4. Per AIP-193, we distinguish these cases for client handling
+     *
+     * This is NOT a security vulnerability because:
+     * - Unauthenticated users cannot access this endpoint
+     * - Authenticated users already have access to the games list
+     */
+    it("should return distinct error codes for authenticated clients", async () => {
+      // Test 1: Game not found returns GAME_NOT_FOUND
+      mockPrisma.lotteryGame.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
+
+      let error: Error | undefined;
+      try {
+        await lotterySyncService.receivePack(
+          STORE_A_ID,
+          STATE_A_ID,
+          {
+            game_code: "XXXX",
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createTestAuditContext({ apiKeyId: API_KEY_A_ID }),
+        );
+      } catch (e) {
+        error = e as Error;
+      }
+      expect(error?.message).toContain("GAME_NOT_FOUND");
+
+      vi.clearAllMocks();
+
+      // Test 2: Game inactive returns GAME_INACTIVE (different code)
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(
+        createTestLotteryGame({
+          game_code: "0033",
+          status: "INACTIVE",
+          state_id: STATE_A_ID,
+        }),
+      );
+
+      try {
+        await lotterySyncService.receivePack(
+          STORE_A_ID,
+          STATE_A_ID,
+          {
+            game_code: "0033",
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createTestAuditContext({ apiKeyId: API_KEY_A_ID }),
+        );
+      } catch (e) {
+        error = e as Error;
+      }
+      expect(error?.message).toContain("GAME_INACTIVE");
+
+      // Both errors are machine-readable for proper client handling
+    });
+
+    /**
+     * API-003: ERROR_HANDLING - No sensitive data leakage
+     *
+     * Error messages should NOT contain:
+     * - Stack traces
+     * - Internal file paths
+     * - Database details or query information
+     */
+    it("should include machine-readable error info without stack traces", async () => {
+      // Arrange
+      const inactiveGame = createTestLotteryGame({
+        game_code: "0033",
+        status: "INACTIVE",
+        state_id: STATE_A_ID,
+      });
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(inactiveGame);
+
+      // Act & Assert
+      try {
+        await lotterySyncService.receivePack(
+          STORE_A_ID,
+          STATE_A_ID,
+          {
+            game_code: "0033",
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createTestAuditContext({ apiKeyId: API_KEY_A_ID }),
+        );
+        expect.fail("Should have thrown");
+      } catch (error) {
+        // Error message should NOT contain sensitive info
+        const message = (error as Error).message;
+        expect(message).not.toContain("at "); // Stack trace indicator
+        expect(message).not.toContain(".ts:"); // File paths
+        expect(message).not.toContain("prisma"); // Database info
+
+        // Error message SHOULD be machine-readable
+        expect(message).toContain("GAME_INACTIVE");
+        expect(message).toContain("0033"); // Game code is safe to include
+      }
+    });
+  });
+
+  describe("Tenant isolation with inactive games", () => {
+    /**
+     * DB-006: TENANT_ISOLATION - Store data isolation
+     *
+     * An inactive game in Store B should NOT be visible to Store A.
+     * Store A should receive GAME_NOT_FOUND (not GAME_INACTIVE).
+     */
+    it("should not reveal inactive games from other stores", async () => {
+      // Arrange: Game belongs to different store, and is inactive
+      // From Store A's perspective, this game doesn't exist
+      mockPrisma.lotteryGame.findFirst
+        .mockResolvedValueOnce(null) // Not in state (proper tenant isolation)
+        .mockResolvedValueOnce(null); // Not in store A (proper tenant isolation)
+
+      // Act & Assert: Store A should get GAME_NOT_FOUND, not GAME_INACTIVE
+      // Because from Store A's perspective, the game doesn't exist
+      await expect(
+        lotterySyncService.receivePack(
+          STORE_A_ID,
+          STATE_A_ID,
+          {
+            game_code: "0033",
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createTestAuditContext({ apiKeyId: API_KEY_A_ID }),
+        ),
+      ).rejects.toThrow("GAME_NOT_FOUND");
+    });
+
+    /**
+     * Tenant isolation: Inactive state games are visible but rejected
+     *
+     * If a game is state-scoped (shared across stores in that state),
+     * an inactive status should be properly communicated.
+     */
+    it("should return GAME_INACTIVE for state-scoped inactive games", async () => {
+      // Arrange: State-scoped game is inactive
+      const stateInactiveGame = createTestLotteryGame({
+        game_code: "0033",
+        status: "INACTIVE",
+        state_id: STATE_A_ID, // State-scoped, not store-scoped
+        store_id: null,
+      });
+
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(stateInactiveGame);
+
+      // Act & Assert: Should get GAME_INACTIVE (game exists but inactive)
+      await expect(
+        lotterySyncService.receivePack(
+          STORE_A_ID,
+          STATE_A_ID,
+          {
+            game_code: "0033",
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createTestAuditContext({ apiKeyId: API_KEY_A_ID }),
+        ),
+      ).rejects.toThrow("GAME_INACTIVE");
+    });
+
+    /**
+     * Cross-store isolation: Store-scoped games
+     *
+     * A store-scoped inactive game should only be visible to that store.
+     */
+    it("should maintain tenant isolation for store-scoped inactive games", async () => {
+      // Arrange: No state game, store A has an inactive store-scoped game
+      const storeInactiveGame = createTestLotteryGame({
+        game_code: "9999",
+        status: "INACTIVE",
+        store_id: STORE_A_ID, // Store-scoped to Store A
+        state_id: null,
+      });
+
+      mockPrisma.lotteryGame.findFirst
+        .mockResolvedValueOnce(null) // No state game
+        .mockResolvedValueOnce(storeInactiveGame); // Store A's game
+
+      // Act & Assert: Store A should see GAME_INACTIVE
+      await expect(
+        lotterySyncService.receivePack(
+          STORE_A_ID,
+          STATE_A_ID,
+          {
+            game_code: "9999",
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createTestAuditContext({ apiKeyId: API_KEY_A_ID }),
+        ),
+      ).rejects.toThrow("GAME_INACTIVE");
+    });
+  });
+
+  describe("Query security validation", () => {
+    /**
+     * SEC-006: SQL_INJECTION - Parameterized queries only
+     *
+     * Verify that game lookup uses ORM query builder,
+     * not string interpolation.
+     */
+    it("should use parameterized queries for game lookup", async () => {
+      const maliciousGameCode = "'; DROP TABLE lotteryGame; --";
+
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(null);
+
+      // This should safely handle the malicious input
+      await expect(
+        lotterySyncService.receivePack(
+          STORE_A_ID,
+          STATE_A_ID,
+          {
+            game_code: maliciousGameCode,
+            pack_number: "123456",
+            serial_start: "001",
+            serial_end: "300",
+          },
+          createTestAuditContext({ apiKeyId: API_KEY_A_ID }),
+        ),
+      ).rejects.toThrow("GAME_NOT_FOUND");
+
+      // Verify Prisma ORM was called (not raw SQL)
+      expect(mockPrisma.lotteryGame.findFirst).toHaveBeenCalled();
+
+      // Input should be passed as parameter, not interpolated
+      const call = mockPrisma.lotteryGame.findFirst.mock.calls[0][0];
+      expect(call.where.game_code).toBe(maliciousGameCode);
+    });
+  });
+});
