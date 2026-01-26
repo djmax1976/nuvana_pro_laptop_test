@@ -58,9 +58,15 @@ import { AddressFields, type AddressFieldsValue } from "@/components/address";
 import { POSTypeSelector } from "@/components/pos-integration/POSTypeSelector";
 import type { POSSystemType } from "@/types/pos-integration";
 import { getConnectionTypeForPOS } from "@/lib/pos-integration/pos-types";
+import {
+  TimezoneSelector,
+  isValidUSTimezone,
+  DEFAULT_TIMEZONE,
+} from "@/components/stores/TimezoneSelector";
 
 /**
  * Validate IANA timezone format (safer implementation to avoid ReDoS)
+ * @deprecated Use isValidUSTimezone from TimezoneSelector instead
  */
 function validateIANATimezoneFormat(timezone: string): boolean {
   if (timezone === "UTC") {
@@ -96,8 +102,8 @@ const storeInfoSchema = z.object({
     .string()
     .min(1, "Timezone is required")
     .refine(
-      (val) => validateIANATimezoneFormat(val),
-      "Timezone must be in IANA format (e.g., America/New_York, Europe/London)",
+      (val) => isValidUSTimezone(val),
+      "Please select a valid US timezone",
     ),
   status: z.enum(["ACTIVE", "INACTIVE", "CLOSED"], {
     message: "Please select a status",
@@ -234,7 +240,7 @@ export function CreateStoreWizard({
     resolver: zodResolver(wizardSchema),
     defaultValues: {
       name: "",
-      timezone: "America/New_York",
+      timezone: DEFAULT_TIMEZONE,
       status: "ACTIVE",
       login_email: "",
       login_password: "",
@@ -574,16 +580,15 @@ export function CreateStoreWizard({
                     <FormItem>
                       <FormLabel>Timezone</FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="America/New_York"
-                          {...field}
+                        <TimezoneSelector
+                          value={field.value}
+                          onChange={field.onChange}
                           disabled={isSubmitting}
-                          data-testid="timezone-input"
+                          data-testid="timezone-select"
                         />
                       </FormControl>
                       <FormDescription>
-                        IANA timezone format (e.g., America/New_York,
-                        Europe/London, UTC)
+                        Select the timezone for this store location
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

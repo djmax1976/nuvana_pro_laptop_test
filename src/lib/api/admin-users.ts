@@ -26,6 +26,9 @@ import {
   UserRoleDetail,
   HierarchicalUsersResponse,
   HierarchicalUsersData,
+  ClientOwnerSetupInput,
+  ClientOwnerSetupResponse,
+  ClientOwnerSetupData,
 } from "@/types/admin-user";
 import apiClient from "./client";
 
@@ -297,9 +300,10 @@ export async function clearUserPIN(
     throw new Error("User ID is required");
   }
 
-  const response = await apiClient.delete<{ success: boolean; message: string }>(
-    `/api/admin/users/${userId}/pin`,
-  );
+  const response = await apiClient.delete<{
+    success: boolean;
+    message: string;
+  }>(`/api/admin/users/${userId}/pin`);
   return response.data;
 }
 
@@ -541,13 +545,8 @@ export function useSetUserPIN() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      userId,
-      data,
-    }: {
-      userId: string;
-      data: SetUserPINInput;
-    }) => setUserPIN(userId, data),
+    mutationFn: ({ userId, data }: { userId: string; data: SetUserPINInput }) =>
+      setUserPIN(userId, data),
     onSuccess: (_, variables) => {
       // Invalidate user detail and PIN status queries
       queryClient.invalidateQueries({
@@ -575,6 +574,77 @@ export function useClearUserPIN() {
   });
 }
 
+// ============ Client Owner Setup API Functions ============
+
+/**
+ * Create complete client owner setup atomically
+ * Creates User (CLIENT_OWNER) + Company + Store + Store Login (CLIENT_USER) +
+ * Store Manager (STORE_MANAGER) + optional Terminals in a single database transaction.
+ *
+ * @param data - Complete setup data from wizard
+ * @returns Created entities with full details
+ */
+export async function createClientOwnerSetup(
+  data: ClientOwnerSetupInput,
+): Promise<ClientOwnerSetupResponse> {
+  // Validate required top-level objects
+  if (
+    !data.user ||
+    !data.company ||
+    !data.store ||
+    !data.storeLogin ||
+    !data.storeManager
+  ) {
+    throw new Error(
+      "User, company, store, storeLogin, and storeManager data are required",
+    );
+  }
+
+  // Validate all emails are different
+  if (data.user.email === data.storeLogin.email) {
+    throw new Error("Store login email must be different from user email");
+  }
+
+  if (data.user.email === data.storeManager.email) {
+    throw new Error("Store manager email must be different from user email");
+  }
+
+  if (data.storeLogin.email === data.storeManager.email) {
+    throw new Error(
+      "Store manager email must be different from store login email",
+    );
+  }
+
+  const response = await apiClient.post<ClientOwnerSetupResponse>(
+    "/api/admin/client-owner-setup",
+    data,
+  );
+  return response.data;
+}
+
+// ============ Client Owner Setup Hooks ============
+
+/**
+ * Hook to create complete client owner setup
+ * Used by the 5-step wizard for atomic creation
+ *
+ * @returns TanStack Query mutation for client owner setup
+ */
+export function useCreateClientOwnerSetup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: ClientOwnerSetupInput) => createClientOwnerSetup(data),
+    onSuccess: () => {
+      // Invalidate all user queries to ensure fresh data after creation
+      queryClient.invalidateQueries({
+        queryKey: adminUserKeys.all,
+        refetchType: "all",
+      });
+    },
+  });
+}
+
 // Re-export types for convenience
 export type {
   AdminUser,
@@ -586,4 +656,6 @@ export type {
   ListUsersParams,
   UserRoleDetail,
   HierarchicalUsersData,
+  ClientOwnerSetupInput,
+  ClientOwnerSetupData,
 };

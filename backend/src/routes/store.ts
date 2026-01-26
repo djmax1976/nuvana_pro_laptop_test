@@ -1226,6 +1226,37 @@ export async function storeRoutes(fastify: FastifyInstance) {
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
               updated_at: { type: "string", format: "date-time" },
+              // === POS Connection Configuration ===
+              // SEC-014: OUTPUT_FILTERING - Whitelist POS fields for desktop app configuration
+              // These fields are required by the frontend EditStoreModal to display saved POS config
+              pos_type: {
+                type: "string",
+                enum: [
+                  "GILBARCO_PASSPORT",
+                  "GILBARCO_NAXML",
+                  "GILBARCO_COMMANDER",
+                  "VERIFONE_RUBY2",
+                  "VERIFONE_COMMANDER",
+                  "VERIFONE_SAPPHIRE",
+                  "CLOVER_REST",
+                  "ORACLE_SIMPHONY",
+                  "NCR_ALOHA",
+                  "LIGHTSPEED_REST",
+                  "SQUARE_REST",
+                  "TOAST_REST",
+                  "GENERIC_XML",
+                  "GENERIC_REST",
+                  "MANUAL_ENTRY",
+                ],
+              },
+              pos_connection_type: {
+                type: "string",
+                enum: ["NETWORK", "API", "WEBHOOK", "FILE", "MANUAL"],
+              },
+              pos_connection_config: {
+                type: ["object", "null"],
+                additionalProperties: true,
+              },
             },
           },
           403: {

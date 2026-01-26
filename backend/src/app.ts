@@ -23,6 +23,7 @@ import { transactionRoutes } from "./routes/transactions";
 import { shiftRoutes } from "./routes/shifts";
 import { contactRoutes } from "./routes/contact";
 import { adminUserRoutes } from "./routes/admin-users";
+import { adminClientOwnerSetupRoutes } from "./routes/admin-client-owner-setup";
 import { clientDashboardRoutes } from "./routes/client-dashboard";
 import { clientEmployeeRoutes } from "./routes/client-employees";
 import { clientStoreRoutes } from "./routes/client-stores";
@@ -378,6 +379,9 @@ app.register(adminRoutes);
 
 // Register admin user management routes
 app.register(adminUserRoutes);
+
+// Register admin client owner setup routes (wizard-based atomic setup)
+app.register(adminClientOwnerSetupRoutes);
 
 // Register admin role management routes (Super Admin only)
 app.register(adminRolesRoutes);
