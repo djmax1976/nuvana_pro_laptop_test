@@ -13,7 +13,8 @@
  * - GET  /api/v1/sync/pull            - Pull server updates
  * - POST /api/v1/sync/complete        - Complete sync session
  * - GET  /api/v1/sync/cashiers        - Sync cashier data for offline auth
- * - GET  /api/v1/sync/employees       - Sync all employee types for offline auth
+ * - GET  /api/v1/sync/employees       - Sync all employee types for offline auth (PULL)
+ * - POST /api/v1/sync/employees       - Push employees from desktop to server (PUSH)
  * - GET  /api/v1/sync/pos/config      - Get Store-level POS connection config (PRIMARY)
  * - GET  /api/v1/sync/terminal/info   - Get terminal info (DEPRECATED - use pos/config)
  * - POST /api/v1/store/reset          - Authorize store data reset
@@ -46,6 +47,7 @@ import {
   syncCompleteSchema,
   cashierSyncQuerySchema,
   employeeSyncQuerySchema,
+  employeeSyncPushSchema,
   storeResetSchema,
 } from "../schemas/api-key.schema";
 import type {
@@ -61,6 +63,7 @@ import type {
   TerminalInfoResponse,
   StorePOSConnectionConfig,
   POSConnectionConfigResponse,
+  EmployeeSyncPushResponse,
 } from "../types/api-key.types";
 
 // ============================================================================
@@ -1078,6 +1081,131 @@ export async function deviceApiRoutes(fastify: FastifyInstance): Promise<void> {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to sync employees",
+          },
+        });
+      }
+    },
+  );
+
+  // ==========================================================================
+  // PUSH EMPLOYEES (Desktop → Server)
+  // ==========================================================================
+
+  /**
+   * POST /api/v1/sync/employees
+   * Push employee records from desktop to server
+   *
+   * Enterprise-grade employee push sync endpoint that allows desktop apps
+   * to create/update cashiers on the server. This is the PUSH direction
+   * (desktop → server) counterpart to the GET endpoint above (PULL).
+   *
+   * Currently supports:
+   * - CASHIER role only (managers are created via admin UI)
+   *
+   * Security Controls:
+   * - API key authentication required
+   * - Store isolation: Only creates cashiers for the API key's bound store
+   * - Session validation: Requires active sync session
+   * - Audit logging: All sync operations are logged
+   * - SEC-001: PIN hashes only (never plaintext PINs over the wire)
+   *
+   * Request Body:
+   * - session_id: Required. Sync session ID from /sync/start
+   * - employees: Array of employee records with:
+   *   - employee_id: UUID for the cashier
+   *   - name: Display name
+   *   - role: Must be "CASHIER"
+   *   - pin_hash: bcrypt hash of the PIN (hashed on desktop)
+   *   - employee_code: Optional 4-digit code (auto-generated if not provided)
+   *   - is_active: Optional (default: true)
+   *   - hired_on: Optional hire date
+   *   - termination_date: Optional termination date
+   */
+  fastify.post(
+    "/api/v1/sync/employees",
+    {
+      preHandler: [apiKeyMiddleware],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const identity = requireApiKeyIdentity(request);
+        const clientIp = getClientIp(request);
+
+        // API-001: Validate request body with Zod schema
+        const parseResult = employeeSyncPushSchema.safeParse(request.body);
+        if (!parseResult.success) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid request body",
+              details: formatZodError(parseResult.error),
+            },
+          });
+        }
+
+        const body = parseResult.data;
+
+        // Perform push sync with full validation and audit logging
+        const response: EmployeeSyncPushResponse =
+          await employeeSyncService.pushEmployees(
+            identity,
+            body.session_id,
+            body.employees,
+            {
+              apiKeyId: identity.apiKeyId,
+              sessionId: body.session_id,
+              ipAddress: clientIp,
+            },
+          );
+
+        // Return 201 for successful push (even partial success)
+        return reply.code(201).send({
+          success: true,
+          data: response,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+
+        // Handle known error codes
+        if (message.startsWith("INVALID_SESSION:")) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "INVALID_SESSION",
+              message: message.replace("INVALID_SESSION: ", ""),
+            },
+          });
+        }
+
+        if (message.startsWith("STORE_MISMATCH:")) {
+          return reply.code(403).send({
+            success: false,
+            error: {
+              code: "STORE_MISMATCH",
+              message: "Access denied to this store's data",
+            },
+          });
+        }
+
+        if (message.startsWith("STORE_CONFIG_ERROR:")) {
+          return reply.code(422).send({
+            success: false,
+            error: {
+              code: "STORE_CONFIG_ERROR",
+              message: message.replace("STORE_CONFIG_ERROR: ", ""),
+            },
+          });
+        }
+
+        // API-003: Generic error response, no stack traces
+        console.error("[DeviceApi] Employee push error:", message);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to push employees",
           },
         });
       }

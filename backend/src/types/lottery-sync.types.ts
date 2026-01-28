@@ -627,6 +627,60 @@ export interface LotteryVarianceApproveResponse {
   server_time: string;
 }
 
+/**
+ * Shift sync record returned to desktop after successful sync
+ * Field names use snake_case for consistency
+ */
+export interface LotteryShiftSyncRecord {
+  /** Shift UUID (same as provided by desktop) */
+  shift_id: string;
+  /** Store ID */
+  store_id: string;
+  /** User who opened the shift */
+  opened_by: string;
+  /** Cashier assigned to shift */
+  cashier_id: string;
+  /** POS terminal ID (if assigned) */
+  pos_terminal_id: string | null;
+  /** When shift was opened */
+  opened_at: string;
+  /** When shift was closed */
+  closed_at: string | null;
+  /** Opening cash amount */
+  opening_cash: string;
+  /** Closing cash amount */
+  closing_cash: string | null;
+  /** Expected cash amount */
+  expected_cash: string | null;
+  /** Cash variance */
+  variance: string | null;
+  /** Variance reason */
+  variance_reason: string | null;
+  /** Shift status */
+  status: string;
+  /** Shift number for the day */
+  shift_number: number | null;
+  /** Business day ID (if linked) */
+  day_summary_id: string | null;
+  /** When synced */
+  synced_at: string;
+}
+
+/**
+ * Response from shift sync
+ * Field names use snake_case for consistency
+ */
+export interface LotteryShiftSyncResponse {
+  /** Whether operation succeeded */
+  success: boolean;
+  /** Synced shift record */
+  shift: LotteryShiftSyncRecord;
+  /** True if shift already existed (idempotent response) */
+  idempotent?: boolean;
+  /** Server timestamp */
+  server_time: string;
+}
+
 // =============================================================================
 // Sync Options & Context
 // =============================================================================

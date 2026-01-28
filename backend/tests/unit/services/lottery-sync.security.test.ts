@@ -490,20 +490,31 @@ describe("Security: State Transition Validation", () => {
 
   describe("Pack Status Transitions", () => {
     it("should only allow RECEIVED -> ACTIVE transition for activation", async () => {
-      // Test that an already ACTIVE pack cannot be activated again
-      const activePack = createTestLotteryPack({
-        status: "ACTIVE",
+      // Test that a DEPLETED pack cannot be activated (INVALID_STATUS)
+      const depletedPack = createTestLotteryPack({
+        status: "DEPLETED",
         store_id: STORE_A_ID,
       });
-      mockPrisma.lotteryPack.findFirst.mockResolvedValue(activePack);
+      const bin = createTestLotteryBin({
+        bin_id: createTestUuid("bin", 1),
+        store_id: STORE_A_ID,
+      });
+
+      // Service checks bin FIRST, then pack
+      mockPrisma.lotteryBin.findFirst.mockResolvedValue(bin);
+      mockPrisma.lotteryPack.findFirst.mockResolvedValue(depletedPack);
 
       await expect(
         lotterySyncService.activatePack(
           STORE_A_ID,
+          STATE_A_ID,
           {
-            pack_id: activePack.pack_id,
-            bin_id: createTestUuid("bin", 1),
-            opening_serial: "000000001",
+            pack_id: depletedPack.pack_id,
+            bin_id: bin.bin_id,
+            pack_number: "PKG001",
+            game_code: "0001",
+            serial_start: "000000001",
+            serial_end: "000000060",
           },
           createTestAuditContext({}),
         ),
@@ -772,7 +783,7 @@ describe("Security: Input Boundaries", () => {
         { sinceSequence: 0 },
       );
 
-      expect(result.currentSequence).toBeDefined();
+      expect(result.current_sequence).toBeDefined();
     });
 
     it("should increment sequence numbers starting from 1 by default", async () => {
@@ -796,9 +807,9 @@ describe("Security: Input Boundaries", () => {
       );
 
       // Without sinceSequence, starts at 0 and increments, so first record is 1, second is 2
-      expect(result.records[0].syncSequence).toBe(1);
-      expect(result.records[1].syncSequence).toBe(2);
-      expect(result.currentSequence).toBe(2);
+      expect(result.records[0].sync_sequence).toBe(1);
+      expect(result.records[1].sync_sequence).toBe(2);
+      expect(result.current_sequence).toBe(2);
     });
   });
 });

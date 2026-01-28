@@ -223,9 +223,9 @@ describe("LotterySyncService - Get Games", () => {
       );
 
       expect(result.records).toHaveLength(2);
-      expect(result.totalCount).toBe(2);
-      expect(result.hasMore).toBe(false);
-      expect(result.serverTime).toBeDefined();
+      expect(result.total_count).toBe(2);
+      expect(result.has_more).toBe(false);
+      expect(result.server_time).toBeDefined();
 
       // Verify tenant isolation via OR clause (state-scoped or store-scoped)
       const findManyCall = mockPrisma.lotteryGame.findMany.mock.calls[0][0];
@@ -372,7 +372,7 @@ describe("LotterySyncService - Get Games", () => {
       expect(findManyCall.where.status).toBeUndefined();
     });
 
-    it("should handle pagination with hasMore flag", async () => {
+    it("should handle pagination with has_more flag", async () => {
       const games = Array.from({ length: 101 }, (_, i) =>
         createTestLotteryGame({
           game_id: createTestUuid("game", i + 1),
@@ -391,9 +391,9 @@ describe("LotterySyncService - Get Games", () => {
         },
       );
 
-      expect(result.hasMore).toBe(true);
+      expect(result.has_more).toBe(true);
       expect(result.records).toHaveLength(100);
-      expect(result.nextCursor).toBeDefined();
+      expect(result.next_cursor).toBeDefined();
     });
 
     it("should respect maximum limit of 500", async () => {
@@ -405,7 +405,7 @@ describe("LotterySyncService - Get Games", () => {
       });
 
       const findManyCall = mockPrisma.lotteryGame.findMany.mock.calls[0][0];
-      expect(findManyCall.take).toBe(501); // 500 + 1 for hasMore check
+      expect(findManyCall.take).toBe(501); // 500 + 1 for has_more check
     });
 
     it("should map game data correctly to sync record format", async () => {
@@ -428,13 +428,13 @@ describe("LotterySyncService - Get Games", () => {
       );
 
       expect(result.records[0]).toMatchObject({
-        gameId: TEST_GAME_ID,
-        gameCode: "0001",
+        game_id: TEST_GAME_ID,
+        game_code: "0001",
         name: "Test Game",
         // Decimal values are converted to strings without trailing zeros
         price: expect.stringMatching(/^5(\.00)?$/),
-        packValue: expect.stringMatching(/^300(\.00)?$/),
-        ticketsPerPack: 60,
+        pack_value: expect.stringMatching(/^300(\.00)?$/),
+        tickets_per_pack: 60,
       });
     });
   });
@@ -709,9 +709,9 @@ describe("LotterySyncService - Pack Receive", () => {
         createValidAuditContext(),
       );
 
-      expect(result.totalProcessed).toBe(2);
-      expect(result.successCount).toBe(2);
-      expect(result.failureCount).toBe(0);
+      expect(result.total_processed).toBe(2);
+      expect(result.success_count).toBe(2);
+      expect(result.failure_count).toBe(0);
     });
 
     it("should handle partial failures gracefully", async () => {
@@ -752,10 +752,10 @@ describe("LotterySyncService - Pack Receive", () => {
         createValidAuditContext(),
       );
 
-      expect(result.successCount).toBe(1);
-      expect(result.failureCount).toBe(1);
+      expect(result.success_count).toBe(1);
+      expect(result.failure_count).toBe(1);
       expect(result.results[0].success).toBe(false);
-      expect(result.results[0].errorCode).toContain("DUPLICATE_PACK");
+      expect(result.results[0].error_code).toContain("DUPLICATE_PACK");
       expect(result.results[1].success).toBe(true);
     });
   });
@@ -777,7 +777,10 @@ describe("LotterySyncService - Pack Activate", () => {
     const validInput = {
       pack_id: TEST_PACK_ID,
       bin_id: TEST_BIN_ID,
-      opening_serial: "000000001",
+      pack_number: "PKG001",
+      game_code: "0001",
+      serial_start: "000000001",
+      serial_end: "000000060",
     };
 
     it("should activate a RECEIVED pack", async () => {
@@ -797,13 +800,15 @@ describe("LotterySyncService - Pack Activate", () => {
         bin: { name: bin.name },
       });
 
-      mockPrisma.lotteryPack.findFirst.mockResolvedValue(receivedPack);
+      // Service checks bin FIRST, then pack
       mockPrisma.lotteryBin.findFirst.mockResolvedValue(bin);
+      mockPrisma.lotteryPack.findFirst.mockResolvedValue(receivedPack);
       mockPrisma.lotteryPack.update.mockResolvedValue(activatedPack);
       mockPrisma.lotteryPackBinHistory.create.mockResolvedValue({});
 
       const result = await lotterySyncService.activatePack(
         TEST_STORE_ID,
+        TEST_STATE_ID,
         validInput,
         createValidAuditContext(),
       );
@@ -819,49 +824,82 @@ describe("LotterySyncService - Pack Activate", () => {
       );
     });
 
-    it("should throw PACK_NOT_FOUND for non-existent pack", async () => {
-      mockPrisma.lotteryPack.findFirst.mockResolvedValue(null);
+    it("should create pack when it does not exist (activate via create)", async () => {
+      // When pack doesn't exist, service creates it then activates
+      const bin = createTestLotteryBin({
+        bin_id: TEST_BIN_ID,
+        store_id: TEST_STORE_ID,
+      });
+      const game = createTestLotteryGame({
+        game_id: TEST_GAME_ID,
+        store_id: TEST_STORE_ID,
+        game_code: "0001",
+        status: "ACTIVE",
+      });
+      const createdPack = createTestLotteryPack({
+        pack_id: TEST_PACK_ID,
+        store_id: TEST_STORE_ID,
+        status: "RECEIVED",
+      });
+      const activatedPack = createTestLotteryPack({
+        ...createdPack,
+        status: "ACTIVE",
+        current_bin_id: TEST_BIN_ID,
+        bin: { name: bin.name },
+      });
 
-      await expect(
-        lotterySyncService.activatePack(
-          TEST_STORE_ID,
-          validInput,
-          createValidAuditContext(),
-        ),
-      ).rejects.toThrow("PACK_NOT_FOUND");
+      mockPrisma.lotteryBin.findFirst.mockResolvedValue(bin);
+      mockPrisma.lotteryPack.findFirst.mockResolvedValue(null);
+      mockPrisma.lotteryPack.findUnique.mockResolvedValue(null);
+      mockPrisma.lotteryGame.findFirst.mockResolvedValue(game);
+      mockPrisma.lotteryPack.create.mockResolvedValue(createdPack);
+      mockPrisma.lotteryPack.update.mockResolvedValue(activatedPack);
+      mockPrisma.lotteryPackBinHistory.create.mockResolvedValue({});
+
+      const result = await lotterySyncService.activatePack(
+        TEST_STORE_ID,
+        TEST_STATE_ID,
+        validInput,
+        createValidAuditContext(),
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockPrisma.lotteryPack.create).toHaveBeenCalled();
     });
 
-    it("should throw INVALID_STATUS for already active pack", async () => {
+    it("should throw ALREADY_ACTIVE for pack active in different bin", async () => {
+      const bin = createTestLotteryBin({
+        bin_id: TEST_BIN_ID,
+        store_id: TEST_STORE_ID,
+      });
       const activePack = createTestLotteryPack({
         pack_id: TEST_PACK_ID,
         store_id: TEST_STORE_ID,
         status: "ACTIVE",
+        current_bin_id: createTestUuid("bin", 999), // Different bin
       });
 
+      mockPrisma.lotteryBin.findFirst.mockResolvedValue(bin);
       mockPrisma.lotteryPack.findFirst.mockResolvedValue(activePack);
 
       await expect(
         lotterySyncService.activatePack(
           TEST_STORE_ID,
+          TEST_STATE_ID,
           validInput,
           createValidAuditContext(),
         ),
-      ).rejects.toThrow("INVALID_STATUS");
+      ).rejects.toThrow("ALREADY_ACTIVE");
     });
 
     it("should throw BIN_NOT_FOUND for invalid bin", async () => {
-      const receivedPack = createTestLotteryPack({
-        pack_id: TEST_PACK_ID,
-        store_id: TEST_STORE_ID,
-        status: "RECEIVED",
-      });
-
-      mockPrisma.lotteryPack.findFirst.mockResolvedValue(receivedPack);
+      // Service checks bin FIRST - this test verifies that behavior
       mockPrisma.lotteryBin.findFirst.mockResolvedValue(null);
 
       await expect(
         lotterySyncService.activatePack(
           TEST_STORE_ID,
+          TEST_STATE_ID,
           validInput,
           createValidAuditContext(),
         ),
@@ -878,19 +916,21 @@ describe("LotterySyncService - Pack Activate", () => {
         bin_id: TEST_BIN_ID,
         store_id: TEST_STORE_ID,
       });
+      const activatedPack = createTestLotteryPack({
+        pack_id: TEST_PACK_ID,
+        status: "ACTIVE",
+        current_bin_id: TEST_BIN_ID,
+        bin: { name: bin.name },
+      });
 
-      mockPrisma.lotteryPack.findFirst.mockResolvedValue(receivedPack);
       mockPrisma.lotteryBin.findFirst.mockResolvedValue(bin);
-      mockPrisma.lotteryPack.update.mockResolvedValue(
-        createTestLotteryPack({
-          status: "ACTIVE",
-          current_bin_id: TEST_BIN_ID,
-        }),
-      );
+      mockPrisma.lotteryPack.findFirst.mockResolvedValue(receivedPack);
+      mockPrisma.lotteryPack.update.mockResolvedValue(activatedPack);
       mockPrisma.lotteryPackBinHistory.create.mockResolvedValue({});
 
       await lotterySyncService.activatePack(
         TEST_STORE_ID,
+        TEST_STATE_ID,
         validInput,
         createValidAuditContext(),
       );
@@ -1478,8 +1518,8 @@ describe("LotterySyncService - Edge Cases", () => {
       );
 
       expect(result.records).toHaveLength(0);
-      expect(result.totalCount).toBe(0);
-      expect(result.hasMore).toBe(false);
+      expect(result.total_count).toBe(0);
+      expect(result.has_more).toBe(false);
     });
   });
 
@@ -1865,6 +1905,490 @@ describe("LotterySyncService - Inactive Game Handling", () => {
 
       // Should select status for post-query validation
       expect(findFirstCall.select.status).toBe(true);
+    });
+  });
+});
+
+// =============================================================================
+// PUSH Endpoints - Shift Sync Tests
+// =============================================================================
+
+describe("LotterySyncService - Shift Sync", () => {
+  let mockPrisma: MockPrismaClient;
+
+  beforeEach(() => {
+    mockPrisma = getMockPrisma();
+    vi.clearAllMocks();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Valid Input Structure
+  // ---------------------------------------------------------------------------
+
+  const TEST_OPENED_BY = createTestUuid("user", 1);
+  const TEST_CASHIER_ID_SYNC = createTestUuid("cashier", 1);
+  const TEST_TERMINAL_ID_SYNC = createTestUuid("terminal", 1);
+  const TEST_DAY_SUMMARY_ID_SYNC = createTestUuid("daysummary", 1);
+
+  const validShiftInput = {
+    shift_id: TEST_SHIFT_ID,
+    opened_by: TEST_OPENED_BY,
+    cashier_id: TEST_CASHIER_ID_SYNC,
+    opened_at: "2024-01-15T08:00:00Z",
+    status: "OPEN" as const,
+    opening_cash: "100.00",
+  };
+
+  // ---------------------------------------------------------------------------
+  // Happy Path Tests
+  // ---------------------------------------------------------------------------
+
+  describe("syncShift - Create New Shift", () => {
+    it("should create a new shift when it does not exist", async () => {
+      // Arrange: User and cashier exist with store access
+      mockPrisma.user.findFirst.mockResolvedValue({
+        user_id: TEST_OPENED_BY,
+      });
+      mockPrisma.cashier.findFirst.mockResolvedValue({
+        cashier_id: TEST_CASHIER_ID_SYNC,
+      });
+      mockPrisma.shift.findFirst.mockResolvedValue(null); // No existing shift
+      mockPrisma.shift.upsert.mockResolvedValue(
+        createTestShift({
+          shift_id: TEST_SHIFT_ID,
+          store_id: TEST_STORE_ID,
+          opened_by: TEST_OPENED_BY,
+          cashier_id: TEST_CASHIER_ID_SYNC,
+          status: "OPEN",
+        }),
+      );
+
+      // Act
+      const result = await lotterySyncService.syncShift(
+        TEST_STORE_ID,
+        validShiftInput,
+        createValidAuditContext(),
+      );
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.shift.shift_id).toBe(TEST_SHIFT_ID);
+      expect(result.shift.status).toBe("OPEN");
+      expect(result.idempotent).toBe(false);
+      expect(mockPrisma.shift.upsert).toHaveBeenCalled();
+    });
+
+    it("should return idempotent=true for existing shift update", async () => {
+      // Arrange: Shift already exists
+      mockPrisma.user.findFirst.mockResolvedValue({
+        user_id: TEST_OPENED_BY,
+      });
+      mockPrisma.cashier.findFirst.mockResolvedValue({
+        cashier_id: TEST_CASHIER_ID_SYNC,
+      });
+      mockPrisma.shift.findFirst.mockResolvedValue(
+        createTestShift({
+          shift_id: TEST_SHIFT_ID,
+          store_id: TEST_STORE_ID,
+        }),
+      );
+      mockPrisma.shift.upsert.mockResolvedValue(
+        createTestShift({
+          shift_id: TEST_SHIFT_ID,
+          store_id: TEST_STORE_ID,
+          status: "CLOSING",
+        }),
+      );
+
+      // Act
+      const result = await lotterySyncService.syncShift(
+        TEST_STORE_ID,
+        { ...validShiftInput, status: "CLOSING" },
+        createValidAuditContext(),
+      );
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.idempotent).toBe(true);
+    });
+
+    it("should handle shift with all optional fields", async () => {
+      // Arrange
+      const fullInput = {
+        ...validShiftInput,
+        pos_terminal_id: TEST_TERMINAL_ID_SYNC,
+        closed_at: "2024-01-15T16:00:00Z",
+        closing_cash: "150.00",
+        expected_cash: "145.00",
+        variance: "5.00",
+        variance_reason: "Extra found in register",
+        shift_number: 1,
+        approved_by: TEST_OPENED_BY,
+        approved_at: "2024-01-15T16:30:00Z",
+        business_date: "2024-01-15",
+        external_shift_id: "POS-SHIFT-001",
+      };
+
+      mockPrisma.user.findFirst.mockResolvedValue({ user_id: TEST_OPENED_BY });
+      mockPrisma.cashier.findFirst.mockResolvedValue({
+        cashier_id: TEST_CASHIER_ID_SYNC,
+      });
+      mockPrisma.pOSTerminal.findFirst.mockResolvedValue({
+        pos_terminal_id: TEST_TERMINAL_ID_SYNC,
+      });
+      mockPrisma.daySummary.findFirst.mockResolvedValue({
+        day_summary_id: TEST_DAY_SUMMARY_ID_SYNC,
+      });
+      mockPrisma.shift.findFirst.mockResolvedValue(null);
+      mockPrisma.shift.upsert.mockResolvedValue(
+        createTestShift({
+          shift_id: TEST_SHIFT_ID,
+          store_id: TEST_STORE_ID,
+          pos_terminal_id: TEST_TERMINAL_ID_SYNC,
+          status: "OPEN",
+          day_summary_id: TEST_DAY_SUMMARY_ID_SYNC,
+        }),
+      );
+
+      // Act
+      const result = await lotterySyncService.syncShift(
+        TEST_STORE_ID,
+        fullInput,
+        createValidAuditContext(),
+      );
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(mockPrisma.pOSTerminal.findFirst).toHaveBeenCalled();
+      expect(mockPrisma.daySummary.findFirst).toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Foreign Key Validation Tests (DB-006: TENANT_ISOLATION)
+  // ---------------------------------------------------------------------------
+
+  describe("syncShift - Foreign Key Validation", () => {
+    it("should throw USER_NOT_FOUND for non-existent opened_by user", async () => {
+      // Arrange: User does not exist
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.syncShift(
+          TEST_STORE_ID,
+          validShiftInput,
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow("USER_NOT_FOUND:");
+    });
+
+    it("should throw USER_NOT_FOUND for user without store access", async () => {
+      // Arrange: User exists but has no role for this store
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.syncShift(
+          TEST_STORE_ID,
+          validShiftInput,
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow("USER_NOT_FOUND:");
+
+      // Verify the query enforced tenant isolation via user_roles
+      const userQuery = mockPrisma.user.findFirst.mock.calls[0][0];
+      expect(userQuery.where.user_roles).toBeDefined();
+      expect(userQuery.where.user_roles.some.store_id).toBe(TEST_STORE_ID);
+    });
+
+    it("should throw CASHIER_NOT_FOUND for non-existent cashier", async () => {
+      // Arrange: User exists, cashier does not
+      mockPrisma.user.findFirst.mockResolvedValue({ user_id: TEST_OPENED_BY });
+      mockPrisma.cashier.findFirst.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.syncShift(
+          TEST_STORE_ID,
+          validShiftInput,
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow("CASHIER_NOT_FOUND:");
+    });
+
+    it("should throw CASHIER_NOT_FOUND for cashier from different store", async () => {
+      // Arrange: Query includes store_id filter, so null returned
+      mockPrisma.user.findFirst.mockResolvedValue({ user_id: TEST_OPENED_BY });
+      mockPrisma.cashier.findFirst.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.syncShift(
+          TEST_STORE_ID,
+          validShiftInput,
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow("CASHIER_NOT_FOUND:");
+
+      // Verify tenant isolation in cashier query
+      const cashierQuery = mockPrisma.cashier.findFirst.mock.calls[0][0];
+      expect(cashierQuery.where.store_id).toBe(TEST_STORE_ID);
+    });
+
+    it("should throw TERMINAL_NOT_FOUND for non-existent terminal", async () => {
+      // Arrange
+      mockPrisma.user.findFirst.mockResolvedValue({ user_id: TEST_OPENED_BY });
+      mockPrisma.cashier.findFirst.mockResolvedValue({
+        cashier_id: TEST_CASHIER_ID_SYNC,
+      });
+      mockPrisma.pOSTerminal.findFirst.mockResolvedValue(null);
+
+      const inputWithTerminal = {
+        ...validShiftInput,
+        pos_terminal_id: TEST_TERMINAL_ID_SYNC,
+      };
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.syncShift(
+          TEST_STORE_ID,
+          inputWithTerminal,
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow("TERMINAL_NOT_FOUND:");
+    });
+
+    it("should throw TERMINAL_NOT_FOUND for soft-deleted terminal", async () => {
+      // Arrange: Query includes deleted_at: null filter
+      mockPrisma.user.findFirst.mockResolvedValue({ user_id: TEST_OPENED_BY });
+      mockPrisma.cashier.findFirst.mockResolvedValue({
+        cashier_id: TEST_CASHIER_ID_SYNC,
+      });
+      mockPrisma.pOSTerminal.findFirst.mockResolvedValue(null);
+
+      const inputWithTerminal = {
+        ...validShiftInput,
+        pos_terminal_id: TEST_TERMINAL_ID_SYNC,
+      };
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.syncShift(
+          TEST_STORE_ID,
+          inputWithTerminal,
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow("TERMINAL_NOT_FOUND:");
+
+      // Verify terminal query includes soft-delete check
+      const terminalQuery = mockPrisma.pOSTerminal.findFirst.mock.calls[0][0];
+      expect(terminalQuery.where.deleted_at).toBeNull();
+    });
+
+    it("should throw APPROVER_NOT_FOUND for non-existent approver", async () => {
+      // Arrange
+      mockPrisma.user.findFirst
+        .mockResolvedValueOnce({ user_id: TEST_OPENED_BY }) // opened_by exists
+        .mockResolvedValueOnce(null); // approved_by does not exist
+      mockPrisma.cashier.findFirst.mockResolvedValue({
+        cashier_id: TEST_CASHIER_ID_SYNC,
+      });
+
+      const inputWithApprover = {
+        ...validShiftInput,
+        approved_by: createTestUuid("user", 999),
+      };
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.syncShift(
+          TEST_STORE_ID,
+          inputWithApprover,
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow("APPROVER_NOT_FOUND:");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Business Day Association Tests
+  // ---------------------------------------------------------------------------
+
+  describe("syncShift - Business Day Association", () => {
+    it("should link shift to existing day_summary when business_date provided", async () => {
+      // Arrange
+      mockPrisma.user.findFirst.mockResolvedValue({ user_id: TEST_OPENED_BY });
+      mockPrisma.cashier.findFirst.mockResolvedValue({
+        cashier_id: TEST_CASHIER_ID_SYNC,
+      });
+      mockPrisma.daySummary.findFirst.mockResolvedValue({
+        day_summary_id: TEST_DAY_SUMMARY_ID_SYNC,
+      });
+      mockPrisma.shift.findFirst.mockResolvedValue(null);
+      mockPrisma.shift.upsert.mockResolvedValue(
+        createTestShift({
+          shift_id: TEST_SHIFT_ID,
+          day_summary_id: TEST_DAY_SUMMARY_ID_SYNC,
+        }),
+      );
+
+      const inputWithBusinessDate = {
+        ...validShiftInput,
+        business_date: "2024-01-15",
+      };
+
+      // Act
+      const result = await lotterySyncService.syncShift(
+        TEST_STORE_ID,
+        inputWithBusinessDate,
+        createValidAuditContext(),
+      );
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(mockPrisma.daySummary.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            store_id: TEST_STORE_ID,
+          }),
+        }),
+      );
+    });
+
+    it("should handle missing day_summary gracefully (null)", async () => {
+      // Arrange: No day summary exists for the business date
+      mockPrisma.user.findFirst.mockResolvedValue({ user_id: TEST_OPENED_BY });
+      mockPrisma.cashier.findFirst.mockResolvedValue({
+        cashier_id: TEST_CASHIER_ID_SYNC,
+      });
+      mockPrisma.daySummary.findFirst.mockResolvedValue(null);
+      mockPrisma.shift.findFirst.mockResolvedValue(null);
+      mockPrisma.shift.upsert.mockResolvedValue(
+        createTestShift({
+          shift_id: TEST_SHIFT_ID,
+          day_summary_id: null,
+        }),
+      );
+
+      const inputWithBusinessDate = {
+        ...validShiftInput,
+        business_date: "2024-01-15",
+      };
+
+      // Act
+      const result = await lotterySyncService.syncShift(
+        TEST_STORE_ID,
+        inputWithBusinessDate,
+        createValidAuditContext(),
+      );
+
+      // Assert: Should succeed with null day_summary_id
+      expect(result.success).toBe(true);
+      expect(result.shift.day_summary_id).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Security Tests (SEC-006: SQL_INJECTION, DB-006: TENANT_ISOLATION)
+  // ---------------------------------------------------------------------------
+
+  describe("syncShift - Security Compliance", () => {
+    it("should use parameterized queries via Prisma ORM (SEC-006)", async () => {
+      // Arrange
+      mockPrisma.user.findFirst.mockResolvedValue({ user_id: TEST_OPENED_BY });
+      mockPrisma.cashier.findFirst.mockResolvedValue({
+        cashier_id: TEST_CASHIER_ID_SYNC,
+      });
+      mockPrisma.shift.findFirst.mockResolvedValue(null);
+      mockPrisma.shift.upsert.mockResolvedValue(
+        createTestShift({ shift_id: TEST_SHIFT_ID }),
+      );
+
+      // Act
+      await lotterySyncService.syncShift(
+        TEST_STORE_ID,
+        validShiftInput,
+        createValidAuditContext(),
+      );
+
+      // Assert: No raw SQL was used
+      expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+      expect(mockPrisma.$executeRaw).not.toHaveBeenCalled();
+    });
+
+    it("should enforce tenant isolation in all queries (DB-006)", async () => {
+      // Arrange
+      mockPrisma.user.findFirst.mockResolvedValue({ user_id: TEST_OPENED_BY });
+      mockPrisma.cashier.findFirst.mockResolvedValue({
+        cashier_id: TEST_CASHIER_ID_SYNC,
+      });
+      mockPrisma.shift.findFirst.mockResolvedValue(null);
+      mockPrisma.shift.upsert.mockResolvedValue(
+        createTestShift({ shift_id: TEST_SHIFT_ID, store_id: TEST_STORE_ID }),
+      );
+
+      // Act
+      await lotterySyncService.syncShift(
+        TEST_STORE_ID,
+        validShiftInput,
+        createValidAuditContext(),
+      );
+
+      // Assert: Cashier query includes store_id
+      const cashierQuery = mockPrisma.cashier.findFirst.mock.calls[0][0];
+      expect(cashierQuery.where.store_id).toBe(TEST_STORE_ID);
+
+      // Assert: Shift findFirst includes store_id
+      const shiftQuery = mockPrisma.shift.findFirst.mock.calls[0][0];
+      expect(shiftQuery.where.store_id).toBe(TEST_STORE_ID);
+
+      // Assert: Shift upsert creates with correct store_id
+      const upsertCall = mockPrisma.shift.upsert.mock.calls[0][0];
+      expect(upsertCall.create.store_id).toBe(TEST_STORE_ID);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Edge Cases and Error Handling
+  // ---------------------------------------------------------------------------
+
+  describe("syncShift - Edge Cases", () => {
+    it("should handle database errors gracefully", async () => {
+      // Arrange: Database connection fails
+      mockPrisma.user.findFirst.mockRejectedValue(
+        new Error("Database connection failed"),
+      );
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.syncShift(
+          TEST_STORE_ID,
+          validShiftInput,
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow("Database connection failed");
+    });
+
+    it("should handle upsert constraint violations", async () => {
+      // Arrange
+      mockPrisma.user.findFirst.mockResolvedValue({ user_id: TEST_OPENED_BY });
+      mockPrisma.cashier.findFirst.mockResolvedValue({
+        cashier_id: TEST_CASHIER_ID_SYNC,
+      });
+      mockPrisma.shift.findFirst.mockResolvedValue(null);
+      mockPrisma.shift.upsert.mockRejectedValue(
+        new Error("Unique constraint violation"),
+      );
+
+      // Act & Assert
+      await expect(
+        lotterySyncService.syncShift(
+          TEST_STORE_ID,
+          validShiftInput,
+          createValidAuditContext(),
+        ),
+      ).rejects.toThrow("Unique constraint violation");
     });
   });
 });

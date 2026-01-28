@@ -72,6 +72,11 @@ export function createMockPrismaClient() {
     store: createMockModel(),
     shift: createMockModel(),
     employee: createMockModel(),
+    user: createMockModel(),
+    userRole: createMockModel(),
+    cashier: createMockModel(),
+    pOSTerminal: createMockModel(),
+    daySummary: createMockModel(),
 
     // Transaction support
     $transaction: vi.fn((callback) => {
@@ -339,7 +344,7 @@ export function createTestLotteryBusinessDay(
   return {
     day_id: overrides.day_id || createTestUuid("day", 1),
     store_id: overrides.store_id || createTestUuid("store", 1),
-    business_date: overrides.business_date || new Date("2024-01-15"),
+    business_date: overrides.business_date || new Date("2024-01-15T00:00:00Z"),
     status: overrides.status || "OPEN",
     opened_at: new Date("2024-01-15T08:00:00Z"),
     opened_by: overrides.opened_by || createTestUuid("employee", 1),
@@ -357,24 +362,181 @@ export function createTestLotteryBusinessDay(
 
 /**
  * Factory for creating test shift data
+ * Matches the Prisma Shift model for lottery sync testing
  */
 export function createTestShift(
   overrides: Partial<{
     shift_id: string;
     store_id: string;
-    employee_id: string;
-    started_at: Date;
-    ended_at: Date | null;
+    opened_by: string;
+    cashier_id: string;
+    pos_terminal_id: string | null;
+    opened_at: Date;
+    closed_at: Date | null;
+    opening_cash: string;
+    closing_cash: string | null;
+    expected_cash: string | null;
+    variance: string | null;
+    variance_reason: string | null;
+    status: string;
+    shift_number: number | null;
+    approved_by: string | null;
+    approved_at: Date | null;
+    day_summary_id: string | null;
+    external_shift_id: string | null;
+    synced_at: Date | null;
   }> = {},
 ) {
   return {
     shift_id: overrides.shift_id || createTestUuid("shift", 1),
     store_id: overrides.store_id || createTestUuid("store", 1),
-    employee_id: overrides.employee_id || createTestUuid("employee", 1),
-    started_at: overrides.started_at || new Date("2024-01-15T08:00:00Z"),
-    ended_at: overrides.ended_at || null,
+    opened_by: overrides.opened_by || createTestUuid("user", 1),
+    cashier_id: overrides.cashier_id || createTestUuid("cashier", 1),
+    pos_terminal_id: overrides.pos_terminal_id ?? null,
+    opened_at: overrides.opened_at || new Date("2024-01-15T08:00:00Z"),
+    closed_at: overrides.closed_at ?? null,
+    opening_cash: new Decimal(overrides.opening_cash || "100.00"),
+    closing_cash: overrides.closing_cash
+      ? new Decimal(overrides.closing_cash)
+      : null,
+    expected_cash: overrides.expected_cash
+      ? new Decimal(overrides.expected_cash)
+      : null,
+    variance: overrides.variance ? new Decimal(overrides.variance) : null,
+    variance_reason: overrides.variance_reason ?? null,
+    status: overrides.status || "OPEN",
+    shift_number: overrides.shift_number ?? null,
+    approved_by: overrides.approved_by ?? null,
+    approved_at: overrides.approved_at ?? null,
+    day_summary_id: overrides.day_summary_id ?? null,
+    external_shift_id: overrides.external_shift_id ?? null,
+    synced_at: overrides.synced_at ?? null,
     created_at: new Date("2024-01-15T08:00:00Z"),
     updated_at: new Date("2024-01-15T08:00:00Z"),
+  };
+}
+
+/**
+ * Factory for creating test user data
+ * For validating user existence in shift sync operations
+ */
+export function createTestUser(
+  overrides: Partial<{
+    user_id: string;
+    email: string;
+    name: string;
+    status: string;
+    is_client_user: boolean;
+  }> = {},
+) {
+  return {
+    user_id: overrides.user_id || createTestUuid("user", 1),
+    email: overrides.email || "testuser@example.com",
+    name: overrides.name || "Test User",
+    status: overrides.status || "ACTIVE",
+    is_client_user: overrides.is_client_user ?? false,
+    created_at: new Date("2024-01-01T00:00:00Z"),
+    updated_at: new Date("2024-01-01T00:00:00Z"),
+  };
+}
+
+/**
+ * Factory for creating test user role data
+ * For tenant isolation validation (user access to store)
+ */
+export function createTestUserRole(
+  overrides: Partial<{
+    user_role_id: string;
+    user_id: string;
+    role_id: string;
+    store_id: string;
+  }> = {},
+) {
+  return {
+    user_role_id: overrides.user_role_id || createTestUuid("userrole", 1),
+    user_id: overrides.user_id || createTestUuid("user", 1),
+    role_id: overrides.role_id || createTestUuid("role", 1),
+    store_id: overrides.store_id || createTestUuid("store", 1),
+    assigned_at: new Date("2024-01-01T00:00:00Z"),
+    assigned_by: createTestUuid("user", 2),
+  };
+}
+
+/**
+ * Factory for creating test cashier data
+ * For validating cashier existence in shift sync operations
+ */
+export function createTestCashier(
+  overrides: Partial<{
+    cashier_id: string;
+    store_id: string;
+    employee_id: string;
+    name: string;
+    is_active: boolean;
+  }> = {},
+) {
+  return {
+    cashier_id: overrides.cashier_id || createTestUuid("cashier", 1),
+    store_id: overrides.store_id || createTestUuid("store", 1),
+    employee_id: overrides.employee_id || "0001",
+    name: overrides.name || "Test Cashier",
+    pin_hash: "$2b$10$abcdefghijklmnopqrstuvwxyz",
+    is_active: overrides.is_active ?? true,
+    hired_on: new Date("2024-01-01T00:00:00Z"),
+    created_at: new Date("2024-01-01T00:00:00Z"),
+    updated_at: new Date("2024-01-01T00:00:00Z"),
+    created_by: createTestUuid("user", 1),
+  };
+}
+
+/**
+ * Factory for creating test POS terminal data
+ * For validating terminal existence in shift sync operations
+ */
+export function createTestPOSTerminal(
+  overrides: Partial<{
+    pos_terminal_id: string;
+    store_id: string;
+    name: string;
+    terminal_status: string;
+    deleted_at: Date | null;
+  }> = {},
+) {
+  return {
+    pos_terminal_id: overrides.pos_terminal_id || createTestUuid("terminal", 1),
+    store_id: overrides.store_id || createTestUuid("store", 1),
+    name: overrides.name || "Terminal 1",
+    device_id: "test-device-001",
+    connection_type: "MANUAL",
+    pos_type: "MANUAL_ENTRY",
+    terminal_status: overrides.terminal_status || "ACTIVE",
+    deleted_at: overrides.deleted_at ?? null,
+    created_at: new Date("2024-01-01T00:00:00Z"),
+    updated_at: new Date("2024-01-01T00:00:00Z"),
+  };
+}
+
+/**
+ * Factory for creating test day summary data
+ * For linking shifts to business days
+ */
+export function createTestDaySummary(
+  overrides: Partial<{
+    day_summary_id: string;
+    store_id: string;
+    business_date: Date;
+    status: string;
+  }> = {},
+) {
+  return {
+    day_summary_id: overrides.day_summary_id || createTestUuid("daysummary", 1),
+    store_id: overrides.store_id || createTestUuid("store", 1),
+    business_date: overrides.business_date || new Date("2024-01-15T00:00:00Z"),
+    status: overrides.status || "OPEN",
+    opened_at: new Date("2024-01-15T06:00:00Z"),
+    closed_at: null,
+    created_at: new Date("2024-01-15T06:00:00Z"),
+    updated_at: new Date("2024-01-15T06:00:00Z"),
   };
 }
 

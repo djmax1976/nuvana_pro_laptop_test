@@ -543,6 +543,13 @@ describe("lotteryPackActivateSchema", () => {
     pack_id: VALID_PACK_ID,
     bin_id: VALID_BIN_ID,
     opening_serial: VALID_SERIAL,
+    // Required fields for activation
+    activated_at: "2024-01-15T10:00:00Z",
+    received_at: "2024-01-15T08:00:00Z",
+    game_code: "0001",
+    pack_number: "PKG001",
+    serial_start: "000000001",
+    serial_end: "000000060",
   };
 
   describe("Valid Inputs", () => {
