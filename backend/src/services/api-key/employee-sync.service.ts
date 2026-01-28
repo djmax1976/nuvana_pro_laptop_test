@@ -25,7 +25,12 @@
 
 import { prisma } from "../../utils/db";
 import { apiKeyAuditService } from "./api-key-audit.service";
-import type { ApiKeyIdentity } from "../../types/api-key.types";
+import type {
+  ApiKeyIdentity,
+  EmployeeSyncPushResponse,
+  EmployeeSyncPushResult,
+} from "../../types/api-key.types";
+import type { EmployeeSyncPushRecord } from "../../schemas/api-key.schema";
 
 // ============================================================================
 // Types
@@ -468,6 +473,267 @@ class EmployeeSyncService {
         syncType: "EMPLOYEE_SYNC",
         sessionId: context.sessionId,
         employeeCount,
+        deviceFingerprint: context.deviceFingerprint,
+      },
+    );
+  }
+
+  // ==========================================================================
+  // PUSH Operations (Desktop → Server)
+  // ==========================================================================
+
+  /**
+   * Push employees from desktop to server (batch operation)
+   * SEC-006: Parameterized queries via Prisma ORM
+   * DB-006: Tenant isolation via session validation
+   * SEC-001: PIN hashes only (never plaintext)
+   *
+   * @param identity - API key identity from middleware
+   * @param sessionId - Sync session ID
+   * @param employees - Array of employee records to sync
+   * @param auditContext - Context for audit logging
+   * @returns Batch sync results with per-record success/failure
+   */
+  async pushEmployees(
+    identity: ApiKeyIdentity,
+    sessionId: string,
+    employees: EmployeeSyncPushRecord[],
+    auditContext: EmployeeSyncAuditContext,
+  ): Promise<EmployeeSyncPushResponse> {
+    // Validate session ownership and get store ID
+    const { storeId } = await this.validateSyncSession(
+      sessionId,
+      identity.apiKeyId,
+    );
+
+    // DB-006: Defense in depth - verify store matches
+    if (storeId !== identity.storeId) {
+      throw new Error(
+        "STORE_MISMATCH: Session store does not match API key store",
+      );
+    }
+
+    // Get the store's store_login_user_id as default created_by
+    const store = await prisma.store.findUnique({
+      where: { store_id: storeId },
+      select: { store_login_user_id: true },
+    });
+
+    if (!store?.store_login_user_id) {
+      throw new Error(
+        "STORE_CONFIG_ERROR: Store does not have a store_login_user configured. " +
+          "Please configure a store login user before syncing employees from desktop.",
+      );
+    }
+
+    const defaultCreatedBy = store.store_login_user_id;
+
+    const results: EmployeeSyncPushResult[] = [];
+    let successCount = 0;
+    let failureCount = 0;
+
+    // Process each employee record
+    for (const employee of employees) {
+      try {
+        const result = await this.syncSingleEmployee(
+          storeId,
+          employee,
+          defaultCreatedBy,
+        );
+        results.push(result);
+        if (result.success) {
+          successCount++;
+        } else {
+          failureCount++;
+        }
+      } catch (error) {
+        // Unexpected error - log but continue processing batch
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        console.error(
+          `[EmployeeSyncService] Error syncing employee ${employee.employee_id}:`,
+          message,
+        );
+        results.push({
+          employee_id: employee.employee_id,
+          success: false,
+          idempotent: false,
+          error_code: "INTERNAL_ERROR",
+          error_message: "Unexpected error during sync",
+        });
+        failureCount++;
+      }
+    }
+
+    // SEC-017: Log push operation (async, non-blocking)
+    this.logEmployeePush(auditContext, successCount, failureCount).catch(
+      (err) => console.error("[EmployeeSyncService] Audit log error:", err),
+    );
+
+    return {
+      total_count: employees.length,
+      success_count: successCount,
+      failure_count: failureCount,
+      results,
+      server_time: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Sync a single employee (cashier) to the database
+   * SEC-006: Parameterized queries via Prisma ORM
+   * DB-006: Tenant isolation via store_id parameter
+   *
+   * @param storeId - Store ID from validated session
+   * @param employee - Employee record to sync
+   * @param defaultCreatedBy - Default user ID to use for created_by if not specified
+   * @returns Sync result for this employee
+   */
+  private async syncSingleEmployee(
+    storeId: string,
+    employee: EmployeeSyncPushRecord,
+    defaultCreatedBy: string,
+  ): Promise<EmployeeSyncPushResult> {
+    // Only CASHIER role is supported for push
+    if (employee.role !== "CASHIER") {
+      return {
+        employee_id: employee.employee_id,
+        success: false,
+        idempotent: false,
+        error_code: "INVALID_ROLE",
+        error_message: "Only CASHIER role can be pushed from desktop",
+      };
+    }
+
+    // Check if cashier already exists
+    const existingCashier = await prisma.cashier.findUnique({
+      where: { cashier_id: employee.employee_id },
+      select: { cashier_id: true, store_id: true },
+    });
+
+    // If exists, verify it belongs to the same store (tenant isolation)
+    if (existingCashier && existingCashier.store_id !== storeId) {
+      return {
+        employee_id: employee.employee_id,
+        success: false,
+        idempotent: false,
+        error_code: "TENANT_VIOLATION",
+        error_message: "Cashier exists in a different store",
+      };
+    }
+
+    const isIdempotent = !!existingCashier;
+
+    // Generate employee_id (4-digit code) if not provided
+    let employeeCode = employee.employee_code;
+    if (!employeeCode) {
+      employeeCode = await this.generateUniqueEmployeeCode(storeId);
+    } else {
+      // Verify employee_code is unique within store
+      const codeExists = await prisma.cashier.findFirst({
+        where: {
+          store_id: storeId,
+          employee_id: employeeCode,
+          cashier_id: { not: employee.employee_id }, // Exclude self for updates
+        },
+        select: { cashier_id: true },
+      });
+
+      if (codeExists) {
+        return {
+          employee_id: employee.employee_id,
+          success: false,
+          idempotent: false,
+          error_code: "DUPLICATE_EMPLOYEE_CODE",
+          error_message: `Employee code ${employeeCode} already exists in this store`,
+        };
+      }
+    }
+
+    // Determine created_by: use provided value or default
+    const createdBy = employee.created_by || defaultCreatedBy;
+
+    // Upsert the cashier record
+    await prisma.cashier.upsert({
+      where: { cashier_id: employee.employee_id },
+      create: {
+        cashier_id: employee.employee_id,
+        store_id: storeId,
+        name: employee.name,
+        employee_id: employeeCode,
+        pin_hash: employee.pin_hash,
+        is_active: employee.is_active ?? true,
+        hired_on: employee.hired_on ? new Date(employee.hired_on) : new Date(),
+        termination_date: employee.termination_date
+          ? new Date(employee.termination_date)
+          : null,
+        created_by: createdBy,
+      },
+      update: {
+        name: employee.name,
+        employee_id: employeeCode,
+        pin_hash: employee.pin_hash,
+        is_active: employee.is_active ?? true,
+        termination_date: employee.termination_date
+          ? new Date(employee.termination_date)
+          : null,
+        // Don't update hired_on or created_by on updates
+        updated_at: new Date(),
+      },
+    });
+
+    return {
+      employee_id: employee.employee_id,
+      success: true,
+      idempotent: isIdempotent,
+    };
+  }
+
+  /**
+   * Generate a unique 4-digit employee code for a store
+   * Finds the next available code that doesn't conflict
+   */
+  private async generateUniqueEmployeeCode(storeId: string): Promise<string> {
+    // Get all existing codes for this store
+    const existingCodes = await prisma.cashier.findMany({
+      where: { store_id: storeId },
+      select: { employee_id: true },
+    });
+
+    const usedCodes = new Set(existingCodes.map((c) => c.employee_id));
+
+    // Find next available code starting from 0001
+    for (let i = 1; i <= 9999; i++) {
+      const code = i.toString().padStart(4, "0");
+      if (!usedCodes.has(code)) {
+        return code;
+      }
+    }
+
+    // All codes exhausted (unlikely - 9999 cashiers per store)
+    throw new Error("NO_AVAILABLE_CODES: All employee codes are in use");
+  }
+
+  /**
+   * Log employee push operation for audit trail
+   * SEC-017: Audit logging
+   */
+  private async logEmployeePush(
+    context: EmployeeSyncAuditContext,
+    successCount: number,
+    failureCount: number,
+  ): Promise<void> {
+    await apiKeyAuditService.logCustomEvent(
+      context.apiKeyId,
+      "SYNC_COMPLETED", // Using SYNC_COMPLETED for push operations
+      "DEVICE",
+      context.ipAddress,
+      undefined,
+      {
+        syncType: "EMPLOYEE_PUSH",
+        sessionId: context.sessionId,
+        successCount,
+        failureCount,
         deviceFingerprint: context.deviceFingerprint,
       },
     );

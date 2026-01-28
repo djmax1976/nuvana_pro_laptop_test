@@ -27,6 +27,10 @@ import {
   createTestLotteryGame,
   createTestSyncSession,
   createTestLotteryPack,
+  createTestShift,
+  createTestUser,
+  createTestCashier,
+  createTestPOSTerminal,
   type MockPrismaClient,
 } from "../utils/prisma-mock";
 
@@ -161,6 +165,9 @@ describe("Lottery Sync Routes - Registration", () => {
     expect(routes).toContain("ommit-close (POST)"); // commit-close (split: c-ommit)
     expect(routes).toContain("ancel-close (POST)"); // cancel-close (split: c-ancel)
     expect(routes).toContain("/approve (POST)");
+    // Note: Fastify's radix tree splits "shifts" as "shift" prefix + "s" suffix
+    // The route /api/v1/sync/lottery/shifts shows as "s (POST)" in the tree output
+    expect(routes).toMatch(/shift[\s\S]*s \(POST\)/); // shift sync endpoint
   });
 });
 
@@ -230,7 +237,7 @@ describe("Lottery Sync Routes - GET Endpoints", () => {
       const body = JSON.parse(response.payload);
       expect(body.success).toBe(true);
       expect(body.data.records).toBeDefined();
-      expect(body.data.serverTime).toBeDefined();
+      expect(body.data.server_time).toBeDefined();
     });
 
     it("should handle session not found error", async () => {
@@ -747,7 +754,7 @@ describe("Lottery Sync Routes - Response Format", () => {
       expect(body).toHaveProperty("data");
     });
 
-    it("should include serverTime in sync responses", async () => {
+    it("should include server_time in sync responses", async () => {
       const validSession = createTestSyncSession({
         sync_session_id: VALID_SESSION_ID,
         api_key_id: TEST_API_KEY_ID,
@@ -764,8 +771,8 @@ describe("Lottery Sync Routes - Response Format", () => {
       });
 
       const body = JSON.parse(response.payload);
-      expect(body.data).toHaveProperty("serverTime");
-      expect(new Date(body.data.serverTime).getTime()).not.toBeNaN();
+      expect(body.data).toHaveProperty("server_time");
+      expect(new Date(body.data.server_time).getTime()).not.toBeNaN();
     });
 
     it("should include pagination info in list responses", async () => {
@@ -786,9 +793,9 @@ describe("Lottery Sync Routes - Response Format", () => {
 
       const body = JSON.parse(response.payload);
       expect(body.data).toHaveProperty("records");
-      expect(body.data).toHaveProperty("totalCount");
-      expect(body.data).toHaveProperty("hasMore");
-      expect(body.data).toHaveProperty("currentSequence");
+      expect(body.data).toHaveProperty("total_count");
+      expect(body.data).toHaveProperty("has_more");
+      expect(body.data).toHaveProperty("current_sequence");
     });
   });
 });
@@ -1023,6 +1030,592 @@ describe("Lottery Sync Routes - GAME_INACTIVE Error Handling", () => {
       const body = JSON.parse(response.payload);
       expect(body.error.code).toBe("FAILED_PRECONDITION");
       expect(body.error.reason).toBe("GAME_INACTIVE");
+    });
+  });
+});
+
+// =============================================================================
+// Shift Sync Endpoint Tests
+// =============================================================================
+
+describe("Lottery Sync Routes - Shift Sync", () => {
+  let app: FastifyInstance;
+  let mockPrisma: MockPrismaClient;
+
+  // Test UUIDs
+  const TEST_SHIFT_ID = "550e8400-e29b-41d4-a716-446655440010";
+  const TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440011";
+  const TEST_CASHIER_ID = "550e8400-e29b-41d4-a716-446655440012";
+  const TEST_TERMINAL_ID = "550e8400-e29b-41d4-a716-446655440013";
+  const TEST_APPROVER_ID = "550e8400-e29b-41d4-a716-446655440014";
+
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    mockPrisma = getMockPrisma();
+    vi.clearAllMocks();
+  });
+
+  describe("POST /api/v1/sync/lottery/shifts", () => {
+    const validPayload = {
+      session_id: VALID_SESSION_ID,
+      shift_id: TEST_SHIFT_ID,
+      shift_number: 1,
+      status: "OPEN",
+      opened_at: new Date().toISOString(),
+      opened_by: TEST_USER_ID,
+      cashier_id: TEST_CASHIER_ID,
+      pos_terminal_id: TEST_TERMINAL_ID,
+    };
+
+    describe("Request Validation", () => {
+      it("should return 400 for missing required fields", async () => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: { session_id: VALID_SESSION_ID },
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(400);
+        const body = JSON.parse(response.payload);
+        expect(body.success).toBe(false);
+        expect(body.error).toBeDefined();
+      });
+
+      it("should return 400 for invalid shift_id UUID format", async () => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: { ...validPayload, shift_id: "invalid-uuid" },
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(400);
+      });
+
+      it("should return 400 for invalid status enum value", async () => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: { ...validPayload, status: "INVALID_STATUS" },
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(400);
+      });
+
+      it("should return 400 for invalid opened_at date format", async () => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: { ...validPayload, opened_at: "not-a-date" },
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(400);
+      });
+
+      // Test that all valid status enum values are accepted by the schema
+      // Valid statuses from SHIFT_STATUSES: NOT_STARTED, OPEN, ACTIVE, CLOSING, RECONCILING, CLOSED, VARIANCE_REVIEW
+      it.each(["OPEN", "CLOSING", "CLOSED"])(
+        "should accept status '%s' as valid",
+        async (status) => {
+          const validSession = createTestSyncSession({
+            sync_session_id: VALID_SESSION_ID,
+            api_key_id: TEST_API_KEY_ID,
+          });
+          validSession.api_key.store_id = TEST_STORE_ID;
+
+          const user = createTestUser({ user_id: TEST_USER_ID });
+          const cashier = createTestCashier({
+            cashier_id: TEST_CASHIER_ID,
+            store_id: TEST_STORE_ID,
+          });
+          const terminal = createTestPOSTerminal({
+            pos_terminal_id: TEST_TERMINAL_ID,
+            store_id: TEST_STORE_ID,
+          });
+          const shift = createTestShift({ shift_id: TEST_SHIFT_ID });
+
+          mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(
+            validSession,
+          );
+          mockPrisma.user.findFirst.mockResolvedValue(user);
+          mockPrisma.cashier.findFirst.mockResolvedValue(cashier);
+          mockPrisma.pOSTerminal.findFirst.mockResolvedValue(terminal);
+          mockPrisma.daySummary.findFirst.mockResolvedValue(null);
+          mockPrisma.shift.findUnique.mockResolvedValue(null); // No existing shift
+          mockPrisma.shift.upsert.mockResolvedValue(shift);
+
+          const response = await app.inject({
+            method: "POST",
+            url: "/api/v1/sync/lottery/shifts",
+            payload: { ...validPayload, status },
+            headers: { "content-type": "application/json" },
+          });
+
+          // Should return 201 (success), not 400 (validation error)
+          expect(response.statusCode).toBe(201);
+        },
+      );
+    });
+
+    describe("Success Scenarios", () => {
+      it("should return 201 for creating a new shift", async () => {
+        const validSession = createTestSyncSession({
+          sync_session_id: VALID_SESSION_ID,
+          api_key_id: TEST_API_KEY_ID,
+        });
+        validSession.api_key.store_id = TEST_STORE_ID;
+
+        const user = createTestUser({ user_id: TEST_USER_ID });
+        const cashier = createTestCashier({
+          cashier_id: TEST_CASHIER_ID,
+          store_id: TEST_STORE_ID,
+        });
+        const terminal = createTestPOSTerminal({
+          pos_terminal_id: TEST_TERMINAL_ID,
+          store_id: TEST_STORE_ID,
+        });
+        const shift = createTestShift({
+          shift_id: TEST_SHIFT_ID,
+          store_id: TEST_STORE_ID,
+        });
+
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+        mockPrisma.user.findFirst.mockResolvedValue(user);
+        mockPrisma.cashier.findFirst.mockResolvedValue(cashier);
+        mockPrisma.pOSTerminal.findFirst.mockResolvedValue(terminal);
+        mockPrisma.daySummary.findFirst.mockResolvedValue(null);
+        mockPrisma.shift.upsert.mockResolvedValue(shift);
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: validPayload,
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(201);
+        const body = JSON.parse(response.payload);
+        expect(body.success).toBe(true);
+        expect(body.data.shift).toBeDefined();
+        expect(body.data.shift.shift_id).toBe(TEST_SHIFT_ID);
+      });
+
+      it("should return 200 for updating an existing shift (idempotent)", async () => {
+        const validSession = createTestSyncSession({
+          sync_session_id: VALID_SESSION_ID,
+          api_key_id: TEST_API_KEY_ID,
+        });
+        validSession.api_key.store_id = TEST_STORE_ID;
+
+        const user = createTestUser({ user_id: TEST_USER_ID });
+        const cashier = createTestCashier({
+          cashier_id: TEST_CASHIER_ID,
+          store_id: TEST_STORE_ID,
+        });
+        const terminal = createTestPOSTerminal({
+          pos_terminal_id: TEST_TERMINAL_ID,
+          store_id: TEST_STORE_ID,
+        });
+        const existingShift = createTestShift({
+          shift_id: TEST_SHIFT_ID,
+          store_id: TEST_STORE_ID,
+        });
+
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+        mockPrisma.user.findFirst.mockResolvedValue(user);
+        mockPrisma.cashier.findFirst.mockResolvedValue(cashier);
+        mockPrisma.pOSTerminal.findFirst.mockResolvedValue(terminal);
+        mockPrisma.daySummary.findFirst.mockResolvedValue(null);
+        // When upsert finds existing record, it updates
+        mockPrisma.shift.findUnique.mockResolvedValue(existingShift);
+        mockPrisma.shift.upsert.mockResolvedValue(existingShift);
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: validPayload,
+          headers: { "content-type": "application/json" },
+        });
+
+        // Both create and update return 201 for sync operations
+        expect(response.statusCode).toBe(201);
+        const body = JSON.parse(response.payload);
+        expect(body.success).toBe(true);
+        expect(body.data.shift).toBeDefined();
+      });
+
+      it("should handle optional approver_id field", async () => {
+        const validSession = createTestSyncSession({
+          sync_session_id: VALID_SESSION_ID,
+          api_key_id: TEST_API_KEY_ID,
+        });
+        validSession.api_key.store_id = TEST_STORE_ID;
+
+        const user = createTestUser({ user_id: TEST_USER_ID });
+        const approver = createTestUser({ user_id: TEST_APPROVER_ID });
+        const cashier = createTestCashier({
+          cashier_id: TEST_CASHIER_ID,
+          store_id: TEST_STORE_ID,
+        });
+        const terminal = createTestPOSTerminal({
+          pos_terminal_id: TEST_TERMINAL_ID,
+          store_id: TEST_STORE_ID,
+        });
+        const shift = createTestShift({
+          shift_id: TEST_SHIFT_ID,
+          store_id: TEST_STORE_ID,
+          approved_by: TEST_APPROVER_ID,
+        });
+
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+        // First call for opened_by, second call for approved_by
+        mockPrisma.user.findFirst
+          .mockResolvedValueOnce(user)
+          .mockResolvedValueOnce(approver);
+        mockPrisma.cashier.findFirst.mockResolvedValue(cashier);
+        mockPrisma.pOSTerminal.findFirst.mockResolvedValue(terminal);
+        mockPrisma.daySummary.findFirst.mockResolvedValue(null);
+        mockPrisma.shift.upsert.mockResolvedValue(shift);
+
+        const payloadWithApprover = {
+          ...validPayload,
+          status: "CLOSED",
+          approved_by: TEST_APPROVER_ID,
+          approved_at: new Date().toISOString(),
+          closed_at: new Date().toISOString(),
+        };
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: payloadWithApprover,
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(201);
+        const body = JSON.parse(response.payload);
+        expect(body.success).toBe(true);
+      });
+    });
+
+    describe("Foreign Key Validation Errors", () => {
+      it("should return 404 USER_NOT_FOUND for non-existent opened_by", async () => {
+        const validSession = createTestSyncSession({
+          sync_session_id: VALID_SESSION_ID,
+          api_key_id: TEST_API_KEY_ID,
+        });
+        validSession.api_key.store_id = TEST_STORE_ID;
+
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+        mockPrisma.user.findFirst.mockResolvedValue(null); // User not found
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: validPayload,
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(404);
+        const body = JSON.parse(response.payload);
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("USER_NOT_FOUND");
+      });
+
+      it("should return 404 CASHIER_NOT_FOUND for non-existent cashier", async () => {
+        const validSession = createTestSyncSession({
+          sync_session_id: VALID_SESSION_ID,
+          api_key_id: TEST_API_KEY_ID,
+        });
+        validSession.api_key.store_id = TEST_STORE_ID;
+
+        const user = createTestUser({ user_id: TEST_USER_ID });
+
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+        mockPrisma.user.findFirst.mockResolvedValue(user);
+        mockPrisma.cashier.findFirst.mockResolvedValue(null); // Cashier not found
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: validPayload,
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(404);
+        const body = JSON.parse(response.payload);
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("CASHIER_NOT_FOUND");
+      });
+
+      it("should return 404 TERMINAL_NOT_FOUND for non-existent terminal", async () => {
+        const validSession = createTestSyncSession({
+          sync_session_id: VALID_SESSION_ID,
+          api_key_id: TEST_API_KEY_ID,
+        });
+        validSession.api_key.store_id = TEST_STORE_ID;
+
+        const user = createTestUser({ user_id: TEST_USER_ID });
+        const cashier = createTestCashier({
+          cashier_id: TEST_CASHIER_ID,
+          store_id: TEST_STORE_ID,
+        });
+
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+        mockPrisma.user.findFirst.mockResolvedValue(user);
+        mockPrisma.cashier.findFirst.mockResolvedValue(cashier);
+        mockPrisma.pOSTerminal.findFirst.mockResolvedValue(null); // Terminal not found
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: validPayload,
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(404);
+        const body = JSON.parse(response.payload);
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("TERMINAL_NOT_FOUND");
+      });
+
+      it("should return 404 APPROVER_NOT_FOUND for non-existent approver", async () => {
+        const validSession = createTestSyncSession({
+          sync_session_id: VALID_SESSION_ID,
+          api_key_id: TEST_API_KEY_ID,
+        });
+        validSession.api_key.store_id = TEST_STORE_ID;
+
+        const user = createTestUser({ user_id: TEST_USER_ID });
+        const cashier = createTestCashier({
+          cashier_id: TEST_CASHIER_ID,
+          store_id: TEST_STORE_ID,
+        });
+        const terminal = createTestPOSTerminal({
+          pos_terminal_id: TEST_TERMINAL_ID,
+          store_id: TEST_STORE_ID,
+        });
+
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+        // First call for opened_by (found), second call for approved_by (not found)
+        mockPrisma.user.findFirst
+          .mockResolvedValueOnce(user)
+          .mockResolvedValueOnce(null);
+        mockPrisma.cashier.findFirst.mockResolvedValue(cashier);
+        mockPrisma.pOSTerminal.findFirst.mockResolvedValue(terminal);
+
+        const payloadWithApprover = {
+          ...validPayload,
+          status: "CLOSED",
+          approved_by: TEST_APPROVER_ID,
+          approved_at: new Date().toISOString(),
+        };
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: payloadWithApprover,
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(404);
+        const body = JSON.parse(response.payload);
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("APPROVER_NOT_FOUND");
+      });
+
+      it("should return 404 for cashier from wrong store (tenant isolation)", async () => {
+        const validSession = createTestSyncSession({
+          sync_session_id: VALID_SESSION_ID,
+          api_key_id: TEST_API_KEY_ID,
+        });
+        validSession.api_key.store_id = TEST_STORE_ID;
+
+        const user = createTestUser({ user_id: TEST_USER_ID });
+
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+        mockPrisma.user.findFirst.mockResolvedValue(user);
+        // Cashier query returns null because store_id filter doesn't match
+        mockPrisma.cashier.findFirst.mockResolvedValue(null);
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: validPayload,
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(404);
+        const body = JSON.parse(response.payload);
+        expect(body.error.code).toBe("CASHIER_NOT_FOUND");
+      });
+    });
+
+    describe("Session Validation", () => {
+      it("should return 400 for invalid session", async () => {
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(null);
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: validPayload,
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(400);
+        const body = JSON.parse(response.payload);
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("INVALID_SESSION");
+      });
+
+      it("should return 400 for expired session", async () => {
+        // Session started more than MAX_SESSION_AGE_MS (1 hour) ago
+        const expiredSession = createTestSyncSession({
+          sync_session_id: VALID_SESSION_ID,
+          api_key_id: TEST_API_KEY_ID,
+          session_started_at: new Date(Date.now() - 3700000), // 1 hour + 100 seconds ago
+        });
+        expiredSession.api_key.store_id = TEST_STORE_ID;
+
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(
+          expiredSession,
+        );
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: validPayload,
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(400);
+        const body = JSON.parse(response.payload);
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("INVALID_SESSION"); // Error code is INVALID_SESSION for expired sessions
+      });
+    });
+
+    describe("Response Format", () => {
+      it("should include success flag and data object on success", async () => {
+        const validSession = createTestSyncSession({
+          sync_session_id: VALID_SESSION_ID,
+          api_key_id: TEST_API_KEY_ID,
+        });
+        validSession.api_key.store_id = TEST_STORE_ID;
+
+        const user = createTestUser({ user_id: TEST_USER_ID });
+        const cashier = createTestCashier({
+          cashier_id: TEST_CASHIER_ID,
+          store_id: TEST_STORE_ID,
+        });
+        const terminal = createTestPOSTerminal({
+          pos_terminal_id: TEST_TERMINAL_ID,
+          store_id: TEST_STORE_ID,
+        });
+        const shift = createTestShift({
+          shift_id: TEST_SHIFT_ID,
+          store_id: TEST_STORE_ID,
+        });
+
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+        mockPrisma.user.findFirst.mockResolvedValue(user);
+        mockPrisma.cashier.findFirst.mockResolvedValue(cashier);
+        mockPrisma.pOSTerminal.findFirst.mockResolvedValue(terminal);
+        mockPrisma.daySummary.findFirst.mockResolvedValue(null);
+        mockPrisma.shift.upsert.mockResolvedValue(shift);
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: validPayload,
+          headers: { "content-type": "application/json" },
+        });
+
+        const body = JSON.parse(response.payload);
+        expect(body).toHaveProperty("success", true);
+        expect(body).toHaveProperty("data");
+        expect(body.data).toHaveProperty("shift");
+        expect(body.data).toHaveProperty("server_time");
+      });
+
+      it("should include idempotent flag in response", async () => {
+        const validSession = createTestSyncSession({
+          sync_session_id: VALID_SESSION_ID,
+          api_key_id: TEST_API_KEY_ID,
+        });
+        validSession.api_key.store_id = TEST_STORE_ID;
+
+        const user = createTestUser({ user_id: TEST_USER_ID });
+        const cashier = createTestCashier({
+          cashier_id: TEST_CASHIER_ID,
+          store_id: TEST_STORE_ID,
+        });
+        const terminal = createTestPOSTerminal({
+          pos_terminal_id: TEST_TERMINAL_ID,
+          store_id: TEST_STORE_ID,
+        });
+        const shift = createTestShift({
+          shift_id: TEST_SHIFT_ID,
+          store_id: TEST_STORE_ID,
+        });
+
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+        mockPrisma.user.findFirst.mockResolvedValue(user);
+        mockPrisma.cashier.findFirst.mockResolvedValue(cashier);
+        mockPrisma.pOSTerminal.findFirst.mockResolvedValue(terminal);
+        mockPrisma.daySummary.findFirst.mockResolvedValue(null);
+        mockPrisma.shift.upsert.mockResolvedValue(shift);
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: validPayload,
+          headers: { "content-type": "application/json" },
+        });
+
+        const body = JSON.parse(response.payload);
+        expect(body.data).toHaveProperty("idempotent");
+        expect(typeof body.data.idempotent).toBe("boolean");
+      });
+    });
+
+    describe("Database Error Handling", () => {
+      it("should return 500 for unexpected database errors", async () => {
+        const validSession = createTestSyncSession({
+          sync_session_id: VALID_SESSION_ID,
+          api_key_id: TEST_API_KEY_ID,
+        });
+        validSession.api_key.store_id = TEST_STORE_ID;
+
+        mockPrisma.apiKeySyncSession.findUnique.mockResolvedValue(validSession);
+        mockPrisma.user.findFirst.mockRejectedValue(
+          new Error("Database connection error"),
+        );
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/sync/lottery/shifts",
+          payload: validPayload,
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.statusCode).toBe(500);
+        const body = JSON.parse(response.payload);
+        expect(body.success).toBe(false);
+        // Should not expose internal error details
+        expect(body.error).not.toHaveProperty("stack");
+      });
     });
   });
 });

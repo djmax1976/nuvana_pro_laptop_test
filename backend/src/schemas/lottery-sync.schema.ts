@@ -86,6 +86,34 @@ const isoDatetimeSchema = z
   .string()
   .datetime("Must be a valid ISO 8601 datetime");
 
+/**
+ * Validate a string as a valid decimal (up to 2 decimal places)
+ * Supports positive numbers only: "123" or "123.45"
+ */
+function isValidDecimal(val: string): boolean {
+  const num = Number(val);
+  if (Number.isNaN(num) || !Number.isFinite(num)) return false;
+  if (num < 0) return false;
+  // Check format: digits with optional 1-2 decimal places
+  const parts = val.split(".");
+  if (parts.length > 2) return false;
+  if (parts[0].length === 0 || parts[0].length > 15) return false;
+  if (!/^[0-9]+$/.test(parts[0])) return false;
+  if (parts[1] && (parts[1].length === 0 || parts[1].length > 2)) return false;
+  if (parts[1] && !/^[0-9]+$/.test(parts[1])) return false;
+  return true;
+}
+
+/**
+ * Validate a string as a valid signed decimal (up to 2 decimal places)
+ * Supports positive and negative numbers: "123", "-123.45"
+ */
+function isValidSignedDecimal(val: string): boolean {
+  const trimmed = val.startsWith("-") ? val.slice(1) : val;
+  if (trimmed.length === 0) return false;
+  return isValidDecimal(trimmed);
+}
+
 /** Positive integer validation */
 const positiveIntSchema = z
   .number()
@@ -442,6 +470,93 @@ export const lotteryVarianceApproveSchema = z.object({
   approval_notes: reasonSchema,
 });
 
+/**
+ * Valid shift statuses for sync (matches Prisma ShiftStatus enum)
+ * Desktop should only sync shifts in these transitional states
+ */
+export const SHIFT_STATUSES = [
+  "NOT_STARTED",
+  "OPEN",
+  "ACTIVE",
+  "CLOSING",
+  "RECONCILING",
+  "CLOSED",
+  "VARIANCE_REVIEW",
+] as const;
+
+/**
+ * POST /api/v1/sync/lottery/shifts
+ * Schema for syncing a shift record from desktop to server
+ *
+ * Server handles:
+ * 1. Shift doesn't exist: Create it with provided data
+ * 2. Shift exists: Update it (idempotent)
+ * 3. Foreign key validation: Validates cashier_id and opened_by exist
+ *
+ * Security Controls:
+ * - API-001: VALIDATION - All fields validated with Zod
+ * - DB-006: TENANT_ISOLATION - store_id validated against API key
+ * - SEC-006: SQL_INJECTION - Parameterized through Prisma ORM
+ */
+export const lotteryShiftSyncSchema = z.object({
+  session_id: uuidSchema,
+  /** Desktop's shift UUID - becomes server shift_id */
+  shift_id: uuidSchema,
+  /** User who opened the shift - FK to users.user_id */
+  opened_by: uuidSchema,
+  /** Cashier assigned to shift - FK to cashiers.cashier_id */
+  cashier_id: uuidSchema,
+  /** POS terminal ID (optional) - FK to pos_terminals.pos_terminal_id */
+  pos_terminal_id: uuidSchema.optional(),
+  /** When shift was opened */
+  opened_at: isoDatetimeSchema,
+  /** When shift was closed (optional, null if still open) */
+  closed_at: isoDatetimeSchema.optional().nullable(),
+  /** Opening cash amount (decimal) */
+  opening_cash: z
+    .string()
+    .refine(isValidDecimal, "opening_cash must be a valid decimal")
+    .optional()
+    .default("0.00"),
+  /** Closing cash amount (optional) */
+  closing_cash: z
+    .string()
+    .refine(isValidDecimal, "closing_cash must be a valid decimal")
+    .optional()
+    .nullable(),
+  /** Expected cash amount (optional) */
+  expected_cash: z
+    .string()
+    .refine(isValidDecimal, "expected_cash must be a valid decimal")
+    .optional()
+    .nullable(),
+  /** Cash variance (optional) */
+  variance: z
+    .string()
+    .refine(isValidSignedDecimal, "variance must be a valid decimal")
+    .optional()
+    .nullable(),
+  /** Variance reason (optional) */
+  variance_reason: reasonSchema,
+  /** Shift status */
+  status: z.enum(SHIFT_STATUSES),
+  /** Shift number for the day (optional) */
+  shift_number: positiveIntSchema.optional().nullable(),
+  /** User who approved the shift (optional) */
+  approved_by: uuidSchema.optional().nullable(),
+  /** When shift was approved (optional) */
+  approved_at: isoDatetimeSchema.optional().nullable(),
+  /** Business date YYYY-MM-DD (optional, for day association) */
+  business_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "business_date must be YYYY-MM-DD format")
+    .optional(),
+  /** External shift ID from POS system (for reference/mapping) */
+  external_shift_id: z.string().max(255).optional(),
+  /** Local ID for offline conflict resolution */
+  local_id: z.string().max(100).optional(),
+});
+
 // =============================================================================
 // Type Exports
 // =============================================================================
@@ -495,3 +610,4 @@ export type LotteryDayCancelCloseInput = z.infer<
 export type LotteryVarianceApproveInput = z.infer<
   typeof lotteryVarianceApproveSchema
 >;
+export type LotteryShiftSyncInput = z.infer<typeof lotteryShiftSyncSchema>;

@@ -1117,6 +1117,52 @@ export interface CashierOfflineAuthResponse {
 // ============================================================================
 
 // ============================================================================
+// Employee Push Sync Types (Desktop → Server)
+// ============================================================================
+
+/**
+ * Single employee result from push sync
+ * Reports success/failure for each employee in the batch
+ */
+export interface EmployeeSyncPushResult {
+  /** Employee ID that was synced */
+  employee_id: string;
+
+  /** Whether this employee was synced successfully */
+  success: boolean;
+
+  /** Whether this was a create (false) or update (true) */
+  idempotent: boolean;
+
+  /** Error code if failed */
+  error_code?: string;
+
+  /** Error message if failed */
+  error_message?: string;
+}
+
+/**
+ * Response from POST /api/v1/sync/employees
+ * Reports batch sync results with per-record success/failure
+ */
+export interface EmployeeSyncPushResponse {
+  /** Total employees processed */
+  total_count: number;
+
+  /** Number of successful syncs */
+  success_count: number;
+
+  /** Number of failed syncs */
+  failure_count: number;
+
+  /** Per-employee results */
+  results: EmployeeSyncPushResult[];
+
+  /** Server timestamp */
+  server_time: string;
+}
+
+// ============================================================================
 // Store Reset Types
 // ============================================================================
 

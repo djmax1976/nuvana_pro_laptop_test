@@ -20,13 +20,14 @@
  * GET  /api/v1/sync/lottery/day-packs       - Day pack records
  * GET  /api/v1/sync/lottery/bin-history     - Pack movement history
  *
- * === PUSH Endpoints (12) ===
+ * === PUSH Endpoints (13) ===
  * POST /api/v1/sync/lottery/packs/receive        - Single pack received
  * POST /api/v1/sync/lottery/packs/receive/batch  - Multiple packs received
  * POST /api/v1/sync/lottery/packs/activate       - Activate pack + assign bin
  * POST /api/v1/sync/lottery/packs/move           - Move pack between bins
  * POST /api/v1/sync/lottery/packs/deplete        - Mark pack sold out
  * POST /api/v1/sync/lottery/packs/return         - Return pack to supplier
+ * POST /api/v1/sync/lottery/shifts               - Sync shift record (MUST sync before open/close)
  * POST /api/v1/sync/lottery/shift/open           - Record shift opening serials
  * POST /api/v1/sync/lottery/shift/close          - Record shift closing serials
  * POST /api/v1/sync/lottery/day/prepare-close    - Phase 1: Validate & stage
@@ -67,6 +68,7 @@ import {
   lotteryPackMoveSchema,
   lotteryPackDepleteSchema,
   lotteryPackReturnSchema,
+  lotteryShiftSyncSchema,
   lotteryShiftOpenSchema,
   lotteryShiftCloseSchema,
   lotteryDayPrepareCloseSchema,
@@ -214,6 +216,46 @@ function handleKnownError(
       error: {
         code: "SHIFT_NOT_FOUND",
         message: message.replace("SHIFT_NOT_FOUND: ", ""),
+      },
+    });
+  }
+
+  if (message.startsWith("USER_NOT_FOUND:")) {
+    return reply.code(404).send({
+      success: false,
+      error: {
+        code: "USER_NOT_FOUND",
+        message: message.replace("USER_NOT_FOUND: ", ""),
+      },
+    });
+  }
+
+  if (message.startsWith("CASHIER_NOT_FOUND:")) {
+    return reply.code(404).send({
+      success: false,
+      error: {
+        code: "CASHIER_NOT_FOUND",
+        message: message.replace("CASHIER_NOT_FOUND: ", ""),
+      },
+    });
+  }
+
+  if (message.startsWith("TERMINAL_NOT_FOUND:")) {
+    return reply.code(404).send({
+      success: false,
+      error: {
+        code: "TERMINAL_NOT_FOUND",
+        message: message.replace("TERMINAL_NOT_FOUND: ", ""),
+      },
+    });
+  }
+
+  if (message.startsWith("APPROVER_NOT_FOUND:")) {
+    return reply.code(404).send({
+      success: false,
+      error: {
+        code: "APPROVER_NOT_FOUND",
+        message: message.replace("APPROVER_NOT_FOUND: ", ""),
       },
     });
   }
@@ -1504,6 +1546,105 @@ export async function lotterySyncRoutes(
         return reply.code(500).send({
           success: false,
           error: { code: "INTERNAL_ERROR", message: "Failed to return pack" },
+        });
+      }
+    },
+  );
+
+  // ===========================================================================
+  // PUSH Endpoints - Shift Sync
+  // ===========================================================================
+
+  /**
+   * POST /api/v1/sync/lottery/shifts
+   * Sync a shift record from desktop to server
+   *
+   * Security Controls:
+   * - API-001: VALIDATION - Zod schema validation
+   * - API-004: AUTHENTICATION - API key middleware required
+   * - DB-006: TENANT_ISOLATION - store_id validated via session
+   * - SEC-006: SQL_INJECTION - Prisma parameterized queries
+   *
+   * This endpoint must be called BEFORE:
+   * - POST /shift/open (shift openings reference shift_id)
+   * - POST /shift/close (shift closings reference shift_id)
+   * - POST /packs/activate (when shift_id is provided)
+   */
+  fastify.post(
+    "/api/v1/sync/lottery/shifts",
+    { preHandler: [apiKeyMiddleware] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const identity = requireApiKeyIdentity(request);
+        const auditContext = buildAuditContext(request, "SHIFT_SYNC");
+
+        // API-001: VALIDATION - Validate request body against Zod schema
+        const parseResult = lotteryShiftSyncSchema.safeParse(request.body);
+        if (!parseResult.success) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid request body",
+              details: formatZodError(parseResult.error),
+            },
+          });
+        }
+
+        const body = parseResult.data;
+        auditContext.sessionId = body.session_id;
+
+        // DB-006: TENANT_ISOLATION - Validate session belongs to API key's store
+        const { storeId } = await lotterySyncService.validateSyncSession(
+          body.session_id,
+          identity.apiKeyId,
+        );
+
+        if (storeId !== identity.storeId) {
+          throw new Error(
+            "STORE_MISMATCH: Session store does not match API key store",
+          );
+        }
+
+        // Execute shift sync with validated, tenant-scoped data
+        const response = await lotterySyncService.syncShift(
+          storeId,
+          {
+            shift_id: body.shift_id,
+            opened_by: body.opened_by,
+            cashier_id: body.cashier_id,
+            pos_terminal_id: body.pos_terminal_id,
+            opened_at: body.opened_at,
+            closed_at: body.closed_at,
+            opening_cash: body.opening_cash,
+            closing_cash: body.closing_cash,
+            expected_cash: body.expected_cash,
+            variance: body.variance,
+            variance_reason: body.variance_reason,
+            status: body.status,
+            shift_number: body.shift_number,
+            approved_by: body.approved_by,
+            approved_at: body.approved_at,
+            business_date: body.business_date,
+            external_shift_id: body.external_shift_id,
+            local_id: body.local_id,
+          },
+          auditContext,
+        );
+
+        return reply.code(201).send({ success: true, data: response });
+      } catch (error) {
+        const handledReply = handleKnownError(error, reply);
+        if (handledReply) return handledReply;
+
+        // API-003: ERROR_HANDLING - Generic error, no stack trace to client
+        console.error("[LotterySync] Shift sync error:", error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to sync shift",
+          },
         });
       }
     },

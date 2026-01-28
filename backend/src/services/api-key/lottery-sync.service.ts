@@ -57,6 +57,8 @@ import type {
   LotteryDayCommitCloseResponse,
   LotteryDayCancelCloseResponse,
   LotteryVarianceApproveResponse,
+  LotteryShiftSyncResponse,
+  LotteryShiftSyncRecord,
   PackReceiveResult,
 } from "../../types/lottery-sync.types";
 import type {
@@ -72,6 +74,7 @@ import type {
   LotteryDayCommitCloseInput,
   LotteryDayCancelCloseInput,
   LotteryVarianceApproveInput,
+  LotteryShiftSyncInput,
 } from "../../schemas/lottery-sync.schema";
 import { Prisma, type LotteryPackStatus } from "@prisma/client";
 
@@ -1300,6 +1303,46 @@ class LotterySyncService {
       );
     }
 
+    // DB-006: TENANT_ISOLATION - Validate shift_id exists and belongs to store
+    // This prevents FK constraint violations and returns a proper error code
+    if (input.shift_id) {
+      const shift = await prisma.shift.findFirst({
+        where: {
+          shift_id: input.shift_id,
+          store_id: storeId,
+        },
+        select: { shift_id: true },
+      });
+
+      if (!shift) {
+        throw new Error(
+          "SHIFT_NOT_FOUND: Shift not found or does not belong to this store. Ensure shift is synced before pack activation.",
+        );
+      }
+    }
+
+    // Validate mark_sold_approved_by user exists if provided
+    if (input.mark_sold_approved_by) {
+      const approver = await prisma.user.findFirst({
+        where: {
+          user_id: input.mark_sold_approved_by,
+          status: "ACTIVE",
+          user_roles: {
+            some: {
+              store_id: storeId,
+            },
+          },
+        },
+        select: { user_id: true },
+      });
+
+      if (!approver) {
+        throw new Error(
+          "USER_NOT_FOUND: mark_sold_approved_by user not found, inactive, or does not have access to this store",
+        );
+      }
+    }
+
     // Update pack to ACTIVE
     const updatedPack = await prisma.lotteryPack.update({
       where: { pack_id: pack.pack_id },
@@ -1617,6 +1660,215 @@ class LotterySyncService {
     return {
       success: true,
       pack: this.mapPackToSyncRecord(updatedPack, 0),
+      server_time: getServerTime(),
+    };
+  }
+
+  // ===========================================================================
+  // PUSH Endpoints - Shift Sync
+  // ===========================================================================
+
+  /**
+   * POST /api/v1/sync/lottery/shifts
+   * Sync a shift record from desktop to server
+   *
+   * Security Controls:
+   * - DB-006: TENANT_ISOLATION - store_id validated against API key store
+   * - SEC-006: SQL_INJECTION - All queries use Prisma parameterized queries
+   * - API-001: VALIDATION - Input validated by Zod schema at route level
+   *
+   * Server handles:
+   * 1. Shift doesn't exist: Create it with provided data
+   * 2. Shift exists: Update it (idempotent)
+   * 3. Foreign key validation: Validates cashier_id and opened_by exist before write
+   *
+   * @param storeId - Store ID from validated API key (tenant isolation)
+   * @param input - Validated shift data from Zod schema
+   * @param auditContext - Audit context for logging
+   * @returns LotteryShiftSyncResponse with synced shift data
+   * @throws Error with code prefix for known errors (USER_NOT_FOUND, CASHIER_NOT_FOUND, etc.)
+   */
+  async syncShift(
+    storeId: string,
+    input: Omit<LotteryShiftSyncInput, "session_id">,
+    auditContext: LotterySyncAuditContext,
+  ): Promise<LotteryShiftSyncResponse> {
+    // DB-006: TENANT_ISOLATION - Validate foreign keys belong to same store
+    // Validate opened_by user exists and has store access via user_roles
+    // Note: API key already validates store access, so we just verify the user exists
+    // and has a role assignment for this store
+    const opener = await prisma.user.findFirst({
+      where: {
+        user_id: input.opened_by,
+        status: "ACTIVE",
+        user_roles: {
+          some: {
+            store_id: storeId,
+          },
+        },
+      },
+      select: { user_id: true },
+    });
+
+    if (!opener) {
+      throw new Error(
+        "USER_NOT_FOUND: opened_by user not found, inactive, or does not have access to this store",
+      );
+    }
+
+    // Validate cashier exists and belongs to store
+    const cashier = await prisma.cashier.findFirst({
+      where: {
+        cashier_id: input.cashier_id,
+        store_id: storeId,
+        is_active: true,
+      },
+      select: { cashier_id: true },
+    });
+
+    if (!cashier) {
+      throw new Error(
+        "CASHIER_NOT_FOUND: Cashier not found, inactive, or does not belong to this store",
+      );
+    }
+
+    // Validate POS terminal if provided
+    if (input.pos_terminal_id) {
+      const terminal = await prisma.pOSTerminal.findFirst({
+        where: {
+          pos_terminal_id: input.pos_terminal_id,
+          store_id: storeId,
+          terminal_status: "ACTIVE",
+          deleted_at: null, // Not soft-deleted
+        },
+        select: { pos_terminal_id: true },
+      });
+
+      if (!terminal) {
+        throw new Error(
+          "TERMINAL_NOT_FOUND: POS terminal not found, inactive, or does not belong to this store",
+        );
+      }
+    }
+
+    // Validate approved_by user if provided
+    if (input.approved_by) {
+      const approver = await prisma.user.findFirst({
+        where: {
+          user_id: input.approved_by,
+          status: "ACTIVE",
+          user_roles: {
+            some: {
+              store_id: storeId,
+            },
+          },
+        },
+        select: { user_id: true },
+      });
+
+      if (!approver) {
+        throw new Error(
+          "APPROVER_NOT_FOUND: approved_by user not found, inactive, or does not have access to this store",
+        );
+      }
+    }
+
+    // Find or link to business day if business_date provided
+    let daySummaryId: string | null = null;
+    if (input.business_date) {
+      const daySummary = await prisma.daySummary.findFirst({
+        where: {
+          store_id: storeId,
+          business_date: new Date(input.business_date),
+        },
+        select: { day_summary_id: true },
+      });
+      daySummaryId = daySummary?.day_summary_id ?? null;
+    }
+
+    // Check if shift already exists
+    const existingShift = await prisma.shift.findFirst({
+      where: {
+        shift_id: input.shift_id,
+        store_id: storeId,
+      },
+    });
+
+    const isIdempotent = !!existingShift;
+
+    // Upsert the shift - handles both create and update (idempotent)
+    const shift = await prisma.shift.upsert({
+      where: { shift_id: input.shift_id },
+      create: {
+        shift_id: input.shift_id,
+        store_id: storeId,
+        opened_by: input.opened_by,
+        cashier_id: input.cashier_id,
+        pos_terminal_id: input.pos_terminal_id ?? null,
+        opened_at: new Date(input.opened_at),
+        closed_at: input.closed_at ? new Date(input.closed_at) : null,
+        opening_cash: input.opening_cash ?? "0.00",
+        closing_cash: input.closing_cash ?? null,
+        expected_cash: input.expected_cash ?? null,
+        variance: input.variance ?? null,
+        variance_reason: input.variance_reason ?? null,
+        status: input.status,
+        shift_number: input.shift_number ?? null,
+        approved_by: input.approved_by ?? null,
+        approved_at: input.approved_at ? new Date(input.approved_at) : null,
+        day_summary_id: daySummaryId,
+        external_shift_id: input.external_shift_id ?? null,
+        synced_at: new Date(),
+      },
+      update: {
+        // Only update fields that can change after creation
+        closed_at: input.closed_at ? new Date(input.closed_at) : null,
+        closing_cash: input.closing_cash ?? null,
+        expected_cash: input.expected_cash ?? null,
+        variance: input.variance ?? null,
+        variance_reason: input.variance_reason ?? null,
+        status: input.status,
+        approved_by: input.approved_by ?? null,
+        approved_at: input.approved_at ? new Date(input.approved_at) : null,
+        day_summary_id: daySummaryId,
+        external_shift_id: input.external_shift_id ?? null,
+        synced_at: new Date(),
+      },
+    });
+
+    // Log audit event
+    this.logSyncOperation(auditContext, "SHIFT_SYNC", {
+      shiftId: shift.shift_id,
+      status: shift.status,
+      isIdempotent,
+    }).catch((err) =>
+      console.error("[LotterySyncService] Audit log error:", err),
+    );
+
+    // Map to response record
+    const shiftRecord: LotteryShiftSyncRecord = {
+      shift_id: shift.shift_id,
+      store_id: shift.store_id,
+      opened_by: shift.opened_by,
+      cashier_id: shift.cashier_id,
+      pos_terminal_id: shift.pos_terminal_id,
+      opened_at: shift.opened_at.toISOString(),
+      closed_at: shift.closed_at?.toISOString() ?? null,
+      opening_cash: shift.opening_cash.toString(),
+      closing_cash: shift.closing_cash?.toString() ?? null,
+      expected_cash: shift.expected_cash?.toString() ?? null,
+      variance: shift.variance?.toString() ?? null,
+      variance_reason: shift.variance_reason,
+      status: shift.status,
+      shift_number: shift.shift_number,
+      day_summary_id: shift.day_summary_id,
+      synced_at: shift.synced_at?.toISOString() ?? new Date().toISOString(),
+    };
+
+    return {
+      success: true,
+      shift: shiftRecord,
+      idempotent: isIdempotent,
       server_time: getServerTime(),
     };
   }
