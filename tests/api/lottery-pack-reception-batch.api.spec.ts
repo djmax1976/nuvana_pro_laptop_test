@@ -311,9 +311,10 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     });
     const gameCode = game.game_code;
 
-    // Create a non-existent game code using a very unlikely code
-    // Use "8888" which doesn't exist in seed data or performance tests
-    const invalidGameCode = "8888";
+    // Create a non-existent game code that cannot be randomly generated
+    // Use "0000" which is explicitly excluded from the lottery.factory random generation
+    // This prevents race conditions with parallel test execution
+    const invalidGameCode = "0000";
     const validSerial = buildSerialNumber(gameCode, "1234567", "012");
     const invalidSerial = buildSerialNumber(invalidGameCode, "7654321", "045");
 
@@ -370,8 +371,9 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     const validSerial1 = buildSerialNumber(gameCode, "1234567", "012");
     const validSerial2 = buildSerialNumber(gameCode, "9876543", "045");
     const validSerial3 = buildSerialNumber(gameCode, "5555555", "012");
-    // Use "8888" which doesn't exist in seed data or performance tests
-    const invalidGameCodeSerial = buildSerialNumber("8888", "7890123", "078");
+    // Use "0000" which is explicitly excluded from the lottery.factory random generation
+    // This prevents race conditions with parallel test execution
+    const invalidGameCodeSerial = buildSerialNumber("0000", "7890123", "078");
 
     // AND: Batch contains mix of valid serials and one with invalid game code
     // Note: Invalid format serials are caught by schema validation (400), so we only test game code errors
@@ -877,10 +879,11 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     });
 
     // Build serials with invalid/non-existent game codes
-    // Use "8888" which doesn't exist in seed data or performance tests
-    const invalidSerial1 = buildSerialNumber("8888", "1234567", "012");
-    const invalidSerial2 = buildSerialNumber("8888", "2345678", "012");
-    const invalidSerial3 = buildSerialNumber("8888", "3456789", "012");
+    // Use "0000" which is explicitly excluded from the lottery.factory random generation
+    // This prevents race conditions with parallel test execution
+    const invalidSerial1 = buildSerialNumber("0000", "1234567", "012");
+    const invalidSerial2 = buildSerialNumber("0000", "2345678", "012");
+    const invalidSerial3 = buildSerialNumber("0000", "3456789", "012");
 
     // WHEN: Attempting to receive all invalid game code serials
     const invalidSerials = [invalidSerial1, invalidSerial2, invalidSerial3];
